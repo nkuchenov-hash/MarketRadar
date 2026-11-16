@@ -282,11 +282,8 @@ final class ScanEngine {
                 // A drastically cheaper listing amount is frequently a financing
                 // teaser, an accessory, or a different card in the DOM. Do not
                 // replace a product-page price with a suspiciously low amount.
-                int safeListing=(listingPrice>0 &&
-                    (detailPrice==0 || listingPrice>=detailPrice*0.65))?
-                    listingPrice:0;
-                int price=detailPrice>0&&safeListing>0?Math.min(detailPrice,safeListing):
-                          detailPrice>0?detailPrice:safeListing;
+                int safeListing=validListingPrice(detailPrice,listingPrice);
+                int price=compareCardAndListingPrice(detailPrice,listingPrice);
                 String note;
                 if(price>0&&safeListing>0&&safeListing<detailPrice)
                     note="Цена из выдачи · в данных товара "+detailPrice+" ₽ · проверяйте корзину";
@@ -302,6 +299,17 @@ final class ScanEngine {
         listener.status(shop,"Карточек проверено: "+checkedMarket+" / "+candidates.size());
         nextCandidate();
     }
+    static int validListingPrice(int pagePrice,int listingPrice){
+        if(listingPrice<=0)return 0;
+        return pagePrice>0&&listingPrice<pagePrice*0.65?0:listingPrice;
+    }
+
+    static int compareCardAndListingPrice(int pagePrice,int listingPrice){
+        int listing=validListingPrice(pagePrice,listingPrice);
+        if(pagePrice>0&&listing>0)return Math.min(pagePrice,listing);
+        return pagePrice>0?pagePrice:listing;
+    }
+
     private static String cleanUrl(String url){
         try{
             java.net.URI u=new java.net.URI(url);
