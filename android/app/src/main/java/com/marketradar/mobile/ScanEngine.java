@@ -159,7 +159,17 @@ final class ScanEngine {
         if(!running)return;
         // A stale completion callback from a previous card must not be
         // interpreted as a result for the card currently being loaded.
-        if(details&&!cleanUrl(url).equals(cleanUrl(expectedUrl)))return;
+        if(details&&!sameProductPage(shop,expectedUrl,url)){
+            // Marketplace may redirect a product link to search or a login page.
+            // Check the actual WebView destination before timing out this card.
+            final int request=token;
+            handler.postDelayed(()->{
+                if(running&&request==token&&details&&
+                   !sameProductPage(shop,expectedUrl,browser.getUrl()))
+                    failPage("Магазин перенаправил карточку");
+            },1300);
+            return;
+        }
         int request=token;
         handler.postDelayed(() -> {
             if(running&&request==token) {
@@ -273,7 +283,7 @@ final class ScanEngine {
     private void readDetail(JSONObject data,String url) {
         checked++;checkedMarket++;
         // Never report a price from a redirect or a different product URL.
-        if(shop.productLink(url)&&cleanUrl(url).equals(cleanUrl(expectedUrl))){
+        if(sameProductPage(shop,expectedUrl,url)){
             String title=data.optString("heading","").trim();
             if(title.isEmpty())title=data.optString("title","").trim();
             if(exact(query,title)){
@@ -308,6 +318,31 @@ final class ScanEngine {
         int listing=validListingPrice(pagePrice,listingPrice);
         if(pagePrice>0&&listing>0)return Math.min(pagePrice,listing);
         return pagePrice>0?pagePrice:listing;
+    }
+
+    static boolean sameProductPage(Shop shop,String expected,String actual){
+        if(shop==null||!shop.productLink(expected)||!shop.productLink(actual))return false;
+        if(cleanUrl(expected).equals(cleanUrl(actual)))return true;
+        try{
+            String first=new java.net.URI(expected).getPath();
+            String second=new java.net.URI(actual).getPath();
+            if(shop.id.equals("wb")){
+                java.util.regex.Pattern id=java.util.regex.Pattern.compile("/catalog/(\\d+)/detail(?:\\.aspx)?/?",java.util.regex.Pattern.CASE_INSENSITIVE);
+                Matcher a=id.matcher(first),b=id.matcher(second);
+                return a.find()&&b.find()&&a.group(1).equals(b.group(1));
+            }
+            if(shop.id.equals("ozon")){
+                java.util.regex.Pattern id=java.util.regex.Pattern.compile("(?:-|/)(\\d{6,})/?$");
+                Matcher a=id.matcher(first),b=id.matcher(second);
+                return a.find()&&b.find()&&a.group(1).equals(b.group(1));
+            }
+            if(shop.id.equals("ym")){
+                java.util.regex.Pattern id=java.util.regex.Pattern.compile("/(\\d{6,})/?$");
+                Matcher a=id.matcher(first),b=id.matcher(second);
+                return a.find()&&b.find()&&a.group(1).equals(b.group(1));
+            }
+        }catch(Exception ignored){}
+        return false;
     }
 
     private static String cleanUrl(String url){
