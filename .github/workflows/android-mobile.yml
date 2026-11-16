@@ -102,7 +102,7 @@ jobs:
             gh release download marketradar-android-0.2.0 \
               --repo "$GITHUB_REPOSITORY" \
               --pattern 'MarketRadar-Android-0.2.0.apk' --dir /tmp/market-prev
-            original="$( "$signer" verify --print-certs /tmp/market-prev/MarketRadar-Android-0.2.0.apk | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -1 )"
+            original="$( "$signer" verify --print-certs /tmp/market-prev/MarketRadar-Android-0.2.0.apk | grep -i 'certificate sha-256 digest' | head -1 | sed -E 's/.*digest:[[:space:]]*//' | tr '[:upper:]' '[:lower:]' | tr -dc '0-9a-f' )"
             [[ -n "$original" && "$original" == "$current" ]] || {
               echo "::error::Published v2 signing certificate mismatch"; exit 1;
             }
