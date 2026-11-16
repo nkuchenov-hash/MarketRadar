@@ -100,4 +100,40 @@ public class CoreTest {
         assertTrue(ScanEngine.exact("Samsung Galaxy A56 256 ГБ",
             "Samsung Galaxy A56 256 ГБ, оригинал"));
     }
+    @Test public void cheapestRelevantProductBeyondFirstTenLinksIsStillSelected() throws Exception {
+        JSONArray links=new JSONArray();
+        String query="Яндекс Станция Мини 3 Про";
+        Shop shop=Shop.byId("wb");
+        for(int n=0;n<14;n++){
+            int price=n==13?11542:13000+n*100;
+            links.put(new org.json.JSONObject()
+                .put("url","https://www.wildberries.ru/catalog/"+(100000+n)+"/detail.aspx")
+                .put("title",query+" серебристый")
+                .put("context",query+"\\n"+price+" ₽"));
+        }
+        java.util.ArrayList<ScanEngine.Candidate> selected=
+            ScanEngine.selectCandidates(links,shop,query,10);
+        assertEquals(10,selected.size());
+        assertEquals(11542,selected.get(0).listingPrice);
+        assertTrue(selected.get(0).url.contains("/100013/detail.aspx"));
+    }
+    @Test public void unrelatedProductAndSearchPageDoNotBecomeOffers() throws Exception {
+        JSONArray links=new JSONArray()
+          .put(new org.json.JSONObject()
+             .put("url","https://www.wildberries.ru/catalog/111/detail.aspx")
+             .put("title","Яндекс Станция Мини 3")
+             .put("context","Яндекс Станция Мини 3\\n8 500 ₽"))
+          .put(new org.json.JSONObject()
+             .put("url","https://www.wildberries.ru/catalog/0/search.aspx?search=test")
+             .put("title","Яндекс Станция Мини 3 Про")
+             .put("context","Яндекс Станция Мини 3 Про\\n11 542 ₽"));
+        assertEquals(0,ScanEngine.selectCandidates(links,Shop.byId("wb"),
+            "Яндекс Станция Мини 3 Про",10).size());
+    }
+    @Test public void rejectImplausibleListingTeaserButRetainRealDiscount() {
+        assertEquals(11899,ScanEngine.compareCardAndListingPrice(11899,390));
+        assertEquals(11542,ScanEngine.compareCardAndListingPrice(11899,11542));
+        assertEquals(11542,ScanEngine.compareCardAndListingPrice(0,11542));
+        assertEquals(11899,ScanEngine.compareCardAndListingPrice(11899,0));
+    }
 }
