@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="ru"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#0b162c"><title>MarketRadar — поиск лучшей цены</title>
+<link rel="stylesheet" href="./styles.css"></head>
+<body>
+<header><div class="wrap nav"><a href="./" class="brand"><span class="mark">M<span class="radar-dot"></span></span><b>MarketRadar</b></a><div class="nav-right"><span class="beta">Тест поиска</span><span id="connection" class="connection">Проверяем браузер...</span></div></div></header>
+<main class="wrap">
+  <section class="intro"><div class="eyebrow">УМНЫЙ ПОИСК ПО МАРКЕТПЛЕЙСАМ</div><h1>Один товар.<br><span>Все предложения.</span></h1><p>Проверяем точную модель в Ozon, Wildberries и Яндекс Маркете через ваш браузер. Цены с банковскими условиями показываем отдельно.</p>
+    <form id="search-form"><div class="search-wrap"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m16 16 5 5"/></svg><input id="query" required maxlength="160" autocomplete="off" value="Яндекс Станция Мини 3 Про" placeholder="Название или точная модель товара"></div><button class="primary" type="submit" id="go">Найти предложения <span>→</span></button></form>
+    <p class="disclaimer">Без демонстрационных цен. Показываем только данные, действительно считанные из страниц магазинов.</p>
+  </section>
+  <section class="setup" id="setup"><div class="setup-symbol">◎</div><div><h2>Подключите браузер для поиска</h2><p>Установите расширение MarketRadar один раз в Яндекс Браузер или Chrome. Оно использует ваши действующие входы в магазины; пароли не запрашиваются. Данные страниц не отправляются на сервер MarketRadar.</p><div class="setup-actions"><a class="outline" href="./MarketRadar_Browser_Extension.zip" download>Скачать расширение</a><span>Затем откройте <code>browser://extensions</code> → режим разработчика → загрузить распакованное расширение.</span></div></div></section>
+  <section class="results" id="results" hidden><div class="sectionhead"><div><div class="eyebrow">РЕЗУЛЬТАТЫ ПОИСКА</div><h2 id="result-title">—</h2></div><div id="scan-state" class="scan-status">Подготовка</div></div>
+    <div class="market-cards"><article class="market" data-market="ozon"><div class="market-top"><b>Ozon</b><span class="status" id="status-ozon">В очереди</span></div><div class="market-count" id="count-ozon">—</div><small id="detail-ozon">—</small></article><article class="market" data-market="wb"><div class="market-top"><b>Wildberries</b><span class="status" id="status-wb">В очереди</span></div><div class="market-count" id="count-wb">—</div><small id="detail-wb">—</small></article><article class="market" data-market="ym"><div class="market-top"><b>Яндекс Маркет</b><span class="status" id="status-ym">В очереди</span></div><div class="market-count" id="count-ym">—</div><small id="detail-ym">—</small></article></div>
+    <div class="notice"><b>Статус теста:</b> поиск ограничен теми страницами, которые удаётся открыть в вашем браузере. Отсутствие результата не означает отсутствия товара или лучшей цены на площадке.</div>
+    <div class="table-head"><h3>Найденные предложения</h3><span id="total">0 предложений</span></div><div id="offers" class="offers"><div class="empty">Поиск ещё не запущен.</div></div>
+  </section>
+</main><footer class="wrap"><span>MarketRadar · Тестовая версия браузерного поиска</span><span>Цены, скидки и наличие могут меняться. Перед покупкой сверяйте сумму в корзине.</span></footer>
+<script src="./app.js" defer></script>
+</body></html>
