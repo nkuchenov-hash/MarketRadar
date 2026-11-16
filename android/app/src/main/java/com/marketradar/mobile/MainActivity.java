@@ -38,13 +38,18 @@ import java.util.Map;
 
 /** Local-only Android prototype. Sign-in occurs on official marketplace sites in WebView. */
 public final class MainActivity extends Activity implements ScanEngine.Listener {
-    private static final int BG=0xFF0B1525, SURFACE=0xFF15263B, BORDER=0xFF2B4159;
-    private static final int TEXT=0xFFF4F7FB, MUTED=0xFF9FB3C9, ACCENT=0xFFDFF16A;
+    private static final int BG=0xFFF6F9FE, SURFACE=0xFFFFFFFF, BORDER=0xFFDCE6F4;
+    private static final int TEXT=0xFF152844, MUTED=0xFF647791, ACCENT=0xFF2369E8;
     private final Handler ui=new Handler(Looper.getMainLooper());
     private final ArrayList<ScanEngine.Offer> offers=new ArrayList<>();
     private final Map<String,TextView> statuses=new HashMap<>();
     private FrameLayout root;
     private LinearLayout mainPane, loginBar, results;
+    private ScrollView searchScroll, accountsScroll;
+    private Button navButton, depthButton;
+    private boolean accountsVisible=false, fastSearch=false;
+    private TextView bestPrice, priceSummary, marketProgress;
+    private final Map<String,String> marketStates=new HashMap<>();
     private WebView browser;
     private ScanEngine engine;
     private EditText queryInput;
@@ -78,7 +83,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
     private Button button(String title,boolean primary){
         Button b=new Button(this);
         b.setText(title);b.setTextSize(14);b.setAllCaps(false);
-        b.setTextColor(primary?BG:TEXT);
+        b.setTextColor(primary?Color.WHITE:ACCENT);
         b.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
         b.setBackground(bg(primary?ACCENT:SURFACE,13,primary?0:BORDER));
         b.setMinHeight(0);b.setMinimumHeight(0);
@@ -94,6 +99,8 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         super.onCreate(state);
         getWindow().setStatusBarColor(BG);
         getWindow().setNavigationBarColor(BG);
+        getWindow().getDecorView().setSystemUiVisibility(
+            View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
         prefs=getSharedPreferences("market_sessions",MODE_PRIVATE);
         buildBrowser();
         buildInterface();
@@ -144,26 +151,36 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         root.addView(mainPane,new FrameLayout.LayoutParams(-1,-1));
         LinearLayout top=linear(LinearLayout.HORIZONTAL);
         top.setGravity(Gravity.CENTER_VERTICAL);
-        top.setPadding(dp(20),dp(12),dp(20),dp(12));
+        top.setPadding(dp(18),dp(9),dp(18),dp(9));
         TextView brand=text("M  MarketRadar",21,TEXT,true);
         top.addView(brand,new LinearLayout.LayoutParams(0,dp(45),1));
-        TextView alpha=text("ANDROID · 0.1",10,ACCENT,true);
-        add(top,alpha,-2,42);add(mainPane,top,-1,68);
+        navButton=button("Магазины",false);
+        add(top,navButton,105,42);
+        navButton.setOnClickListener(v->setAccountsVisible(!accountsVisible));
+        add(mainPane,top,-1,64);
         View line=new View(this);line.setBackgroundColor(BORDER);add(mainPane,line,-1,1);
 
-        ScrollView scrolling=new ScrollView(this);
-        scrolling.setFillViewport(true);
-        scrolling.setClipToPadding(false);
-        mainPane.addView(scrolling,new LinearLayout.LayoutParams(-1,0,1));
+        searchScroll=new ScrollView(this);
+        searchScroll.setFillViewport(true);
+        searchScroll.setClipToPadding(false);
+        mainPane.addView(searchScroll,new LinearLayout.LayoutParams(-1,0,1));
+        accountsScroll=new ScrollView(this);
+        accountsScroll.setFillViewport(true);
+        accountsScroll.setClipToPadding(false);
+        mainPane.addView(accountsScroll,new LinearLayout.LayoutParams(-1,0,1));
+        accountsScroll.setVisibility(View.GONE);
         LinearLayout page=linear(LinearLayout.VERTICAL);
-        page.setPadding(dp(18),dp(22),dp(18),dp(60));
-        scrolling.addView(page);
-        add(page,text("ПОИСК ПО МАРКЕТПЛЕЙСАМ",11,ACCENT,true),-1,22);
-        gap(page,7);
-        add(page,text("Один товар.\nТри магазина.",35,TEXT,true),-1,90);
-        gap(page,8);
-        add(page,text("Ищем точную модель через ваши собственные сессии магазинов. Без API-ключа и расширений.",14,MUTED,false),-1,-2);
-        gap(page,23);
+        page.setPadding(dp(18),dp(27),dp(18),dp(50));
+        searchScroll.addView(page);
+        LinearLayout marketPage=linear(LinearLayout.VERTICAL);
+        marketPage.setPadding(dp(18),dp(24),dp(18),dp(50));
+        accountsScroll.addView(marketPage);
+        add(page,text("ПОИСК ЛУЧШЕЙ ЦЕНЫ",11,ACCENT,true),-1,22);
+        gap(page,5);
+        add(page,text("Одна модель.\nЛучшее предложение.",30,TEXT,true),-1,86);
+        gap(page,6);
+        add(page,text("Ozon, Wildberries и Яндекс Маркет. Сравниваем только подходящие карточки, а не похожие товары.",14,MUTED,false),-1,-2);
+        gap(page,21);
 
         queryInput=new EditText(this);
         queryInput.setSingleLine(true);
@@ -173,7 +190,22 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         queryInput.setHint("Точная модель товара");
         queryInput.setText(prefs.getString("last_query","Яндекс Станция Мини 3 Про"));
         add(page,queryInput,-1,58);
-        gap(page,10);
+        gap(page,15);
+        LinearLayout criteria=panel();
+        add(criteria,text("КРИТЕРИИ ПОИСКА",11,ACCENT,true),-1,20);
+        add(criteria,text("Совпадение: точная модель и артикул",13,TEXT,true),-1,-2);
+        gap(criteria,5);
+        add(criteria,text("Источники: Ozon · Wildberries · Яндекс Маркет",12,MUTED,false),-1,-2);
+        gap(criteria,10);
+        depthButton=button("Глубокий поиск · до 10 карточек на магазин",false);
+        add(criteria,depthButton,-1,44);
+        depthButton.setOnClickListener(v->{
+            fastSearch=!fastSearch;
+            depthButton.setText(fastSearch?"Быстрый поиск · до 3 карточек на магазин":
+                "Глубокий поиск · до 10 карточек на магазин");
+        });
+        add(page,criteria,-1,-2);
+        gap(page,14);
         searchButton=button("Найти предложения",true);
         add(page,searchButton,-1,54);
         searchButton.setOnClickListener(v->beginSearch());
@@ -182,10 +214,34 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         add(page,progress,-1,-2);
         gap(page,28);
 
-        add(page,text("МОИ МАРКЕТПЛЕЙСЫ",12,ACCENT,true),-1,24);
-        gap(page,5);
-        add(page,text("Войдите на официальном сайте каждого магазина. Данные входа остаются в Android WebView.",13,MUTED,false),-1,-2);
-        gap(page,13);
+        add(page,text("РЕЗУЛЬТАТЫ ПОИСКА",12,ACCENT,true),-1,22);
+        gap(page,6);
+        count=text("Результаты появятся здесь",13,MUTED,false);
+        add(page,count,-1,-2);
+        gap(page,11);
+        LinearLayout summary=panel();
+        add(summary,text("ИТОГ ПОИСКА",11,ACCENT,true),-1,19);
+        gap(summary,4);
+        bestPrice=text("—",29,TEXT,true);
+        add(summary,bestPrice,-1,39);
+        priceSummary=text("Минимальная цена по данным товара",12,MUTED,false);
+        add(summary,priceSummary,-1,-2);
+        gap(summary,11);
+        marketProgress=text("Статусы магазинов появятся после поиска.",12,MUTED,false);
+        add(summary,marketProgress,-1,-2);
+        add(page,summary,-1,-2);
+        gap(page,16);
+        add(page,text("НАЙДЕННЫЕ КАРТОЧКИ",11,ACCENT,true),-1,22);
+        gap(page,8);
+        results=linear(LinearLayout.VERTICAL);add(page,results,-1,-2);
+        gap(page,18);
+        add(page,text("Тестовая версия. Цены, прочитанные со страницы, могут быть старыми или зависеть от карты. Итоговую сумму проверяйте в корзине. При сворачивании телефона поиск может остановиться.",12,MUTED,false),-1,-2);
+
+        add(marketPage,text("МОИ МАРКЕТПЛЕЙСЫ",11,ACCENT,true),-1,22);
+        add(marketPage,text("Подключения и сессии магазинов",24,TEXT,true),-1,-2);
+        gap(marketPage,8);
+        add(marketPage,text("Авторизуйтесь только на официальных сайтах. Cookies остаются в Android WebView. Сохранённая сессия не гарантирует активный вход.",13,MUTED,false),-1,-2);
+        gap(marketPage,18);
         for(Shop shop:Shop.ALL){
             LinearLayout card=panel();
             LinearLayout header=linear(LinearLayout.HORIZONTAL);header.setGravity(Gravity.CENTER_VERTICAL);
@@ -201,22 +257,14 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
             add(header,open,95,42);
             open.setOnClickListener(v->showShop(shop,shop.home));
             add(card,header,-1,-2);
-            add(page,card,-1,-2);
-            gap(page,11);
+            add(marketPage,card,-1,-2);
+            gap(marketPage,11);
         }
         Button clear=button("Сбросить все входы на этом телефоне",false);
-        add(page,clear,-1,46);
+        add(marketPage,clear,-1,46);
         clear.setOnClickListener(v->confirmClear());
-        gap(page,24);
+        gap(marketPage,24);
 
-        add(page,text("РЕЗУЛЬТАТЫ ПОИСКА",12,ACCENT,true),-1,22);
-        gap(page,6);
-        count=text("Результаты появятся здесь",13,MUTED,false);
-        add(page,count,-1,-2);
-        gap(page,10);
-        results=linear(LinearLayout.VERTICAL);add(page,results,-1,-2);
-        gap(page,18);
-        add(page,text("Тестовая версия. Цены, прочитанные со страницы, могут быть старыми или зависеть от карты. Итоговую сумму проверяйте в корзине. При сворачивании телефона поиск может остановиться.",12,MUTED,false),-1,-2);
 
         loginBar=linear(LinearLayout.HORIZONTAL);
         loginBar.setGravity(Gravity.CENTER_VERTICAL);
@@ -234,6 +282,15 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         FrameLayout.LayoutParams barParams=new FrameLayout.LayoutParams(-1,dp(65),Gravity.TOP);
         root.addView(loginBar,barParams);
         loginBar.setVisibility(View.GONE);
+    }
+    private void setAccountsVisible(boolean show){
+        accountsVisible=show;
+        if(engine!=null&&engine.isRunning()&&show){
+            // Search continues only while the app is foregrounded; menus do not reset it.
+        }
+        searchScroll.setVisibility(show?View.GONE:View.VISIBLE);
+        accountsScroll.setVisibility(show?View.VISIBLE:View.GONE);
+        navButton.setText(show?"Поиск":"Магазины");
     }
     private void refreshShop(Shop shop){
         TextView label=statuses.get(shop.id);if(label==null)return;
@@ -291,17 +348,21 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         prefs.edit().putString("last_query",q).apply();
         ((InputMethodManager)getSystemService(Context.INPUT_METHOD_SERVICE)).hideSoftInputFromWindow(queryInput.getWindowToken(),0);
         queryInput.clearFocus();
-        offers.clear();results.removeAllViews();
-        count.setText("Предложения: 0");
+        setAccountsVisible(false);
+        offers.clear();results.removeAllViews();marketStates.clear();
+        bestPrice.setText("—");
+        priceSummary.setText("Идёт проверка цен в данных товаров");
+        marketProgress.setText("Начинаем проверку трёх магазинов…");
+        count.setText("Проверенных карточек: 0");
         searchButton.setText("Остановить поиск");
         progress.setText("Поиск на трёх площадках…");
-        engine.start(q);
+        engine.start(q,fastSearch?3:10);
     }
     @Override public void status(Shop shop,String state){
         runOnUiThread(()->{
             progress.setText(shop.name+": "+state);
-            TextView label=statuses.get(shop.id);
-            if(label!=null&&engine.isRunning())label.setText(state);
+            marketStates.put(shop.id,shop.name+": "+state);
+            updateSummary();
         });
     }
     @Override public void offer(ScanEngine.Offer o){
@@ -312,27 +373,46 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
             renderResults();
         });
     }
+    private void updateSummary(){
+        int priced=0,best=Integer.MAX_VALUE;
+        for(ScanEngine.Offer o:offers){
+            if(o.price>0){priced++;best=Math.min(best,o.price);}
+        }
+        bestPrice.setText(priced>0?
+            NumberFormat.getNumberInstance(new Locale("ru","RU")).format(best)+" ₽":"—");
+        priceSummary.setText(priced>0?
+            "Минимальная цена из данных товара · условия оплаты не подтверждены":
+            "Нет цены, надёжно связанной с товаром");
+        count.setText("Карточек точной модели: "+offers.size()+" · цен из данных товара: "+priced);
+        StringBuilder states=new StringBuilder();
+        for(Shop market:Shop.ALL){
+            if(states.length()>0)states.append("\\n");
+            states.append(marketStates.getOrDefault(market.id,market.name+": ещё не проверен"));
+        }
+        marketProgress.setText(states.toString());
+    }
     private void renderResults(){
         results.removeAllViews();
         offers.sort(Comparator.comparingInt(o->o.price==0?Integer.MAX_VALUE:o.price));
-        count.setText("Найдено карточек точной модели: "+offers.size());
+        updateSummary();
         for(ScanEngine.Offer o:offers){
             LinearLayout card=panel();
-            add(card,text(o.shop.name,12,o.shop.accent,true),-1,22);
+            add(card,text(o.shop.name,12,ACCENT,true),-1,22);
+            gap(card,2);
             add(card,text(o.title,15,TEXT,true),-1,-2);
-            gap(card,9);
+            gap(card,12);
             String amount=o.price>0?
                 NumberFormat.getNumberInstance(new Locale("ru","RU")).format(o.price)+" ₽":
-                "Цена не прочитана";
-            add(card,text(amount,24,TEXT,true),-1,-2);
+                "Цена не подтверждена";
+            add(card,text(amount,o.price>0?24:18,TEXT,true),-1,-2);
             gap(card,6);
             add(card,text(o.note,12,MUTED,false),-1,-2);
-            gap(card,8);
-            Button inspect=button("Открыть карточку магазина",false);
-            add(card,inspect,-1,40);
+            gap(card,12);
+            Button inspect=button("Проверить в магазине",false);
+            add(card,inspect,-1,44);
             inspect.setOnClickListener(v->showShop(o.shop,o.url));
             add(results,card,-1,-2);
-            gap(results,10);
+            gap(results,12);
         }
     }
     @Override public void done(){
@@ -340,12 +420,15 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
             searchButton.setText("Найти предложения");
             progress.setText("Поиск завершён. Охват рынка не гарантирован.");
             for(Shop shop:Shop.ALL)refreshShop(shop);
-            if(offers.isEmpty())count.setText("Нет прочитанных карточек. Возможны блокировки магазинов.");
+            if(offers.isEmpty())count.setText("Карточки не подтверждены: проверьте статусы магазинов.");
+            updateSummary();
         });
     }
     @Override public void onBackPressed(){
         if(loginMode){
             if(browser.canGoBack())browser.goBack();else finishShop();
+        }else if(accountsVisible){
+            setAccountsVisible(false);
         }else if(engine!=null&&engine.isRunning()){
             new AlertDialog.Builder(this).setMessage("Остановить поиск?")
                 .setNegativeButton("Продолжить",null)
