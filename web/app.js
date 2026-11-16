@@ -6,8 +6,8 @@ let csrf='',user=null,mode='login',jobId=null,interval=null;
 async function api(path,method='GET',data){const r=await fetch(path,{method,headers:{'Content-Type':'application/json',...(csrf?{'X-CSRF-Token':csrf}:{})},...(data?{body:JSON.stringify(data)}:{})});let x;try{x=await r.json()}catch{x={}}if(!r.ok)throw Error(x.detail||`Ошибка HTTP ${r.status}`);return x;}
 async function initialize(){
  try{user=await api('/api/me');csrf=user.csrf;$('auth').hidden=true;$('mainApp').hidden=false;$('logout').hidden=false;
- $('browserIndicator').textContent=user.device_online?'Браузер подключён':'Браузер не подключён';$('planIndicator').textContent=`${user.plan==='paid'?'Plus':`Пробный тариф · ${user.used}/${user.free_limit}`}`;
- $('pairBox').hidden=!!user.device_online;$('buy').disabled=!user.billing_ready;
+ refreshSource();$('planIndicator').textContent=`${user.plan==='paid'?'Plus':`Пробный тариф · ${user.used}/${user.free_limit}`}`;
+ $('buy').disabled=!user.billing_ready;
  $('buy').textContent=user.billing_ready?'Подключить тариф':'Оплата настраивается';
  if(!user.ai_ready){$('headStatus').textContent=user.ai_status||'ИИ не настроен';}else{$('headStatus').textContent=user.ai_status||'ИИ готов к поиску';}
  let jobs=await api('/api/jobs');$('history').innerHTML=jobs.map(j=>`<button class="historyrow" data-job="${esc(j.id)}"><strong>${esc(j.query)}</strong><span>${esc(j.state)} · ${new Date(j.created*1000).toLocaleDateString('ru-RU')}</span></button>`).join('')||'<p class="muted">Пока нет поисков</p>';
@@ -15,13 +15,25 @@ async function initialize(){
  if(jobs[0] && ['running'].includes(jobs[0].state))showJob(jobs[0].id);
  }catch(e){$('auth').hidden=false;$('mainApp').hidden=true;$('logout').hidden=true;}
 }
+function refreshSource(){
+ if(!user)return;
+ const source=$('source').value;
+ const cloud=source==='cloud';
+ const ready=cloud?user.cloud_available:user.device_online;
+ $('browserIndicator').textContent=cloud?(user.cloud_available?'Облачный поиск доступен':'Облачный поиск не готов'):(user.device_online?'Ваш браузер подключён':'Браузер ПК не подключён');
+ $('searchHelp').textContent=cloud?(user.cloud_status||'Публичные цены. Без входа в магазины и без расширения.'):(user.device_online?'Персональные цены — через ваш браузер ПК.':'Подключите расширение на компьютере для этого режима.');
+ $('pairBox').hidden=cloud||!!user.device_online;
+ $('searchButton').disabled=!ready||!user.ai_ready;
+ $('searchButton').title=!user.ai_ready?(user.ai_status||'ИИ не подключён'):!ready?(cloud?'Облачный поиск пока недоступен':'Подключите браузер ПК'):'';
+}
+$('source').addEventListener('change',refreshSource);
 $('switchAuth').onclick=()=>{mode=mode==='login'?'register':'login';$('authHeading').textContent=mode==='register'?'Создать аккаунт':'Войти';$('authSubmit').textContent=mode==='register'?'Зарегистрироваться':'Войти';$('switchAuth').textContent=mode==='register'?'Уже есть аккаунт? Войти':'Создать аккаунт';};
 $('authForm').onsubmit=async e=>{e.preventDefault();try{await api('/api/'+mode,'POST',{email:$('email').value,password:$('password').value});await initialize();}catch(err){$('authError').textContent=err.message;}};
 $('logout').onclick=async()=>{try{await api('/api/logout','POST');location.reload();}catch(e){alert(e.message)}};
 $('makePairCode').onclick=async()=>{try{let x=await api('/api/pairing','POST');$('pairCode').textContent=x.code;}catch(e){alert(e.message)}};
 $('searchForm').onsubmit=async e=>{e.preventDefault();try{
  if(!$('consent').checked)throw Error('Необходимо согласие на анализ сведений о товаре');
- const q=$('query').value.trim();const x=await api('/api/search','POST',{query:q,depth:$('depth').value,consent:true});
+ const q=$('query').value.trim();const x=await api('/api/search','POST',{query:q,depth:$('depth').value,mode:$('source').value,consent:true});
  showJob(x.job_id);await initialize();
  }catch(err){alert(err.message);}};
 $('showBatch').onclick=()=>{$('batchBox').hidden=!$('batchBox').hidden;};
@@ -29,7 +41,7 @@ $('runBatch').onclick=async()=>{try{
  if(!$('consent').checked)throw Error('Необходимо согласие на анализ сведений о товарах');
  const items=$('batchItems').value.split('\n').map(x=>x.trim()).filter(Boolean);
  if(!items.length)throw Error('Введите названия товаров');
- const r=await api('/api/batch','POST',{items,depth:$('depth').value,consent:true});
+ const r=await api('/api/batch','POST',{items,depth:$('depth').value,mode:$('source').value,consent:true});
  $('batchBox').hidden=true;showJob(r.job_ids[0]);await initialize();
  }catch(err){alert(err.message)}};
 $('buy').onclick=async()=>{try{const x=await api('/api/billing/checkout','POST');location.href=x.url;}catch(e){alert(e.message)}};

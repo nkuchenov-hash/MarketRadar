@@ -13,13 +13,13 @@ def test_batch_auth_and_quota(monkeypatch,tmp_path):
         x=c.post('/api/register',json={'email':'batch@example.com','password':'bigStrongPassword'}).json()
         csrf=x['csrf']
         # browser must be paired and online before starting.
-        r=c.post('/api/batch',headers={'X-CSRF-Token':csrf},json={'items':['A56 256 ГБ'], 'consent':True})
+        r=c.post('/api/batch',headers={'X-CSRF-Token':csrf},json={'items':['A56 256 ГБ'], 'consent':True,'mode':'device'})
         assert r.status_code==409
         code=c.post('/api/pairing',headers={'X-CSRF-Token':csrf},json={}).json()['code']
         token=c.post('/api/device/pair',json={'code':code,'name':'Test Browser'}).json()['device_token']
         c.get('/api/device/next',headers={'Authorization':'Bearer '+token})
         # Free account has 3 searches by default; large batch must be refused.
         r=c.post('/api/batch',headers={'X-CSRF-Token':csrf},json={'items':
-             ['Product A100','Product B200','Product C300','Product D400'], 'consent':True})
+             ['Product A100','Product B200','Product C300','Product D400'], 'consent':True,'mode':'device'})
         assert r.status_code==402
         assert c.get('/api/jobs').json()==[]

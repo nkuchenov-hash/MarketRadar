@@ -9,7 +9,7 @@ def test_site_health_and_extension_package():
         assert client.get('/').status_code == 200
         response=client.get('/health')
         assert response.status_code == 200
-        assert response.json()['version'] == '1.3-cloud-staging'
+        assert response.json()['version'] == '1.8-cloud-beta'
         extension=client.get('/download/extension')
         assert extension.status_code == 200
         assert extension.content[:4] == b'PK\x03\x04'

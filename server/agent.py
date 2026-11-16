@@ -1,12 +1,14 @@
 """Server-paid, agent-directed searches through each user's own browser session."""
 from __future__ import annotations
-import asyncio, json, os, re, secrets, time, shutil, tempfile, sys, subprocess
+import asyncio, json, os, re, secrets, time, shutil, tempfile, sys, subprocess, contextvars
 from pathlib import Path
 from urllib.parse import quote
 from pydantic import BaseModel, ConfigDict, Field
 import httpx
 from . import storage as db
 from .core import MARKETS, is_product_link, host_allowed, market_of, canonical, now, model_match, price_in_text, evidence_in_text, BLOCK_WORDS
+
+_CLOUD_BROWSER=contextvars.ContextVar('market_radar_cloud_browser',default=None)
 
 MODEL=os.getenv('MARKETRADAR_MODEL','gpt-4.1-mini')
 AI_PROVIDER=os.getenv('MARKETRADAR_AI_PROVIDER','codex').strip().lower()
@@ -201,6 +203,9 @@ async def extract_batch(query:str,market:str,items:list[dict])->ExtractedPages:
 async def issue_browser(user_id:str,job_id:str,url:str,timeout=85)->dict:
     """Enqueue an allowed URL for one browser paired with this account; no cookies are transported."""
     if not host_allowed(url):raise ValueError('Недопустимый адрес браузера')
+    cloud=_CLOUD_BROWSER.get()
+    if cloud is not None:
+        return await cloud.snapshot(url)
     # Bound concurrent browsing to a single current task per user/job.
     task_id=secrets.token_hex(16); t=int(time.time())
     db.run('INSERT INTO browser_tasks(id,job_id,user_id,url,state,created) VALUES(?,?,?,?,?,?)',
@@ -269,10 +274,19 @@ def update(job_id:str,statuses:dict,stage:str):
     db.run('UPDATE jobs SET updated=?, progress_json=? WHERE id=?',
         (int(time.time()),json.dumps({'stage':stage,'markets':statuses},ensure_ascii=False),job_id))
 
-async def run_search(job_id:str,user_id:str,query:str,depth:str):
+async def run_search(job_id:str,user_id:str,query:str,depth:str,mode:str='device'):
+    cloud=None
+    cloud_token=None
     statuses={name:{'state':'pending','cards':0,'queries':0,'candidates':0,'message':''} for name in MARKETS}
     card_limit=int(os.getenv('DEEP_CARD_LIMIT','18')) if depth=='deep' else int(os.getenv('FAST_CARD_LIMIT','7'))
     try:
+        if mode=='cloud':
+            from .cloud_browser import CloudBrowser
+            cloud=CloudBrowser()
+            await cloud.start()
+            cloud_token=_CLOUD_BROWSER.set(cloud)
+        elif mode!='device':
+            raise ValueError('Неизвестный режим поиска')
         p=await plan(query)
         phrases=[]
         for phrase in [query]+p.phrases[:5]:
@@ -348,5 +362,12 @@ async def run_search(job_id:str,user_id:str,query:str,depth:str):
         db.run('UPDATE jobs SET state=?,error=?,updated=? WHERE id=?',
                ('error',str(e)[:320],int(time.time()),job_id))
     finally:
+        if cloud_token is not None:
+            _CLOUD_BROWSER.reset(cloud_token)
+        if cloud is not None:
+            try:
+                await cloud.close()
+            except Exception:
+                pass
         state=db.one('SELECT state FROM jobs WHERE id=?',(job_id,))
         update(job_id,statuses,'Ошибка поиска' if state and state['state']=='error' else 'Завершено')

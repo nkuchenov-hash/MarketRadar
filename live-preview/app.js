@@ -1,6 +1,7 @@
 (()=>{
 'use strict';
 const $=id=>document.getElementById(id);
+const mobileDevice=/Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 const markets=[['ozon','Ozon'],['wb','Wildberries'],['ym','Яндекс Маркет']];
 let connected=false,working=false,requestId=0,offers=[],states={},activeQuery="";
 let toastTimer=null;
@@ -27,7 +28,25 @@ function canonical(url){try{const u=new URL(url);u.search='';u.hash='';return u.
 function rub(n){return Number(n).toLocaleString('ru-RU')+' ₽';}
 function txt(el,val){el.textContent=String(val??'');}
 function notify(msg){const t=$('toast');txt(t,msg);t.hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.hidden=true,6000);}
-function connect(yes){connected=!!yes;txt($('connection'),connected?'Расширение подключено':'Нужно расширение');$('connection').classList.toggle('connected',connected);$('setup').hidden=connected;$('go').title=connected?'Начать поиск':'Для поиска установите расширение';}
+function connect(yes){
+ if(mobileDevice){
+  connected=false;
+  txt($('connection'),'Мобильный поиск: сервер не подключён');
+  $('connection').classList.remove('connected');
+  $('setup').hidden=false;
+  const heading=$('setup').querySelector('h2');
+  if(heading)txt(heading,'Облачный поиск для телефона ещё не опубликован');
+  const p=$('setup').querySelector('p');
+  if(p)txt(p,'Для поиска с Android требуется облачный сервер MarketRadar. Этот адрес пока является браузерным тестом для ПК. Расширение не нужно устанавливать на телефон.');
+  const actions=$('setup').querySelector('.setup-actions');
+  if(actions)actions.hidden=true;
+  const steps=$('setup').querySelector('.setup-steps');
+  if(steps)steps.hidden=true;
+  $('go').disabled=true;
+  $('go').title='Облачный поиск не опубликован';
+  return;
+ }
+ connected=!!yes;txt($('connection'),connected?'Расширение подключено':'Нужно расширение');$('connection').classList.toggle('connected',connected);$('setup').hidden=connected;$('go').title=connected?'Начать поиск':'Для поиска установите расширение';}
 function send(type,extra){window.postMessage({__marketRadarPage:true,type,...extra},window.location.origin);}
 function marketStatus(m,state,detail,amount){txt($('status-'+m),state);txt($('detail-'+m),detail);txt($('count-'+m),amount===null?'—':amount+' предложений');}
 function kind(o){return ['bank','other-banks','subscription','unverified','standard'].includes(o.variant)?o.variant:'unverified';}
@@ -108,7 +127,8 @@ window.addEventListener('message',e=>{
 });
 for(const id of ['payment-filter','sort-filter','market-filter','known-delivery'])$(id).addEventListener('change',render);
 $('recheck').addEventListener('click',()=>{send('MR_HELLO');notify('Проверяем подключение. Если расширение установлено — обновите страницу.');});
-send('MR_HELLO');setTimeout(()=>{if(!connected){txt($('connection'),'Расширение не найдено');$('setup').hidden=false;}},1400);
+if(mobileDevice)connect(false);
+send('MR_HELLO');setTimeout(()=>{if(!connected&&!mobileDevice){txt($('connection'),'Расширение не найдено');$('setup').hidden=false;}},1400);
 $('search-form').addEventListener('submit',async e=>{
  e.preventDefault();if(working)return;
  if(!connected){$('setup').hidden=false;$('setup').scrollIntoView({behavior:'smooth'});notify('Установите расширение, чтобы запустить поиск.');return;}

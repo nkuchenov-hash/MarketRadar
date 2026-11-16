@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr, Field
 from . import storage as db
 from .security import hash_password,verify_password,opaque_token,digest,valid_until
-from . import agent
+from . import agent, cloud_browser
 from .core import host_allowed, market_of, now
 
 ROOT=Path(__file__).resolve().parent.parent
@@ -56,10 +56,12 @@ class Pair(BaseModel):
 class StartSearch(BaseModel):
     query:str=Field(min_length=3,max_length=180)
     depth:str='deep'
+    mode:str='cloud'
     consent:bool
 class BatchSearch(BaseModel):
     items:list[str]=Field(min_length=1,max_length=30)
     depth:str='deep'
+    mode:str='cloud'
     consent:bool
 
 class BrowserResult(BaseModel):
@@ -126,10 +128,13 @@ def me(request:Request,user=Depends(required_user)):
     device=db.one('SELECT name,last_seen FROM devices WHERE user_id=? ORDER BY last_seen DESC LIMIT 1',(user['id'],))
     online=bool(device and device['last_seen']>int(time.time())-100)
     ai_ready,ai_diagnostic=agent.ai_status()
+    cloud_ready,cloud_diagnostic=cloud_browser.available()
     return {'email':user['email'],'plan':user['plan'],'csrf':row['csrf'],
             'used':searches,'free_limit':FREE,'device_online':online,
             'device_name':device['name'] if device else None,
-            'ai_ready':ai_ready,'ai_status':ai_diagnostic,'billing_ready':bool(os.getenv('STRIPE_SECRET_KEY'))}
+            'ai_ready':ai_ready,'ai_status':ai_diagnostic,
+            'cloud_available':cloud_ready,'cloud_status':cloud_diagnostic,
+            'billing_ready':bool(os.getenv('STRIPE_SECRET_KEY'))}
 
 @app.post('/api/pairing')
 def pairing(user=Depends(csrf)):
@@ -187,15 +192,24 @@ def device_result(data:BrowserResult,device=Depends(device_user)):
            ('done',int(time.time()),json.dumps(payload,ensure_ascii=False),data.task_id,'claimed'))
     return {'ok':True}
 
+def check_search_mode(mode:str,user_id:str):
+    if mode=='cloud':
+        ready,message=cloud_browser.available()
+        if not ready:raise HTTPException(503,message)
+    elif mode=='device':
+        online=db.one('SELECT id FROM devices WHERE user_id=? AND last_seen>?',
+                      (user_id,int(time.time())-100))
+        if not online:raise HTTPException(409,'Браузер не подключён')
+    else:
+        raise HTTPException(422,'Неизвестный режим поиска')
+
 @app.post('/api/search')
 async def search(data:StartSearch,user=Depends(csrf)):
     if not data.consent:raise HTTPException(422,'Нужно согласие на анализ сведений о товарах')
     if data.depth not in ('fast','deep'):raise HTTPException(422,'Неверная глубина поиска')
     ready,diagnostic=await asyncio.to_thread(agent.ai_status)
     if not ready:raise HTTPException(503,diagnostic)
-    online=db.one('SELECT id FROM devices WHERE user_id=? AND last_seen>?',
-                  (user['id'],int(time.time())-100))
-    if not online:raise HTTPException(409,'Расширение браузера не подключено')
+    check_search_mode(data.mode,user['id'])
     running=db.one("SELECT id FROM jobs WHERE user_id=? AND state IN ('running','queued')",(user['id'],))
     if running:raise HTTPException(409,'Другой поиск уже выполняется')
     count=db.one("SELECT count(*) as n FROM jobs WHERE user_id=? AND state NOT IN ('error','interrupted')",(user['id'],))['n']
@@ -208,14 +222,14 @@ async def search(data:StartSearch,user=Depends(csrf)):
     jid=secrets.token_hex(16);now_t=int(time.time())
     db.run('INSERT INTO jobs(id,user_id,query,depth,state,created,updated) VALUES(?,?,?,?,?,?,?)',
            (jid,user['id'],data.query.strip(),data.depth,'running',now_t,now_t))
-    asyncio.create_task(agent.run_search(jid,user['id'],data.query.strip(),data.depth))
+    asyncio.create_task(agent.run_search(jid,user['id'],data.query.strip(),data.depth,data.mode))
     return {'job_id':jid}
 
 
-async def run_batch(ids:list[str],user_id:str,items:list[str],depth:str):
+async def run_batch(ids:list[str],user_id:str,items:list[str],depth:str,mode:str):
     for jid,query in zip(ids,items):
         db.run('UPDATE jobs SET state=?,updated=? WHERE id=?',('running',int(time.time()),jid))
-        await agent.run_search(jid,user_id,query,depth)
+        await agent.run_search(jid,user_id,query,depth,mode)
 
 @app.post('/api/batch')
 async def batch_search(data:BatchSearch,user=Depends(csrf)):
@@ -223,9 +237,7 @@ async def batch_search(data:BatchSearch,user=Depends(csrf)):
     if data.depth not in ('fast','deep'):raise HTTPException(422,'Неверная глубина поиска')
     ready,diagnostic=await asyncio.to_thread(agent.ai_status)
     if not ready:raise HTTPException(503,diagnostic)
-    if not db.one('SELECT id FROM devices WHERE user_id=? AND last_seen>?',
-                  (user['id'],int(time.time())-100)):
-        raise HTTPException(409,'Расширение браузера не подключено')
+    check_search_mode(data.mode,user['id'])
     if db.one("SELECT id FROM jobs WHERE user_id=? AND state IN ('running','queued')",(user['id'],)):
         raise HTTPException(409,'Поиск уже выполняется')
     items=[]
@@ -248,7 +260,7 @@ async def batch_search(data:BatchSearch,user=Depends(csrf)):
         jid=secrets.token_hex(16);ids.append(jid)
         db.run('INSERT INTO jobs(id,user_id,query,depth,state,created,updated) VALUES(?,?,?,?,?,?,?)',
                (jid,user['id'],query,data.depth,'queued',t,t))
-    asyncio.create_task(run_batch(ids,user['id'],items,data.depth))
+    asyncio.create_task(run_batch(ids,user['id'],items,data.depth,data.mode))
     return {'job_ids':ids}
 
 @app.get('/api/jobs')
@@ -321,7 +333,7 @@ app.mount('/static',StaticFiles(directory=ROOT/'web'),name='static')
 @app.get('/')
 def index():return FileResponse(ROOT/'web'/'index.html')
 @app.get('/health')
-def health():return {'ok':True,'version':'1.3-cloud-staging'}
+def health():return {'ok':True,'version':'1.8-cloud-beta','cloud_available':cloud_browser.available()[0]}
 
 @app.get('/download/extension')
 def extension_download():
