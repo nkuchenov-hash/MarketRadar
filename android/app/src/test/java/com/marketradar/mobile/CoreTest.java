@@ -33,4 +33,28 @@ public class CoreTest {
         assertFalse(ozon.productLink("https://ozon.ru.evil.example/product/123"));
         assertFalse(ozon.productLink("javascript:alert(1)"));
     }
+    @Test public void unrelatedLowPriceIsNotTreatedAsProductPrice() throws Exception {
+        String name="Яндекс Станция Мини 3 Про";
+        org.json.JSONObject unrelated=new org.json.JSONObject()
+            .put("amount",390).put("currency","RUB")
+            .put("productName","Чехол для Яндекс Станции Мини 3 Про")
+            .put("source","schema.org/Offer");
+        org.json.JSONObject actual=new org.json.JSONObject()
+            .put("amount",11542).put("currency","RUB")
+            .put("productName",name)
+            .put("source","schema.org/Offer");
+        JSONArray data=new JSONArray().put(unrelated).put(actual);
+        assertEquals(11542,ScanEngine.readStructuredPrice(data,name,name));
+        assertEquals(0,ScanEngine.readStructuredPrice(new JSONArray().put(unrelated),name,name));
+    }
+    @Test public void aPriceMustBelongToExactNamedProductAndRubles() throws Exception {
+        String query="Яндекс Станция Мини 3 Про";
+        JSONArray data=new JSONArray()
+            .put(new org.json.JSONObject().put("amount",390).put("currency","RUB")
+                .put("productName","Яндекс Станция Мини 3").put("source","schema.org/Offer"))
+            .put(new org.json.JSONObject().put("amount",9999).put("currency","USD")
+                .put("productName",query).put("source","schema.org/Offer"));
+        assertEquals(0,ScanEngine.readStructuredPrice(data,query,query));
+        assertFalse(ScanEngine.exact(query+" синий",query+" чёрный"));
+    }
 }
