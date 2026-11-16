@@ -88,7 +88,7 @@ jobs:
             android/app/build/outputs/apk/release/app-release-unsigned.apk
           "$signer" verify --verbose --print-certs \
             dist/MarketRadar-Android-0.2.0.apk > /tmp/signature.txt
-          current="$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' /tmp/signature.txt | head -1)"
+          current="$(grep -i 'sha-256 digest' /tmp/signature.txt | head -1 | sed -E 's/.*digest:[[:space:]]*//' | tr '[:upper:]' '[:lower:]' | tr -dc '0-9a-f')"
           expected="$(keytool -exportcert \
             -keystore /tmp/market-signing/marketradar-release.jks \
             -storepass "$MR_SIGNING_PASS" -alias marketradar-v2 2>/dev/null \
