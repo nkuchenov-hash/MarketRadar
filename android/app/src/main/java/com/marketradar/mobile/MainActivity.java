@@ -22,6 +22,7 @@ import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import org.json.JSONTokener;
 import android.widget.Button;
 import android.widget.CheckBox;
 import android.content.res.ColorStateList;
@@ -63,6 +64,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
     private SharedPreferences prefs;
     private boolean loginMode=false;
     private Shop currentShop;
+    private ScanEngine.Offer inspectedOffer;
 
     private int dp(float value){return (int)(getResources().getDisplayMetrics().density*value+0.5f);}
     private GradientDrawable bg(int color,int radius,int borderColor){
@@ -138,6 +140,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         browser.setWebViewClient(new WebViewClient(){
             @Override public void onPageFinished(WebView view,String url){
                 if(!loginMode&&engine!=null)engine.onPageFinished(url);
+                else if(loginMode&&inspectedOffer!=null)inspectPageDestination(url);
             }
             @Override public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error){
                 if(request.isForMainFrame()&&!loginMode&&engine!=null)engine.onPageError(request.getUrl().toString());
@@ -321,25 +324,66 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         else label.setText("Откройте магазин и войдите");
     }
     private void showShop(Shop shop,String url){
-        if(engine!=null&&engine.isRunning())engine.stop();
+        showShopInternal(shop,url,null);
+    }
+    private void inspectOffer(ScanEngine.Offer offer){
+        if(!offer.shop.productLink(offer.url)){
+            new AlertDialog.Builder(this)
+                .setMessage("Ссылка не ведёт прямо на карточку товара.")
+                .setPositiveButton("ОК",null).show();
+            return;
+        }
+        showShopInternal(offer.shop,offer.url,offer);
+    }
+    private void showShopInternal(Shop shop,String url,ScanEngine.Offer offer){
+        if(engine!=null&&engine.isRunning()){
+            engine.stop();
+            searchButton.setText("Найти предложения");
+        }
         searchButton.setEnabled(true);
-        currentShop=shop;loginMode=true;
+        currentShop=shop;inspectedOffer=offer;loginMode=true;
         browser.stopLoading();
         mainPane.setVisibility(View.GONE);
         loginBar.setVisibility(View.VISIBLE);
-        loginCaption.setText(shop.name+" · официальный сайт");
+        loginCaption.setText(offer==null?
+            shop.name+" · официальный сайт":shop.name+" · открываем товар");
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
         if(!shop.allowed(url))url=shop.home;
         browser.loadUrl(url);
     }
+    private void inspectPageDestination(String url){
+        if(inspectedOffer==null||currentShop==null)return;
+        if(!currentShop.productLink(url)){
+            loginCaption.setText("Не карточка — магазин перенаправил");
+            return;
+        }
+        final String requested=prefs.getString("last_query","");
+        final String currentUrl=url;
+        ui.postDelayed(()->{
+            if(!loginMode||inspectedOffer==null||!currentUrl.equals(browser.getUrl()))return;
+            browser.evaluateJavascript(
+                "(() => (document.querySelector('h1')?.innerText || '').trim().slice(0,250))()",
+                value->{
+                    if(!loginMode||inspectedOffer==null||!currentUrl.equals(browser.getUrl()))return;
+                    try{
+                        String heading=String.valueOf(new JSONTokener(value).nextValue());
+                        if(!heading.isBlank()&&!ScanEngine.exact(requested,heading)){
+                            loginCaption.setText("Другая модель — проверьте товар");
+                        }else loginCaption.setText(currentShop.name+" · карточка товара");
+                    }catch(Exception ignored){
+                        loginCaption.setText("Проверьте модель на странице");
+                    }
+                });
+        },1200);
+    }
     private void finishShop(){
         if(!loginMode)return;
         CookieManager.getInstance().flush();
-        if(currentShop!=null){
+        if(currentShop!=null&&inspectedOffer==null){
             prefs.edit().putBoolean("user_finished_"+currentShop.id,true).apply();
             refreshShop(currentShop);
         }
-        loginMode=false;currentShop=null;
+        loginMode=false;currentShop=null;inspectedOffer=null;
         browser.stopLoading();
         loginBar.setVisibility(View.GONE);
         mainPane.setVisibility(View.VISIBLE);
@@ -416,7 +460,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
                 "Минимум среди цен в выдаче и данных товара · итог в корзине не проверен":
                 "Минимальная цена из данных товара · условия оплаты не подтверждены"):
             "Нет цены, надёжно связанной с товаром");
-        count.setText("Карточек точной модели: "+offers.size()+" · цен из данных товара: "+priced);
+        count.setText("Карточек по запросу: "+offers.size()+" · найденных цен: "+priced);
         StringBuilder states=new StringBuilder();
         for(Shop market:lastSelectedMarkets){
             if(states.length()>0)states.append("\n");
@@ -459,7 +503,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
             gap(card,12);
             Button inspect=button("Проверить в магазине",false);
             add(card,inspect,-1,44);
-            inspect.setOnClickListener(v->showShop(o.shop,o.url));
+            inspect.setOnClickListener(v->inspectOffer(o));
             add(results,card,-1,-2);
             gap(results,12);
         }
