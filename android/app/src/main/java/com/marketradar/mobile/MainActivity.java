@@ -23,6 +23,9 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Button;
+import android.widget.CheckBox;
+import android.content.res.ColorStateList;
+import java.util.List;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
@@ -50,6 +53,8 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
     private boolean accountsVisible=false, fastSearch=false;
     private TextView bestPrice, priceSummary, marketProgress;
     private final Map<String,String> marketStates=new HashMap<>();
+    private final Map<String,CheckBox> marketChoices=new HashMap<>();
+    private List<Shop> lastSelectedMarkets=Shop.ALL;
     private WebView browser;
     private ScanEngine engine;
     private EditText queryInput;
@@ -195,7 +200,21 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         add(criteria,text("КРИТЕРИИ ПОИСКА",11,ACCENT,true),-1,20);
         add(criteria,text("Совпадение: точная модель и артикул",13,TEXT,true),-1,-2);
         gap(criteria,5);
-        add(criteria,text("Источники: Ozon · Wildberries · Яндекс Маркет",12,MUTED,false),-1,-2);
+        add(criteria,text("МАРКЕТПЛЕЙСЫ",11,MUTED,true),-1,19);
+        LinearLayout marketsRow=linear(LinearLayout.HORIZONTAL);
+        for(Shop shop:Shop.ALL){
+            CheckBox cb=new CheckBox(this);
+            cb.setText(shop.id.equals("ozon")?"Ozon":shop.id.equals("wb")?"WB":"Я.Маркет");
+            cb.setTextSize(12);
+            cb.setTextColor(TEXT);
+            cb.setButtonTintList(ColorStateList.valueOf(ACCENT));
+            cb.setChecked(prefs.getBoolean("scan_"+shop.id,true));
+            cb.setOnCheckedChangeListener((b,checked)->
+                prefs.edit().putBoolean("scan_"+shop.id,checked).apply());
+            marketChoices.put(shop.id,cb);
+            marketsRow.addView(cb,new LinearLayout.LayoutParams(0,dp(39),1));
+        }
+        add(criteria,marketsRow,-1,-2);
         gap(criteria,10);
         depthButton=button("Глубокий поиск · до 10 карточек на магазин",false);
         add(criteria,depthButton,-1,44);
@@ -348,15 +367,24 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         prefs.edit().putString("last_query",q).apply();
         ((InputMethodManager)getSystemService(Context.INPUT_METHOD_SERVICE)).hideSoftInputFromWindow(queryInput.getWindowToken(),0);
         queryInput.clearFocus();
+        ArrayList<Shop> chosen=new ArrayList<>();
+        for(Shop shop:Shop.ALL)
+            if(marketChoices.get(shop.id).isChecked())chosen.add(shop);
+        if(chosen.isEmpty()){
+            new AlertDialog.Builder(this).setMessage("Выберите хотя бы один маркетплейс")
+                .setPositiveButton("ОК",null).show();
+            return;
+        }
+        lastSelectedMarkets=chosen;
         setAccountsVisible(false);
         offers.clear();results.removeAllViews();marketStates.clear();
         bestPrice.setText("—");
         priceSummary.setText("Идёт проверка цен в данных товаров");
-        marketProgress.setText("Начинаем проверку трёх магазинов…");
+        marketProgress.setText("Начинаем проверку "+chosen.size()+" магазинов…");
         count.setText("Проверенных карточек: 0");
         searchButton.setText("Остановить поиск");
-        progress.setText("Поиск на трёх площадках…");
-        engine.start(q,fastSearch?3:10);
+        progress.setText("Поиск на выбранных площадках…");
+        engine.start(q,fastSearch?3:10,chosen);
     }
     @Override public void status(Shop shop,String state){
         runOnUiThread(()->{
@@ -385,9 +413,19 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
             "Нет цены, надёжно связанной с товаром");
         count.setText("Карточек точной модели: "+offers.size()+" · цен из данных товара: "+priced);
         StringBuilder states=new StringBuilder();
-        for(Shop market:Shop.ALL){
+        for(Shop market:lastSelectedMarkets){
             if(states.length()>0)states.append("\\n");
-            states.append(marketStates.getOrDefault(market.id,market.name+": ещё не проверен"));
+            int shopMin=Integer.MAX_VALUE;
+            for(ScanEngine.Offer o:offers)
+                if(o.shop.id.equals(market.id)&&o.price>0)shopMin=Math.min(shopMin,o.price);
+            states.append(market.name).append(": ");
+            if(shopMin!=Integer.MAX_VALUE)
+                states.append(NumberFormat.getNumberInstance(new Locale("ru","RU")).format(shopMin))
+                    .append(" ₽ · условия не подтверждены");
+            else states.append("цена не подтверждена");
+            if(!marketStates.containsKey(market.id))states.append(" · ожидает проверки");
+            else if(shopMin==Integer.MAX_VALUE)
+                states.append(" · ").append(marketStates.get(market.id).replace(market.name+": ",""));
         }
         marketProgress.setText(states.toString());
     }
