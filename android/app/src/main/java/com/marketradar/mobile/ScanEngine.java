@@ -297,11 +297,19 @@ final class ScanEngine {
     static String norm(String input){
         return (input==null?"":input.toLowerCase(Locale.ROOT))
           .replace('ё','е').replace("mini","мини").replace("pro","про")
+          .replace("ultra","ультра").replace("max","макс")
+          .replace("plus","плюс").replace("lite","лайт")
           .replaceAll("[^\\p{L}\\p{N}]+"," ").trim().replaceAll("\\s+"," ");
     }
     static boolean exact(String query,String title){
         String q=norm(query),t=norm(title);
         if(q.isEmpty()||t.isEmpty())return false;
+        Set<String> queryWords=new HashSet<>(java.util.Arrays.asList(q.split(" ")));
+        Set<String> titleWords=new HashSet<>(java.util.Arrays.asList(t.split(" ")));
+        // Distinct product editions are not interchangeable even when query terms match.
+        for(String variant:new String[]{"макс","ультра","плюс","лайт","fe"}){
+            if(titleWords.contains(variant)&&!queryWords.contains(variant))return false;
+        }
         String[] accessories={"чехол","крепление","кронштейн","подставка","кабель","адаптер",
              "держатель","пульт","наклейка","защитное стекло","корпус","запчасть"};
         for(String word:accessories)if(t.contains(word)&&!q.contains(word))return false;
