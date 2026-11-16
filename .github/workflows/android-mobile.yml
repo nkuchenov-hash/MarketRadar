@@ -49,8 +49,9 @@ jobs:
             --out dist/MarketRadar-Android-0.1.0-preview.apk \
             android/app/build/outputs/apk/release/app-release-unsigned.apk
           "$signer" verify --verbose dist/MarketRadar-Android-0.1.0-preview.apk
-          "$aapt" dump badging dist/MarketRadar-Android-0.1.0-preview.apk | head -n 5
-          "$aapt" dump badging dist/MarketRadar-Android-0.1.0-preview.apk | grep -q "package: name='com.marketradar.mobile' versionCode='1' versionName='0.1.0'"
+          "$aapt" dump badging dist/MarketRadar-Android-0.1.0-preview.apk > /tmp/marketradar-apk-badging.txt
+          head -n 5 /tmp/marketradar-apk-badging.txt
+          grep -Fq "package: name='com.marketradar.mobile' versionCode='1' versionName='0.1.0'" /tmp/marketradar-apk-badging.txt
           test "$(stat -c%s dist/MarketRadar-Android-0.1.0-preview.apk)" -gt 100000
           (cd dist && sha256sum MarketRadar-Android-0.1.0-preview.apk > SHA256SUMS.txt)
           rm -f /tmp/marketradar-preview.jks
