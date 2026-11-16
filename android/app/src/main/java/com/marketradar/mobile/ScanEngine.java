@@ -310,13 +310,48 @@ final class ScanEngine {
         if(q.isEmpty()||t.isEmpty())return false;
         Set<String> queryWords=new HashSet<>(java.util.Arrays.asList(q.split(" ")));
         Set<String> titleWords=new HashSet<>(java.util.Arrays.asList(t.split(" ")));
-        // Distinct product editions are not interchangeable even when query terms match.
+        // Edition, colour and condition are part of an exact product match.
         for(String variant:new String[]{"макс","ультра","плюс","лайт","fe"}){
             if(titleWords.contains(variant)&&!queryWords.contains(variant))return false;
+        }
+        for(String condition:new String[]{"уценка","восстановленный","refurbished","б у","бу","витринный"}){
+            if(t.contains(condition)&&!q.contains(condition))return false;
+        }
+        String[][] colorNames={
+            {"черный","черная","черное","black","blk"},
+            {"белый","белая","белое","white","wht"},
+            {"синий","синяя","синее","blue","blu"},
+            {"серый","серая","серое","gray","grey","gry"},
+            {"зеленый","зеленая","зеленое","green","grn"},
+            {"красный","красная","красное","red"},
+            {"розовый","розовая","розовое","pink"},
+            {"фиолетовый","фиолетовая","фиолетовое","purple"}
+        };
+        for(String[] group:colorNames){
+            boolean requested=false,matched=false;
+            for(String alias:group){
+                if(queryWords.contains(alias))requested=true;
+                if(titleWords.contains(alias)||t.contains("00059"+alias))matched=true;
+            }
+            if(requested&&!matched)return false;
         }
         String[] accessories={"чехол","крепление","кронштейн","подставка","кабель","адаптер",
              "держатель","пульт","наклейка","защитное стекло","корпус","запчасть"};
         for(String word:accessories)if(t.contains(word)&&!q.contains(word))return false;
+        boolean hasQueryColor=false;
+        for(String[] group:colorNames){
+            for(String alias:group)if(queryWords.contains(alias)){hasQueryColor=true;break;}
+        }
+        if(hasQueryColor){
+            for(String[] group:colorNames){
+                boolean thisRequested=false, thisInTitle=false;
+                for(String alias:group){
+                    if(queryWords.contains(alias))thisRequested=true;
+                    if(titleWords.contains(alias))thisInTitle=true;
+                }
+                if(thisInTitle&&!thisRequested)return false;
+            }
+        }
         if(q.contains("мини 3 про")||q.contains("yndx 00059")){
             for(String color:new String[]{"синий","черный","серый","зеленый","белый"}){
                 if(q.contains(color)&&!t.contains(color)&&
