@@ -314,9 +314,11 @@ final class ScanEngine {
         for(String variant:new String[]{"макс","ультра","плюс","лайт","fe"}){
             if(titleWords.contains(variant)&&!queryWords.contains(variant))return false;
         }
-        for(String condition:new String[]{"уценка","восстановленный","refurbished","б у","бу","витринный"}){
-            if(t.contains(condition)&&!q.contains(condition))return false;
+        for(String condition:new String[]{"уценка","восстановленный","refurbished","витринный"}){
+            if(titleWords.contains(condition)&&!queryWords.contains(condition))return false;
         }
+        if(titleWords.contains("бу")&&!queryWords.contains("бу"))return false;
+        if(t.contains("б у")&&!q.contains("б у"))return false;
         String[][] colorNames={
             {"черный","черная","черное","black","blk"},
             {"белый","белая","белое","white","wht"},
