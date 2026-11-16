@@ -48,21 +48,47 @@ final class ScanEngine {
                 context: (card?.innerText || '').trim().slice(0, 450)
               });
             }
-            const prices = [];
-            for (const e of [...document.querySelectorAll('span,strong,ins,b')].slice(0, 4500)) {
-              if (!visible(e)) continue;
-              const t = (e.innerText || '').trim();
-              if (t.length > 1 && t.length < 95 && (t.includes('₽') || t.toLowerCase().includes('руб'))) {
-                if (!prices.includes(t)) prices.push(t);
-              }
-              if (prices.length >= 60) break;
+            const structuredPrices=[];
+            const put=(v,c,n,source)=>{
+              const amount=Number(String(v??'').replace(/\\s/g,'').replace(',','.'));
+              if(Number.isFinite(amount)&&amount>=100&&amount<=50000000)
+                structuredPrices.push({amount,currency:String(c||''),productName:String(n||''),source});
+            };
+            const scanOffer=(o,n)=>{
+              if(!o)return;
+              if(Array.isArray(o)){o.forEach(v=>scanOffer(v,n));return;}
+              if(typeof o!=='object')return;
+              if(o.price!=null)put(o.price,o.priceCurrency||'RUB',n,'schema.org/Offer');
+              const specs=Array.isArray(o.priceSpecification)?o.priceSpecification:[o.priceSpecification];
+              for(const p of specs)if(p&&p.price!=null)
+                put(p.price,p.priceCurrency||o.priceCurrency||'RUB',n,'schema.org/PriceSpecification');
+            };
+            const visit=(o,depth)=>{
+              if(!o||depth>5)return;
+              if(Array.isArray(o)){o.forEach(v=>visit(v,depth+1));return;}
+              if(typeof o!=='object')return;
+              const types=Array.isArray(o['@type'])?o['@type']:[o['@type']];
+              if(types.some(t=>String(t||'').toLowerCase().split('/').pop()==='product'))
+                scanOffer(o.offers,o.name||'');
+              if(o['@graph'])visit(o['@graph'],depth+1);
+            };
+            for(const script of [...document.querySelectorAll('script[type="application/ld+json"]')].slice(0,25)){
+              try{visit(JSON.parse(script.textContent),0)}catch(e){}
             }
+            const meta=sel=>document.querySelector(sel)?.getAttribute('content')||'';
+            const price=meta('meta[property="product:price:amount"]')||
+                        meta('meta[itemprop="price"]')||
+                        meta('meta[property="og:price:amount"]');
+            const currency=meta('meta[property="product:price:currency"]')||
+                           meta('meta[itemprop="priceCurrency"]')||
+                           meta('meta[property="og:price:currency"]');
+            if(price&&currency)put(price,currency,document.querySelector('h1')?.innerText||'','product-price-meta');
             return JSON.stringify({
               url: location.href, title: document.title,
               heading: document.querySelector('h1')?.innerText || '',
               text: (body?.innerText || '').slice(0, 42000),
               links: links.slice(0, 1200),
-              prices
+              structuredPrices
             });
           } catch (err) {
             return JSON.stringify({error:'Не удалось прочитать страницу'});
@@ -83,14 +109,17 @@ final class ScanEngine {
     private Shop shop=null;
     private int marketIndex=0, cardIndex=0, token=0, checked=0;
     private boolean details=false;
+    private int maxCards=8, checkedMarket=0;
+    private String expectedUrl="";
 
     ScanEngine(WebView browser, Handler handler, Listener listener) {
         this.browser=browser;this.handler=handler;this.listener=listener;
     }
     boolean isRunning(){return running;}
-    void start(String q) {
+    void start(String q) { start(q,8); }
+    void start(String q,int limit) {
         stop();
-        query=q.trim(); running=true; marketIndex=0;checked=0;
+        query=q.trim(); maxCards=Math.max(1,Math.min(12,limit)); running=true; marketIndex=0;checked=0;
         nextMarket();
     }
     void stop() { running=false;token++; }
@@ -104,7 +133,7 @@ final class ScanEngine {
         }
         shop=Shop.ALL.get(marketIndex++);
         candidates.clear();seen.clear();
-        cardIndex=0;details=false;
+        cardIndex=0;details=false;checkedMarket=0;expectedUrl="";
         listener.status(shop,"Ищем точную модель…");
         load(shop.searchUrl(query));
     }
@@ -143,7 +172,7 @@ final class ScanEngine {
     private void failPage(String message) {
         token++;
         if(details) {
-            listener.status(shop,message+" · проверено карточек: "+checked);
+            listener.status(shop,message+" · проверено карточек: "+checkedMarket);
             nextCandidate();
         } else {
             listener.status(shop,message);
@@ -180,10 +209,11 @@ final class ScanEngine {
                 String url=candidate.optString("url","");
                 String title=candidate.optString("title","");
                 String context=candidate.optString("context","");
-                if(shop.productLink(url)&&exact(query,title+" "+context)&&seen.add(url)){
-                    candidates.add(url);
+                if(shop.productLink(url)&&(exact(query,title)||
+                     (title.length()<8&&exact(query,context)))&&seen.add(cleanUrl(url))){
+                    candidates.add(cleanUrl(url));
                 }
-                if(candidates.size()>=8)break;
+                if(candidates.size()>=maxCards)break;
             }
         }
         if(candidates.isEmpty()){
@@ -197,23 +227,51 @@ final class ScanEngine {
     private void nextCandidate() {
         if(!running)return;
         if(cardIndex>=candidates.size()){
-            listener.status(shop,"Проверено карточек: "+checked+". Покрытие неполное");
+            listener.status(shop,"Проверено карточек: "+checkedMarket+". Покрытие неполное");
             nextMarket();return;
         }
-        load(candidates.get(cardIndex++));
+        expectedUrl=candidates.get(cardIndex++);
+        load(expectedUrl);
     }
     private void readDetail(JSONObject data,String url) {
-        checked++;
-        String title=data.optString("heading","").trim();
-        if(title.isEmpty())title=data.optString("title","").trim();
-        if(exact(query,title)){
-            int price=readPrice(data.optJSONArray("prices"));
-            String note=price>0?"Цена обнаружена на карточке, условия оплаты не подтверждены":
-                        "Карточка найдена, цена не прочитана";
-            listener.offer(new Offer(shop,url,title,price,note));
+        checked++;checkedMarket++;
+        // Never report a price from a redirect or a different product URL.
+        if(shop.productLink(url)&&cleanUrl(url).equals(cleanUrl(expectedUrl))){
+            String title=data.optString("heading","").trim();
+            if(title.isEmpty())title=data.optString("title","").trim();
+            if(exact(query,title)){
+                int price=readStructuredPrice(data.optJSONArray("structuredPrices"),query,title);
+                String note=price>0?"Цена из данных товара · условия карты и доставки не проверены":
+                             "Модель совпадает · подтверждённая цена не обнаружена";
+                listener.offer(new Offer(shop,cleanUrl(url),title,price,note));
+            }
         }
-        listener.status(shop,"Карточек проверено: "+checked+" / "+candidates.size());
+        listener.status(shop,"Карточек проверено: "+checkedMarket+" / "+candidates.size());
         nextCandidate();
+    }
+    private static String cleanUrl(String url){
+        try{
+            java.net.URI u=new java.net.URI(url);
+            return new java.net.URI(u.getScheme(),u.getAuthority(),u.getPath(),null,null).toString();
+        }catch(Exception e){return url;}
+    }
+    static int readStructuredPrice(JSONArray arr,String query,String pageTitle){
+        if(arr==null||!exact(query,pageTitle))return 0;
+        int best=Integer.MAX_VALUE;
+        for(int i=0;i<arr.length();i++){
+            JSONObject p=arr.optJSONObject(i);
+            if(p==null)continue;
+            String name=p.optString("productName","");
+            String currency=p.optString("currency","");
+            String source=p.optString("source","");
+            if(!exact(query,name)||!exact(pageTitle,name))continue;
+            if(!("RUB".equalsIgnoreCase(currency)||"RUR".equalsIgnoreCase(currency)))continue;
+            if(!source.equals("schema.org/Offer")&&!source.equals("schema.org/PriceSpecification")&&
+               !source.equals("product-price-meta"))continue;
+            double value=p.optDouble("amount",0);
+            if(value>=100&&value<=50000000)best=Math.min(best,(int)Math.round(value));
+        }
+        return best==Integer.MAX_VALUE?0:best;
     }
     static int readPrice(JSONArray snippets){
         if(snippets==null)return 0;
@@ -245,6 +303,13 @@ final class ScanEngine {
              "держатель","пульт","наклейка","защитное стекло","корпус","запчасть"};
         for(String word:accessories)if(t.contains(word)&&!q.contains(word))return false;
         if(q.contains("мини 3 про")||q.contains("yndx 00059")){
+            for(String color:new String[]{"синий","черный","серый","зеленый","белый"}){
+                if(q.contains(color)&&!t.contains(color)&&
+                   !(color.equals("синий")&&t.contains("blu"))&&
+                   !(color.equals("черный")&&t.contains("blk"))&&
+                   !(color.equals("серый")&&t.contains("gry"))&&
+                   !(color.equals("зеленый")&&t.contains("grn")))return false;
+            }
             return t.contains("мини 3 про")||
                  t.matches(".*yndx 0*0059(?:blu|blk|gry|grn)?.*");
         }
