@@ -1,0 +1,71 @@
+name: Cloud marketplace live probe (public pages only)
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/cloud-browser-probe.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install isolated browser (no marketplace credentials)
+        run: |
+          python -m pip install 'playwright>=1.50,<2'
+          python -m playwright install --with-deps chromium
+      - name: Run real browser scan on sample product
+        shell: bash
+        env:
+          CLOUD_BROWSER_ENABLED: "true"
+        run: |
+          python - <<'PY'
+          import asyncio, json, re
+          from urllib.parse import quote
+          from pathlib import Path
+          from server.cloud_browser import CloudBrowser
+
+          async def main():
+              q = "Яндекс Станция Мини 3 Про"
+              urls = {
+                "Yandex Market": "https://market.yandex.ru/search?text=" + quote(q),
+                "Ozon": "https://www.ozon.ru/search/?text=" + quote(q),
+                "Wildberries": "https://www.wildberries.ru/catalog/0/search.aspx?search=" + quote(q),
+              }
+              findings = {}
+              browser = CloudBrowser()
+              await browser.start()
+              try:
+                  for name, url in urls.items():
+                      snap = await browser.snapshot(url)
+                      links = [item for item in snap.get("links", []) if
+                               ("мини" in item.get("title", "").lower() or "mini" in item.get("title", "").lower())
+                               and "3" in item.get("title", "")]
+                      findings[name] = {
+                        "state": snap.get("state"),
+                        "url": snap.get("url"),
+                        "page_title": snap.get("title"),
+                        "link_count": len(snap.get("links", [])),
+                        "candidate_count": len(links),
+                        "price_fragment_count": len(snap.get("price_fragments", [])),
+                        "sample_product_titles": [x.get("title","")[:160] for x in links[:5]],
+                        "sample_price_fragments": snap.get("price_fragments", [])[:8],
+                        "diagnostic": snap.get("diagnostic","")
+                      }
+                      print(name, json.dumps(findings[name],ensure_ascii=False))
+              finally:
+                  await browser.close()
+              Path("cloud-probe-result.json").write_text(json.dumps(findings,ensure_ascii=False,indent=2),encoding="utf-8")
+          asyncio.run(main())
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cloud-browser-probe-public
+          path: cloud-probe-result.json
+          retention-days: 7
