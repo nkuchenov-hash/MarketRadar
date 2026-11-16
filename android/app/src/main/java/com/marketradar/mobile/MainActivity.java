@@ -178,17 +178,17 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         mainPane.addView(accountsScroll,new LinearLayout.LayoutParams(-1,0,1));
         accountsScroll.setVisibility(View.GONE);
         LinearLayout page=linear(LinearLayout.VERTICAL);
-        page.setPadding(dp(18),dp(27),dp(18),dp(50));
+        page.setPadding(dp(18),dp(16),dp(18),dp(36));
         searchScroll.addView(page);
         LinearLayout marketPage=linear(LinearLayout.VERTICAL);
         marketPage.setPadding(dp(18),dp(24),dp(18),dp(50));
         accountsScroll.addView(marketPage);
-        add(page,text("ПОИСК ЛУЧШЕЙ ЦЕНЫ",11,ACCENT,true),-1,22);
-        gap(page,5);
-        add(page,text("Одна модель.\nЛучшее предложение.",30,TEXT,true),-1,86);
-        gap(page,6);
-        add(page,text("Ozon, Wildberries и Яндекс Маркет. Сравниваем только подходящие карточки, а не похожие товары.",14,MUTED,false),-1,-2);
-        gap(page,21);
+        add(page,text("СРАВНЕНИЕ ЦЕН",11,ACCENT,true),-1,19);
+        gap(page,4);
+        add(page,text("Найти лучшую цену",27,TEXT,true),-1,43);
+        gap(page,3);
+        add(page,text("Точная модель на Ozon, Wildberries и Яндекс Маркете.",13,MUTED,false),-1,-2);
+        gap(page,16);
 
         queryInput=new EditText(this);
         queryInput.setSingleLine(true);
@@ -219,12 +219,12 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         }
         add(criteria,marketsRow,-1,-2);
         gap(criteria,10);
-        depthButton=button("Глубокий поиск · до 10 карточек на магазин",false);
+        depthButton=button("Глубокий · до 10 карточек на магазин",false);
         add(criteria,depthButton,-1,44);
         depthButton.setOnClickListener(v->{
             fastSearch=!fastSearch;
-            depthButton.setText(fastSearch?"Быстрый поиск · до 3 карточек на магазин":
-                "Глубокий поиск · до 10 карточек на магазин");
+            depthButton.setText(fastSearch?"Быстрый · до 3 карточек на магазин":
+                "Глубокий · до 10 карточек на магазин");
         });
         add(page,criteria,-1,-2);
         gap(page,14);
@@ -234,7 +234,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         gap(page,10);
         progress=text("Поиск пока не запущен.",13,MUTED,false);
         add(page,progress,-1,-2);
-        gap(page,28);
+        gap(page,18);
 
         add(page,text("РЕЗУЛЬТАТЫ ПОИСКА",12,ACCENT,true),-1,22);
         gap(page,6);
