@@ -28,6 +28,11 @@ final class ScanEngine {
             this.shop=shop;this.url=url;this.title=title;this.price=price;this.note=note;
         }
     }
+    static final class Candidate {
+        final String url;
+        final int listingPrice;
+        Candidate(String url,int listingPrice){this.url=url;this.listingPrice=listingPrice;}
+    }
     private static final String SNAPSHOT = """
         (() => {
           try {
@@ -102,7 +107,7 @@ final class ScanEngine {
     private final WebView browser;
     private final Handler handler;
     private final Listener listener;
-    private final ArrayList<String> candidates = new ArrayList<>();
+    private final ArrayList<Candidate> candidates = new ArrayList<>();
     private final Set<String> seen = new HashSet<>();
     private boolean running=false;
     private String query="";
@@ -218,7 +223,7 @@ final class ScanEngine {
                 String context=candidate.optString("context","");
                 if(shop.productLink(url)&&(exact(query,title)||
                      (title.length()<8&&exact(query,context)))&&seen.add(cleanUrl(url))){
-                    candidates.add(cleanUrl(url));
+                    candidates.add(new Candidate(cleanUrl(url),readCardPrice(context)));
                 }
                 if(candidates.size()>=maxCards)break;
             }
@@ -237,7 +242,7 @@ final class ScanEngine {
             listener.status(shop,"Проверено карточек: "+checkedMarket+". Покрытие неполное");
             nextMarket();return;
         }
-        expectedUrl=candidates.get(cardIndex++);
+        expectedUrl=candidates.get(cardIndex++).url;
         load(expectedUrl);
     }
     private void readDetail(JSONObject data,String url) {
@@ -247,9 +252,19 @@ final class ScanEngine {
             String title=data.optString("heading","").trim();
             if(title.isEmpty())title=data.optString("title","").trim();
             if(exact(query,title)){
-                int price=readStructuredPrice(data.optJSONArray("structuredPrices"),query,title);
-                String note=price>0?"Цена из данных товара · условия карты и доставки не проверены":
-                             "Модель совпадает · подтверждённая цена не обнаружена";
+                int detailPrice=readStructuredPrice(data.optJSONArray("structuredPrices"),query,title);
+                int listingPrice=candidates.get(cardIndex-1).listingPrice;
+                int price=detailPrice>0&&listingPrice>0?Math.min(detailPrice,listingPrice):
+                          detailPrice>0?detailPrice:listingPrice;
+                String note;
+                if(price>0&&listingPrice>0&&listingPrice<detailPrice)
+                    note="Цена из выдачи · в данных товара "+detailPrice+" ₽ · проверяйте корзину";
+                else if(price>0&&listingPrice>0&&detailPrice==0)
+                    note="Цена из выдачи · товар совпадает · корзина не проверена";
+                else if(price>0&&detailPrice>0)
+                    note="Цена из данных товара · условия карты и доставки не проверены";
+                else
+                    note="Модель совпадает · цена не найдена";
                 listener.offer(new Offer(shop,cleanUrl(url),title,price,note));
             }
         }
@@ -273,12 +288,28 @@ final class ScanEngine {
             String source=p.optString("source","");
             if(!exact(query,name)||!exact(pageTitle,name))continue;
             if(!("RUB".equalsIgnoreCase(currency)||"RUR".equalsIgnoreCase(currency)))continue;
-            if(!source.equals("schema.org/Offer")&&!source.equals("schema.org/PriceSpecification")&&
-               !source.equals("product-price-meta"))continue;
+            // A PriceSpecification may describe installments, unit prices or financing.
+            // It is not a comparable payable product price without more context.
+            if(!source.equals("schema.org/Offer")&&!source.equals("product-price-meta"))continue;
             double value=p.optDouble("amount",0);
             if(value>=100&&value<=50000000)best=Math.min(best,(int)Math.round(value));
         }
         return best==Integer.MAX_VALUE?0:best;
+    }
+    static int readCardPrice(String context){
+        if(context==null||context.isBlank()||context.length()>650)return 0;
+        JSONArray priceLines=new JSONArray();
+        for(String line:context.split("\\R")){
+            String lower=line.toLowerCase(Locale.ROOT);
+            if(lower.contains("кэшбэк")||lower.contains("кешбэк")||
+               lower.contains("балл")||lower.contains("бонус")||
+               lower.contains("рассроч")||lower.contains("кредит")||
+               lower.contains("долями")||lower.contains("сплит")||
+               lower.contains("/ мес")||lower.contains("в месяц")||
+               lower.contains("доставка"))continue;
+            priceLines.put(line);
+        }
+        return readPrice(priceLines);
     }
     static int readPrice(JSONArray snippets){
         if(snippets==null)return 0;
