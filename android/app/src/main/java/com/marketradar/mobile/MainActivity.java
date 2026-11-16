@@ -6,6 +6,7 @@ import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
+import android.view.WindowInsets;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.Gravity;
@@ -101,6 +102,10 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
     }
     private void buildBrowser(){
         root=new FrameLayout(this);root.setBackgroundColor(BG);
+        root.setOnApplyWindowInsetsListener((view,insets)->{
+            root.setPadding(0,insets.getSystemWindowInsetTop(),0,insets.getSystemWindowInsetBottom());
+            return insets;
+        });
         setContentView(root);
         browser=new WebView(this);
         browser.setBackgroundColor(Color.WHITE);
@@ -149,7 +154,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         ScrollView scrolling=new ScrollView(this);
         scrolling.setFillViewport(true);
         scrolling.setClipToPadding(false);
-        add(mainPane,scrolling,-1,-1);
+        mainPane.addView(scrolling,new LinearLayout.LayoutParams(-1,0,1));
         LinearLayout page=linear(LinearLayout.VERTICAL);
         page.setPadding(dp(18),dp(22),dp(18),dp(60));
         scrolling.addView(page);
