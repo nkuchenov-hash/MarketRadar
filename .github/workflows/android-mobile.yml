@@ -1,0 +1,93 @@
+name: MarketRadar Android native test APK
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'android/**'
+      - '.github/workflows/android-mobile.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: marketradar-android-preview
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Compile and run matching tests
+        run: |
+          set -euo pipefail
+          gradle -p android --no-daemon --console=plain testDebugUnitTest assembleRelease
+          test -s android/app/build/outputs/apk/release/app-release-unsigned.apk
+      - name: Sign installable release APK with isolated test key
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          testpass="$(openssl rand -hex 24)"
+          keytool -genkeypair -noprompt -keystore /tmp/marketradar-preview.jks \
+            -storepass "$testpass" -keypass "$testpass" -alias markradar \
+            -keyalg RSA -keysize 3072 -validity 365 \
+            -dname "CN=MarketRadar Preview,O=Testing,C=US" >/dev/null 2>&1
+          sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          signer="$(find "$sdk/build-tools" -maxdepth 2 -type f -name apksigner | sort -V | tail -1)"
+          aapt="$(find "$sdk/build-tools" -maxdepth 2 -type f -name aapt | sort -V | tail -1)"
+          test -x "$signer" && test -x "$aapt"
+          "$signer" sign --ks /tmp/marketradar-preview.jks \
+            --ks-key-alias markradar --ks-pass "pass:$testpass" \
+            --key-pass "pass:$testpass" \
+            --out dist/MarketRadar-Android-0.1.0-preview.apk \
+            android/app/build/outputs/apk/release/app-release-unsigned.apk
+          "$signer" verify --verbose dist/MarketRadar-Android-0.1.0-preview.apk
+          "$aapt" dump badging dist/MarketRadar-Android-0.1.0-preview.apk | head -n 5
+          "$aapt" dump badging dist/MarketRadar-Android-0.1.0-preview.apk | grep -q "package: name='com.marketradar.mobile' versionCode='1' versionName='0.1.0'"
+          test "$(stat -c%s dist/MarketRadar-Android-0.1.0-preview.apk)" -gt 100000
+          (cd dist && sha256sum MarketRadar-Android-0.1.0-preview.apk > SHA256SUMS.txt)
+          rm -f /tmp/marketradar-preview.jks
+      - name: Publish test APK
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag=marketradar-android-0.1.0-preview
+          cat > /tmp/notes.md <<'EOF'
+          # MarketRadar Android 0.1.0 — Test build
+          Native WebView session connection for Ozon, Wildberries and Yandex Market.
+          Search reads publicly rendered or logged-in product cards inside the Android application.
+          Credentials and cookies remain on the device; never transmitted to MarketRadar.
+          The WebView access and account login have **not been verified on a real phone**.
+          Price extraction is experimental and does not guarantee any lowest price.
+          IMPORTANT: preview release signed with an ephemeral test certificate. Next builds may require uninstalling this version and losing saved sessions. Do not use for important accounts until tested.
+          Requires Android 8.0+. Local Java unit tests and APK signature verification are run in CI.
+          EOF
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release edit "$tag" --repo "$GITHUB_REPOSITORY" \
+              --title "MarketRadar Android 0.1.0 — Test APK" --notes-file /tmp/notes.md --prerelease
+            gh release upload "$tag" --repo "$GITHUB_REPOSITORY" \
+              dist/MarketRadar-Android-0.1.0-preview.apk dist/SHA256SUMS.txt --clobber
+          else
+            gh release create "$tag" --repo "$GITHUB_REPOSITORY" \
+              dist/MarketRadar-Android-0.1.0-preview.apk dist/SHA256SUMS.txt \
+              --title "MarketRadar Android 0.1.0 — Test APK" --notes-file /tmp/notes.md --prerelease
+          fi
+          gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets \
+            --jq '.assets[] | [.name,.size] | @tsv'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: MarketRadar-Android-test-APK
+          path: dist/*
+          if-no-files-found: ignore
+          retention-days: 10
