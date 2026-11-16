@@ -44,7 +44,14 @@ function variants(snap){
  for(const block of priority){
   const t=typeof block==='string'?block:(block.text||'');
   const source=typeof block==='string'?'price-widget':block.source||'price-widget';
-  for(const p of priceFragments(t))combined.push({...p,source});
+  const fragments=priceFragments(t);
+  // Ozon often renders two payable prices followed by the crossed-out old price.
+  // Never treat that unlabelled trailing amount as a purchasable offer.
+  if(fragments.length>=3 && /с банками/i.test(t) && /с другими банками/i.test(t)){
+   const last=fragments.at(-1), earlier=fragments.slice(0,-1);
+   if(earlier.some(x=>x.price<last.price) && !/^(?:с (?:другими )?банками|обычная цена|без карты)/i.test(last.after))fragments.pop();
+  }
+  for(const p of fragments)combined.push({...p,source});
   if(combined.length>=16)break;
  }
  // A price found somewhere in the body is not trustworthy: other products appear below the main offer.
@@ -53,11 +60,13 @@ function variants(snap){
    for(const p of priceFragments(snap.mainText.slice(0,750)).slice(0,1))combined.push({...p,source:'main-product-area'});
  }
  const prices=[];const seen=new Set();
+ const crossedOut=new Set((snap.crossedOutPrices||[]).map(Number));
  for(const p of combined){
+  if(crossedOut.has(p.price))continue;
   let kind='unverified',condition='Цена на карточке — проверить условия оплаты';
   const near=(p.after+' '+p.before).toLowerCase();
   if(/с другими банками|без ozon карт|обычная цена|без подписки|без карты/i.test(near)){
-   kind='other-banks';condition='С другими банками / обычная цена — сверить в корзине';
+   kind='other-banks';condition='С другими банками — сверить условия оплаты в корзине';
   }else if(/с банками|ozon банк|ozon карт|озон банк|с картой|картой ozon|оплате.*карт/i.test(near)){
    kind='bank';condition='Цена при определённой оплате — сверить условия';
   }else if(/подписк|плюс|premium|prime/i.test(near)){
@@ -97,20 +106,45 @@ function snapshot(){
    for(const x of arr){if(!String(x?.['@type']||'').toLowerCase().includes('product'))continue;const offers=Array.isArray(x.offers)?x.offers[0]:x.offers;const n=Number(offers?.price);if(n>100&&n<20000000)structuredPrice=n;}
  }catch{}
  const main=document.querySelector('main,[role="main"],[data-widget="webProductHeading"]');
- // Only extract a short date label from visible delivery widgets. Do not include addresses.
- let delivery=null;
- const deliverySelectors=['[data-widget*="delivery" i]','[data-widget*="shipping" i]','[class*="delivery" i]','[aria-label*="доставка" i]'];
- outer:for(const selector of deliverySelectors){
-  for(const el of Array.from(document.querySelectorAll(selector)).slice(0,12)){
-   const raw=(el.innerText||el.getAttribute('aria-label')||'').replace(/\s+/g,' ').trim().slice(0,200);
-   if(!raw||!/доставк|курьер|привез|получит|сегодня|завтра|послезавтра/i.test(raw))continue;
-   const when=raw.match(/(послезавтра|завтра|сегодня)/i);
-   if(when){const token=when[1].toLowerCase();delivery={label:token.charAt(0).toUpperCase()+token.slice(1),days:token==='сегодня'?0:token==='завтра'?1:2};break outer;}
-   const date=raw.match(/(\d{1,2}\s+(?:января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря))/i);
-   if(date){delivery={label:date[1],days:null};break outer;}
+ // Ignore crossed-out old prices, including those marked as <del>/<s>.
+ const crossedOutPrices=[];
+ for(const el of Array.from(document.querySelectorAll('del,s,[class*="old-price" i],[class*="price-old" i],[style*="line-through" i]')).slice(0,80)){
+  for(const amount of (el.innerText||el.textContent||'').matchAll(/(?:\d{1,3}(?:[\s\u00a0\u202f]\d{3})+|\d{4,7})\s*(?:₽|руб)/gi)){
+   const price=Number(amount[0].replace(/\D/g,''));if(price>100)crossedOutPrices.push(price);
   }
  }
- return {url:location.href,title:productTitle,documentTitle:document.title,text,links,priceBlocks:blocks,structuredPrice,delivery,mainText:(main?.innerText||text).slice(0,3500)};
+ // Delivery dates frequently live in purchase BUTTONS, not in delivery widgets.
+ // Record multiple fulfillment options without reading addresses or claiming a cart-verified date.
+ const deliveryOptions=[],seenDelivery=new Set();
+ const deliverySelectors=['button','[role="button"]','[data-widget*="delivery" i]','[data-widget*="shipping" i]','[class*="delivery" i]','[aria-label*="доставка" i]'];
+ const months='января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря';
+ function addDelivery(label,days,method){
+  const key=label+'|'+method;if(seenDelivery.has(key))return;
+  seenDelivery.add(key);deliveryOptions.push({label,days,method});
+ }
+ for(const selector of deliverySelectors){
+  for(const el of Array.from(document.querySelectorAll(selector)).slice(0,130)){
+   const raw=(el.innerText||el.getAttribute('aria-label')||'').replace(/\s+/g,' ').trim().slice(0,320);
+   if(!raw||!/доставк|курьер|пункт.*выдач|постамат|самовывоз|в корзину|сегодня|завтра|послезавтра/i.test(raw))continue;
+   // A button is relevant only when it describes fulfillment of the current product.
+   if((selector==='button'||selector==='[role="button"]')&&!/в корзину|доставк|курьер|самовывоз/i.test(raw))continue;
+   const express=raw.match(/в корзину\s*(?:за\s*)(?:(\d+)\s*)?(час(?:а|ов)?|минут(?:у|ы)?)/i);
+   if(express)addDelivery('За '+(express[1]?express[1]+' ':'')+express[2],0,'Быстрое получение');
+   const re=new RegExp('(сегодня|завтра|послезавтра)(?:\\s*,?\\s*(\\d{1,2}\\s+(?:'+months+')))?(?:\\s*,?\\s*(?:с\\s*)?(\\d{1,2}:\\d{2}))?','gi');
+   for(const match of raw.matchAll(re)){
+    const word=match[1].toLowerCase();let label=word.charAt(0).toUpperCase()+word.slice(1);
+    if(match[2])label+=', '+match[2];if(match[3])label+=' с '+match[3];
+    const context=raw.slice(Math.max(0,match.index-65),match.index).toLowerCase();
+    const method=/пункт.*выдач|постамат/.test(context)?'Пункт выдачи':/курьер|express|экспресс/.test(context)?'Курьер':/в корзину/.test(context)?'Вариант заказа':'Доставка';
+    addDelivery(label,word==='сегодня'?0:word==='завтра'?1:2,method);
+   }
+   if(deliveryOptions.length>=12)break;
+  }
+  if(deliveryOptions.length>=12)break;
+ }
+ deliveryOptions.sort((a,b)=>(a.days??100)-(b.days??100));
+ const delivery=deliveryOptions[0]||null;
+ return {url:location.href,title:productTitle,documentTitle:document.title,text,links,priceBlocks:blocks,crossedOutPrices,structuredPrice,delivery,deliveryOptions,mainText:(main?.innerText||text).slice(0,3500)};
 }
 async function read(url,scroll){const id=await tabFor(url);if(scroll){await chrome.scripting.executeScript({target:{tabId:id},func:()=>scrollTo(0,document.body.scrollHeight*.55)});await sleep(700);}const data=await chrome.scripting.executeScript({target:{tabId:id},func:snapshot});const o=data?.[0]?.result;if(!o)throw new Error('Не удалось прочитать данные со страницы');return o;}
 function blocked(snap){const s=(snap.text||'').slice(0,3800).toLowerCase();return ['подозрительная активность','captcha-support@','похоже, нет соединения','докажите, что вы не робот','access denied','вы не робот'].some(x=>s.includes(x));}
@@ -155,7 +189,7 @@ async function scan(query,market){
   const skuMatch=/YNDX[-\s]?00059/i.test(card.title)&&/мини\s*3\s*про|mini\s*3\s*pro/i.test(query);
   if(!modelMatch&&!skuMatch){wrongModel++;continue;}
   for(const p of variants(card)){
-   result.offers.push({title:card.title,price:p.price,condition:p.condition,variant:p.kind,observed:true,verified:false,url:canonical(card.url),source:p.source,delivery:card.delivery||null});
+   result.offers.push({title:card.title,price:p.price,condition:p.condition,variant:p.kind,observed:true,verified:false,url:canonical(card.url),source:p.source,delivery:card.delivery||null,deliveryOptions:card.deliveryOptions||[]});
   }
  }
  result.diagnostic=`Просмотрено карточек: ${readCount}; кандидатов: ${candidates.length}; ошибочных моделей: ${wrongModel}; недоступных: ${blockedCount}.`;

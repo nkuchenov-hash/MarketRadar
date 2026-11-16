@@ -43,26 +43,29 @@ function uniq(all){
  }
  return out;
 }
-function deliveryLabel(o){return o.delivery?.label||'Не определён';}
+function deliveryLabel(o){return o.delivery?.label||o.deliveryOptions?.[0]?.label||'Не определён';}
+function deliveryChoices(o){const list=Array.isArray(o.deliveryOptions)&&o.deliveryOptions.length?o.deliveryOptions:o.delivery?[o.delivery]:[];return [...new Set(list.map(d=>(d.method?d.method+' — ':'')+d.label))].slice(0,4);}
 function rankDelivery(o){if(Number.isInteger(o.delivery?.days)&&o.delivery.days>=0)return o.delivery.days;return 99999;}
 function knownDelivery(o){return typeof o.delivery?.label==='string'&&o.delivery.label.length>0;}
 function selection(){const cond=$('payment-filter').value,shop=$('market-filter').value,sort=$('sort-filter').value;
  let result=uniq(offers);
- if(cond==='standard')result=result.filter(o=>['standard','other-banks'].includes(kind(o)));
+ if(cond==='standard')result=result.filter(o=>kind(o)==='standard');
+ if(cond==='other-banks')result=result.filter(o=>kind(o)==='other-banks');
+ if(cond==='unverified')result=result.filter(o=>kind(o)==='unverified');
  if(cond==='bank')result=result.filter(o=>kind(o)==='bank');
- if(cond==='no-bank')result=result.filter(o=>kind(o)!=='bank'&&kind(o)!=='subscription');
+ if(cond==='no-bank')result=result.filter(o=>kind(o)==='standard');
  if(shop!=='all')result=result.filter(o=>o.market===shop);
  if($('known-delivery').checked)result=result.filter(knownDelivery);
  return result.sort((a,b)=>sort==='delivery'?(rankDelivery(a)-rankDelivery(b)||a.price-b.price):sort==='market'?(a.market.localeCompare(b.market)||a.price-b.price):(a.price-b.price));
 }
-function priceConditions(o){if(kind(o)==='bank')return 'Цена с банковскими условиями';if(kind(o)==='other-banks')return 'Без специальной банковской цены';if(kind(o)==='subscription')return 'Цена с подпиской';if(kind(o)==='standard')return 'Обычная цена';return 'Условия цены не подтверждены';}
+function priceConditions(o){if(kind(o)==='bank')return 'Цена с банковскими условиями';if(kind(o)==='other-banks')return 'Цена с другими банками';if(kind(o)==='subscription')return 'Цена с подпиской';if(kind(o)==='standard')return 'Обычная цена';return 'Условия цены не подтверждены';}
 function card(o){
  const art=document.createElement('article');art.className='offer';
  const left=document.createElement('div');left.className='offer-main';
  const title=document.createElement('h4');txt(title,o.title);left.appendChild(title);
  const labels=document.createElement('div');labels.className='offer-tags';
  for(const value of [markets.find(x=>x[0]===o.market)?.[1]||o.market,priceConditions(o)]){const el=document.createElement('span');txt(el,value);if(kind(o)==='bank')el.className='tag-bank';labels.appendChild(el);}left.appendChild(labels);
- const shipping=document.createElement('p');shipping.className='shipping';txt(shipping,'Доставка: '+deliveryLabel(o)+(rankDelivery(o)===99999?' · срок не получен':''));left.appendChild(shipping);
+ const shipping=document.createElement('p');shipping.className='shipping';txt(shipping,deliveryChoices(o).length?'Варианты доставки/получения: '+deliveryChoices(o).join(' · '):'Доставка: срок не получен');left.appendChild(shipping);
  const note=document.createElement('p');note.className='offer-note';txt(note,'Цена считана со страницы; условия и итог в корзине не подтверждены.');left.appendChild(note);
  const right=document.createElement('div');right.className='offer-price';const price=document.createElement('strong');txt(price,rub(o.price));right.appendChild(price);
  const url=safeURL(o.url);if(url){const link=document.createElement('a');link.href=url;link.target='_blank';link.rel='noopener noreferrer';link.textContent='Открыть предложение →';right.appendChild(link);}
@@ -75,12 +78,12 @@ function render(){
  if(!visible.length){const blank=document.createElement('div');blank.className='empty';txt(blank,offers.length?'По выбранным критериям совпадений нет. Измените фильтры.':'Точных предложений пока нет.');container.appendChild(blank);}
  txt($('total'),`${visible.length} из ${unique.length} уникальных предложений`);
  const sum=$('summary');sum.replaceChildren();
- const all=unique.slice().sort((a,b)=>a.price-b.price),noBank=all.filter(o=>['standard','other-banks','unverified'].includes(kind(o))&&kind(o)!=='bank'),standard=all.filter(o=>['standard','other-banks'].includes(kind(o))),fast=all.filter(o=>rankDelivery(o)!==99999).sort((a,b)=>rankDelivery(a)-rankDelivery(b)||a.price-b.price);
+ const all=unique.slice().sort((a,b)=>a.price-b.price),otherBanks=all.filter(o=>kind(o)==='other-banks'),fast=all.filter(o=>rankDelivery(o)!==99999).sort((a,b)=>rankDelivery(a)-rankDelivery(b)||a.price-b.price);
  if(all.length){const o=all[0];sum.appendChild(summaryItem('Минимальная найденная цена',rub(o.price),`${markets.find(x=>x[0]===o.market)?.[1]||''} · ${priceConditions(o).toLowerCase()}`));}
  else sum.appendChild(summaryItem('Минимальная найденная цена','—','Точные предложения не обнаружены'));
- if(standard.length){const o=standard[0];sum.appendChild(summaryItem('Без банковских условий',rub(o.price),markets.find(x=>x[0]===o.market)?.[1]||''));}
- else sum.appendChild(summaryItem('Без банковских условий','—',noBank.length?'Есть цены с неподтверждёнными условиями':'Проверенных обычных цен нет'));
- if(fast.length){const o=fast[0];sum.appendChild(summaryItem('Самая быстрая указанная доставка',deliveryLabel(o),`${markets.find(x=>x[0]===o.market)?.[1]||''} · ${rub(o.price)}`));}
+ if(otherBanks.length){const o=otherBanks[0];sum.appendChild(summaryItem('Цена с другими банками',rub(o.price),`${markets.find(x=>x[0]===o.market)?.[1]||''} · условия в корзине не проверены`));}
+ else sum.appendChild(summaryItem('Цена с другими банками','—','Такая цена не найдена')); 
+ if(fast.length){const o=fast[0];sum.appendChild(summaryItem('Самое быстрое указанное получение',deliveryLabel(o),`${markets.find(x=>x[0]===o.market)?.[1]||''} · возможные варианты: ${deliveryChoices(o).join('; ')} · без подтверждения в корзине`));}
  else sum.appendChild(summaryItem('Сроки доставки','Не получены','Не подставляем предполагаемые даты'));
  for(const [m] of markets){
   const cheapest=all.filter(o=>o.market===m)[0],target=$('best-'+m);

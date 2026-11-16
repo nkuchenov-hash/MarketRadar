@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "MarketRadar — поиск цен",
-  "version": "1.6.0",
-  "description": "MarketRadar: проверка точных моделей, условий цен и доступных сроков доставки через ваш браузер.",
+  "version": "1.7.0",
+  "description": "MarketRadar: точные модели, реальные цены и варианты доставки из кнопок покупки и блоков получения.",
   "permissions": [
     "tabs",
     "scripting",

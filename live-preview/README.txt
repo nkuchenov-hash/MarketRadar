@@ -1,5 +1,4 @@
-MarketRadar v1.5 — browser-search testing site.
-The extension is downloaded from this page and installed once in Chrome or Yandex Browser.
-This is an integration test of browsing, not a verified commercial release or AI-agent search.
-The results must not claim a universal lowest price if any marketplace cannot be checked.
-Prices on pages may differ from basket prices; bank conditions are separate.
+MarketRadar v1.7 — browser-search test site.
+The browser extension reads the visible product price and delivery/fulfillment choices (including product purchase buttons).
+Displayed old/strikethrough list prices are excluded from purchasable offers.
+Marketplace coverage is incomplete and checkout prices are not guaranteed.

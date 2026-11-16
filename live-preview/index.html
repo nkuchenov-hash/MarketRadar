@@ -2,9 +2,9 @@
 <html lang="ru"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#0b162c"><title>MarketRadar — поиск лучшей цены</title>
-<link rel="stylesheet" href="./styles.css?v=1.6.1"></head>
+<link rel="stylesheet" href="./styles.css?v=1.7.0"></head>
 <body>
-<header><div class="wrap nav"><a href="./" class="brand"><span class="mark">M<span class="radar-dot"></span></span><b>MarketRadar</b></a><div class="nav-right"><span class="beta">Версия 1.6 · тест</span><span id="connection" class="connection">Проверяем браузер...</span></div></div></header>
+<header><div class="wrap nav"><a href="./" class="brand"><span class="mark">M<span class="radar-dot"></span></span><b>MarketRadar</b></a><div class="nav-right"><span class="beta">Версия 1.7 · тест</span><span id="connection" class="connection">Проверяем браузер...</span></div></div></header>
 <main class="wrap">
   <section class="intro"><div class="eyebrow">УМНЫЙ ПОИСК ПО МАРКЕТПЛЕЙСАМ</div><h1>Один товар.<br><span>Сравнение цен.</span></h1><p>Проверяем точную модель в Ozon, Wildberries и Яндекс Маркете через ваш браузер. Цены с банковскими условиями показываем отдельно.</p>
     <form id="search-form"><div class="search-wrap"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m16 16 5 5"/></svg><input id="query" required maxlength="160" autocomplete="off" value="Яндекс Станция Мини 3 Про" placeholder="Название или точная модель товара"></div><button class="primary" type="submit" id="go">Найти предложения <span>→</span></button></form>
@@ -19,13 +19,13 @@
     <div id="summary" class="summary" aria-live="polite"></div>
     <p class="analysis-note" id="analysis-note">Ожидаем результаты.</p>
     <div class="filters" aria-label="Критерии сравнения">
-      <label>Условия оплаты<select id="payment-filter"><option value="all">Все цены</option><option value="no-bank">Без обязательных банков и подписок</option><option value="standard">Только подтверждённые обычные</option><option value="bank">Только банковские</option></select></label>
+      <label>Условия оплаты<select id="payment-filter"><option value="all">Все цены</option><option value="bank">С указанными банками</option><option value="other-banks">С другими банками</option><option value="standard">Обычная цена (если подтверждена)</option><option value="unverified">Условия пока неизвестны</option></select></label>
       <label>Маркетплейс<select id="market-filter"><option value="all">Все площадки</option><option value="ozon">Ozon</option><option value="wb">Wildberries</option><option value="ym">Яндекс Маркет</option></select></label>
       <label>Сортировка<select id="sort-filter"><option value="price">Сначала дешевле</option><option value="delivery">Сначала быстрее доставка</option><option value="market">По площадке</option></select></label>
       <label class="check-filter"><input id="known-delivery" type="checkbox">Только с известной доставкой</label>
     </div>
     <div class="table-head"><h3>Предложения точной модели</h3><span id="total">0 предложений</span></div><div id="offers" class="offers"><div class="empty">Поиск ещё не запущен.</div></div>
   </section>
-</main><footer class="wrap"><span>MarketRadar · Версия 1.6 · тестовый поиск</span><span>Цены, скидки и наличие могут меняться. Перед покупкой сверяйте сумму в корзине.</span></footer>
-<div id="toast" class="toast" role="status" aria-live="polite" hidden></div><script src="./app.js?v=1.6.1" defer></script>
+</main><footer class="wrap"><span>MarketRadar · Версия 1.7 · тестовый поиск</span><span>Цены, скидки и наличие могут меняться. Перед покупкой сверяйте сумму в корзине.</span></footer>
+<div id="toast" class="toast" role="status" aria-live="polite" hidden></div><script src="./app.js?v=1.7.0" defer></script>
 </body></html>
