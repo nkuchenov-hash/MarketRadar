@@ -43,7 +43,7 @@ async function scan(query,market){if(!MARKET[market])return {state:'error',offer
 chrome.runtime.onMessage.addListener((message,sender,sendResponse)=>{
  if(message?.type!=='SCAN')return false;
  // Only accept requests from our published page bridge, never from marketplace tabs.
- if(!sender.tab||!sender.tab.url?.startsWith('https://nkuchenov-hash.github.io/MarketRadar/')){sendResponse({state:'error',offers:[],diagnostic:'Недопустимый источник'});return true;}
+ if(!sender.tab||!(sender.tab.url?.startsWith('https://nkuchenov-hash.github.io/MarketRadar/')||sender.tab.url?.startsWith('https://raw.githack.com/nkuchenov-hash/MarketRadar/main/live-preview/'))){sendResponse({state:'error',offers:[],diagnostic:'Недопустимый источник'});return true;}
  const q=String(message.query||'').trim().slice(0,160),m=message.market;
  if(q.length<3||!MARKET[m]){sendResponse({state:'error',offers:[],diagnostic:'Неверный поисковый запрос'});return true;}
  scan(q,m).then(sendResponse).catch(e=>sendResponse({state:'error',offers:[],diagnostic:String(e).slice(0,180)}));return true;

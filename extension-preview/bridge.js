@@ -1,6 +1,6 @@
 (()=>{
   'use strict';
-  if(location.hostname!=='nkuchenov-hash.github.io'||!location.pathname.startsWith('/MarketRadar/'))return;
+  if(!((location.hostname==='nkuchenov-hash.github.io'&&location.pathname.startsWith('/MarketRadar/'))||(location.hostname==='raw.githack.com'&&location.pathname.startsWith('/nkuchenov-hash/MarketRadar/main/live-preview/'))))return;
   const origin=location.origin;
   const send=(type,extra={})=>window.postMessage({__marketRadarExtension:true,type,...extra},origin);
   send('MR_CONNECTED');
