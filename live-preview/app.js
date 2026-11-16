@@ -2,6 +2,7 @@
 'use strict';
 const $=id=>document.getElementById(id);
 const mobileDevice=/Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+const androidDevice=/Android/i.test(navigator.userAgent);
 const markets=[['ozon','Ozon'],['wb','Wildberries'],['ym','Яндекс Маркет']];
 let connected=false,working=false,requestId=0,offers=[],states={},activeQuery="";
 let toastTimer=null;
@@ -31,19 +32,29 @@ function notify(msg){const t=$('toast');txt(t,msg);t.hidden=false;clearTimeout(t
 function connect(yes){
  if(mobileDevice){
   connected=false;
-  txt($('connection'),'Мобильный поиск: сервер не подключён');
+  txt($('connection'),androidDevice?'Android: приложение доступно':'Мобильный поиск пока недоступен');
   $('connection').classList.remove('connected');
   $('setup').hidden=false;
   const heading=$('setup').querySelector('h2');
-  if(heading)txt(heading,'Облачный поиск для телефона ещё не опубликован');
+  if(heading)txt(heading,androidDevice?'MarketRadar для Android — тестовая версия':'На iOS поиск пока не доступен');
   const p=$('setup').querySelector('p');
-  if(p)txt(p,'Для поиска с Android требуется облачный сервер MarketRadar. Этот адрес пока является браузерным тестом для ПК. Расширение не нужно устанавливать на телефон.');
+  if(p)txt(p,androidDevice?'Установите Android APK. Внутри приложения откройте Ozon, Wildberries и Яндекс Маркет и войдите на их официальных страницах. Вход может блокироваться магазинами; результаты поиска экспериментальные.':'Облачный поиск с телефона пока не запущен. Сейчас есть тестовое приложение для Android и браузерная версия для ПК.');
   const actions=$('setup').querySelector('.setup-actions');
-  if(actions)actions.hidden=true;
+  if(actions){
+   actions.hidden=!androidDevice;
+   actions.replaceChildren();
+   if(androidDevice){
+     const a=document.createElement('a');
+     a.className='primary install';
+     a.href='https://github.com/nkuchenov-hash/MarketRadar/releases/download/marketradar-android-0.1.0-preview/MarketRadar-Android-0.1.0-preview.apk';
+     a.textContent='Скачать MarketRadar для Android';
+     actions.appendChild(a);
+   }
+  }
   const steps=$('setup').querySelector('.setup-steps');
   if(steps)steps.hidden=true;
   $('go').disabled=true;
-  $('go').title='Облачный поиск не опубликован';
+  $('go').title='Поиск запускается в Android-приложении';
   return;
  }
  connected=!!yes;txt($('connection'),connected?'Расширение подключено':'Нужно расширение');$('connection').classList.toggle('connected',connected);$('setup').hidden=connected;$('go').title=connected?'Начать поиск':'Для поиска установите расширение';}
