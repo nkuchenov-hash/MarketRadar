@@ -26,6 +26,22 @@ public class CoreTest {
         assertEquals(11542,ScanEngine.readPrice(snippets));
         assertEquals(0,ScanEngine.readPrice(new JSONArray().put("Нет цены")));
     }
+    @Test public void cardPriceIsUsedOnlyWhenNotCashbackOrCredit() {
+        String card="Яндекс Станция Мини 3 Про\n11 542 ₽\n16 999 ₽\n" +
+            "133 ₽ кешбэк\n1 130 ₽ / мес\nДоставка завтра";
+        assertEquals(11542,ScanEngine.readCardPrice(card));
+        assertEquals(0,ScanEngine.readCardPrice("133 ₽ кешбэк\n1 130 ₽ / мес"));
+        assertEquals(0,ScanEngine.readCardPrice("Одна страница с товарами\n".repeat(45)));
+    }
+    @Test public void specificationsCannotOverridePayablePrice() throws Exception {
+        String q="Яндекс Станция Мини 3 Про";
+        JSONArray prices=new JSONArray()
+            .put(new org.json.JSONObject().put("amount",390).put("currency","RUB")
+                .put("productName",q).put("source","schema.org/PriceSpecification"))
+            .put(new org.json.JSONObject().put("amount",11900).put("currency","RUB")
+                .put("productName",q).put("source","schema.org/Offer"));
+        assertEquals(11900,ScanEngine.readStructuredPrice(prices,q,q));
+    }
     @Test public void onlyHttpsMarketplaceProducts() {
         Shop ozon=Shop.byId("ozon");
         assertTrue(ozon.productLink("https://www.ozon.ru/product/yndx-00059-123/"));
