@@ -408,20 +408,31 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         }
         bestPrice.setText(priced>0?
             NumberFormat.getNumberInstance(new Locale("ru","RU")).format(best)+" ₽":"—");
+        boolean includesListingPrice=false;
+        for(ScanEngine.Offer o:offers)
+            if(o.price>0&&o.note.startsWith("Цена из выдачи"))includesListingPrice=true;
         priceSummary.setText(priced>0?
-            "Минимальная цена из данных товара · условия оплаты не подтверждены":
+            (includesListingPrice?
+                "Минимум среди цен в выдаче и данных товара · итог в корзине не проверен":
+                "Минимальная цена из данных товара · условия оплаты не подтверждены"):
             "Нет цены, надёжно связанной с товаром");
         count.setText("Карточек точной модели: "+offers.size()+" · цен из данных товара: "+priced);
         StringBuilder states=new StringBuilder();
         for(Shop market:lastSelectedMarkets){
-            if(states.length()>0)states.append("\\n");
+            if(states.length()>0)states.append("\n");
             int shopMin=Integer.MAX_VALUE;
             for(ScanEngine.Offer o:offers)
                 if(o.shop.id.equals(market.id)&&o.price>0)shopMin=Math.min(shopMin,o.price);
             states.append(market.name).append(": ");
-            if(shopMin!=Integer.MAX_VALUE)
+            if(shopMin!=Integer.MAX_VALUE) {
+                boolean fromListing=false;
+                for(ScanEngine.Offer o:offers)
+                    if(o.shop.id.equals(market.id)&&o.price==shopMin&&
+                       o.note.startsWith("Цена из выдачи"))fromListing=true;
                 states.append(NumberFormat.getNumberInstance(new Locale("ru","RU")).format(shopMin))
-                    .append(" ₽ · условия не подтверждены");
+                    .append(fromListing?" ₽ · из выдачи, проверьте корзину":
+                        " ₽ · условия не подтверждены");
+            }
             else states.append("цена не подтверждена");
             if(!marketStates.containsKey(market.id))states.append(" · ожидает проверки");
             else if(shopMin==Integer.MAX_VALUE)
