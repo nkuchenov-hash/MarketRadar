@@ -136,4 +136,18 @@ public class CoreTest {
         assertEquals(11542,ScanEngine.compareCardAndListingPrice(0,11542));
         assertEquals(11899,ScanEngine.compareCardAndListingPrice(11899,0));
     }
+    @Test public void cardRedirectionMayChangeSlugButNotProductId() {
+        assertTrue(ScanEngine.sameProductPage(Shop.byId("ozon"),
+            "https://www.ozon.ru/product/old-title-2399149089/",
+            "https://www.ozon.ru/product/new-title-2399149089/?at=abc"));
+        assertFalse(ScanEngine.sameProductPage(Shop.byId("ozon"),
+            "https://www.ozon.ru/product/title-2399149089/",
+            "https://www.ozon.ru/product/title-2399149090/"));
+        assertTrue(ScanEngine.sameProductPage(Shop.byId("wb"),
+            "https://www.wildberries.ru/catalog/24599111/detail.aspx?targetUrl=EX",
+            "https://www.wildberries.ru/catalog/24599111/detail"));
+        assertFalse(ScanEngine.sameProductPage(Shop.byId("wb"),
+            "https://www.wildberries.ru/catalog/24599111/detail.aspx",
+            "https://www.wildberries.ru/catalog/0/search.aspx?search=mini"));
+    }
 }
