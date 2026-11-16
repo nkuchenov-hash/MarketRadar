@@ -17,8 +17,6 @@ services:
         value: /app/data/marketradar.sqlite3
       - key: MARKETRADAR_AI_PROVIDER
         value: api
-      - key: OPENAI_API_KEY
-        sync: false
       - key: MARKETRADAR_MODEL
         value: gpt-4.1-mini
       - key: FREE_SEARCHES
