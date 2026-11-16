@@ -1,4 +1,4 @@
-const preview='https://raw.githack.com/nkuchenov-hash/MarketRadar/main/live-preview/index.html';
+const preview='https://nkuchenov-hash.github.io/MarketRadar/';
 document.getElementById('open').addEventListener('click',()=>chrome.tabs.create({url:preview}));
 document.getElementById('check').addEventListener('click',async()=>{
  const diag=document.getElementById('diagnostic');

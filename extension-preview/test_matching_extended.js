@@ -25,3 +25,14 @@ assert.equal(run(`productURL('ym','https://market.yandex.ru/product--mini-3-pro/
 assert.equal(run(`safeURL('https://example.org/')`),false);
 assert.equal(run(`searchQueries('Яндекс Станция Мини 3 Про').includes('YNDX-00059')`),true);
 console.log('14 extended checks passed');
+// Guard against accessories that reproduce the full name of the compatible device.
+for(const misleading of [
+ 'Климатический модуль Яндекс для Станции Мини 3 Про, с Алисой (YNDX-00652)',
+ 'Модуль для Яндекс Станция Мини 3 Про',
+ 'Крепление для Яндекс Станция Мини 3 Про',
+ 'Чехол Яндекс Станция Мини 3 Про',
+ 'Яндекс Станция Мини 3',
+ 'Яндекс Станция 3 Про',
+])assert.equal(run(`scoreMatch("Яндекс Станция Мини 3 Про",${quote(misleading)})`),0,misleading);
+assert.equal(run(`scoreMatch("Яндекс Станция Мини 3 Про","Умная колонка Яндекс Станция Мини 3 Про с Алисой, Zigbee, 18 Вт")`),100);
+console.log('7 strict-model and accessory checks passed');

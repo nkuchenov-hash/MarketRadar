@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "MarketRadar — поиск цен",
-  "version": "1.5.0",
-  "description": "Фоновый поиск точных товаров на маркетплейсах в вашем авторизованном браузере. Пароли и cookies не собираются.",
+  "version": "1.6.0",
+  "description": "MarketRadar: проверка точных моделей, условий цен и доступных сроков доставки через ваш браузер.",
   "permissions": [
     "tabs",
     "scripting",

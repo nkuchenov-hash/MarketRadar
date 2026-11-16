@@ -9,12 +9,22 @@ const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 function safeURL(url){try{const u=new URL(url);return u.protocol==='https:'&&(u.hostname==='market.yandex.ru'||u.hostname==='ozon.ru'||u.hostname.endsWith('.ozon.ru')||u.hostname==='wildberries.ru'||u.hostname.endsWith('.wildberries.ru'))}catch{return false;}}
 function productURL(m,url){if(!safeURL(url))return false;try{const u=new URL(url);if(m==='ozon')return /\/product\/[^/]+/.test(u.pathname);if(m==='wb')return /\/catalog\/\d+\/detail\.aspx/.test(u.pathname);return /\/product--|\/product\/|\/card\//.test(u.pathname);}catch{return false;}}
 function canonical(url){try{const u=new URL(url);u.search='';u.hash='';return u.href;}catch{return url;}}
-function norm(s){return String(s||'').toLowerCase().replace(/ё/g,'е').replace(/mini/g,'мини').replace(/\bpro\b/g,'про').replace(/[^\p{L}\p{N}]+/gu,' ').trim().replace(/\s+/g,' ')}
-const DROP=new Set(['яндекс','колонка','умная','умный','с','для','от','на','в','и','черный','белый','синий','серый','подсветка','алиса','станция','бренд','звук','bluetooth','wifi','мощность','про']);
-function scoreMatch(query,title){const q=norm(query).split(' ').filter(Boolean),t=norm(title);if(!t)return 0;const ts=new Set(t.split(' '));const critical=q.filter(w=>/^\d+[a-zа-я]*$/u.test(w)||w==='про'||w==='мини'||w.length>=4&&!DROP.has(w));if(critical.some(w=>!ts.has(w)))return 0;
-  const matched=q.filter(w=>ts.has(w)).length;const coverage=matched/q.length;
-  if(/\b(чехол|крепление|защитный|модуль|кабель|запчасть|зарядное|кронштейн|держатель)\b/u.test(t)&&!/(чехол|крепление|модуль|кабель|запчасть)/.test(norm(query)))return 0;
-  return coverage>=.72?Math.round(coverage*100):0;
+function norm(s){return String(s||'').toLowerCase().replace(/ё/g,'е').replace(/\bmini\b/g,'мини').replace(/\bpro\b/g,'про').replace(/[^\p{L}\p{N}]+/gu,' ').trim().replace(/\s+/g,' ')}
+const ACCESSORY=/(?:^|\s)(?:климатическ[\p{L}]*|модул[\p{L}]*|датчик[\p{L}]*|чехол[\p{L}]*|креплен[\p{L}]*|кронштейн[\p{L}]*|держател[\p{L}]*|адаптер[\p{L}]*|кабел[\p{L}]*|насадк[\p{L}]*|подставк[\p{L}]*|корпус[\p{L}]*|аккумулятор[\p{L}]*|запчаст[\p{L}]*|зарядн[\p{L}]*|футляр[\p{L}]*|наклейк[\p{L}]*|пульт[\p{L}]*)(?:\s|$)/u;
+const IGNORE=new Set(['умная','умный','колонка','станция','яндекс','алиса','для','с','и','на','в','серый','черный','белый','синий','красный','зеленый','цвет','bluetooth','zigbee','вт','беспроводная','новый','оригинал']);
+function scoreMatch(query,title){
+ const q=norm(query),t=norm(title);if(!q||!t)return 0;
+ if(ACCESSORY.test(t)&&!ACCESSORY.test(q))return 0;
+ const miniPro=/(?:^|\s)мини\s*3\s*про(?:\s|$)/u.test(q)||/yndx\s*00059\b/u.test(q);
+ if(miniPro){
+   if(/yndx\s*00652|(?:^|\s)мини\s*3\s*(?:лайт|lite)(?:\s|$)/u.test(t))return 0;
+   return /(?:^|\s)мини\s*3\s*про(?:\s|$)/u.test(t)||/yndx\s*00059(?:blk|blu|gry|grn)?\b/u.test(t)?100:0;
+ }
+ const qt=q.split(' ').filter(w=>w.length>=3||/\d/.test(w)).filter(w=>!IGNORE.has(w));
+ if(!qt.length)return t.includes(q)?100:0;
+ const tt=new Set(t.split(' '));
+ if(qt.some(w=>/\d/.test(w)&&!tt.has(w)))return 0;
+ return Math.round(qt.filter(w=>tt.has(w)).length/qt.length*100);
 }
 function priceFragments(text){
  const found=[];
@@ -40,7 +50,7 @@ function variants(snap){
  // A price found somewhere in the body is not trustworthy: other products appear below the main offer.
  if(!combined.length && snap.structuredPrice){combined.push({price:Number(snap.structuredPrice),before:'',after:'',excerpt:'JSON-LD Product offer',source:'structured-product'});}
  if(!combined.length && (snap.mainText||'').length){
-   for(const p of priceFragments(snap.mainText.slice(0,1800)).slice(0,3))combined.push({...p,source:'main-product-area'});
+   for(const p of priceFragments(snap.mainText.slice(0,750)).slice(0,1))combined.push({...p,source:'main-product-area'});
  }
  const prices=[];const seen=new Set();
  for(const p of combined){
@@ -87,7 +97,20 @@ function snapshot(){
    for(const x of arr){if(!String(x?.['@type']||'').toLowerCase().includes('product'))continue;const offers=Array.isArray(x.offers)?x.offers[0]:x.offers;const n=Number(offers?.price);if(n>100&&n<20000000)structuredPrice=n;}
  }catch{}
  const main=document.querySelector('main,[role="main"],[data-widget="webProductHeading"]');
- return {url:location.href,title:productTitle,documentTitle:document.title,text,links,priceBlocks:blocks,structuredPrice,mainText:(main?.innerText||text).slice(0,3500)};
+ // Only extract a short date label from visible delivery widgets. Do not include addresses.
+ let delivery=null;
+ const deliverySelectors=['[data-widget*="delivery" i]','[data-widget*="shipping" i]','[class*="delivery" i]','[aria-label*="доставка" i]'];
+ outer:for(const selector of deliverySelectors){
+  for(const el of Array.from(document.querySelectorAll(selector)).slice(0,12)){
+   const raw=(el.innerText||el.getAttribute('aria-label')||'').replace(/\s+/g,' ').trim().slice(0,200);
+   if(!raw||!/доставк|курьер|привез|получит|сегодня|завтра|послезавтра/i.test(raw))continue;
+   const when=raw.match(/(послезавтра|завтра|сегодня)/i);
+   if(when){const token=when[1].toLowerCase();delivery={label:token.charAt(0).toUpperCase()+token.slice(1),days:token==='сегодня'?0:token==='завтра'?1:2};break outer;}
+   const date=raw.match(/(\d{1,2}\s+(?:января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря))/i);
+   if(date){delivery={label:date[1],days:null};break outer;}
+  }
+ }
+ return {url:location.href,title:productTitle,documentTitle:document.title,text,links,priceBlocks:blocks,structuredPrice,delivery,mainText:(main?.innerText||text).slice(0,3500)};
 }
 async function read(url,scroll){const id=await tabFor(url);if(scroll){await chrome.scripting.executeScript({target:{tabId:id},func:()=>scrollTo(0,document.body.scrollHeight*.55)});await sleep(700);}const data=await chrome.scripting.executeScript({target:{tabId:id},func:snapshot});const o=data?.[0]?.result;if(!o)throw new Error('Не удалось прочитать данные со страницы');return o;}
 function blocked(snap){const s=(snap.text||'').slice(0,3800).toLowerCase();return ['подозрительная активность','captcha-support@','похоже, нет соединения','докажите, что вы не робот','access denied','вы не робот'].some(x=>s.includes(x));}
@@ -132,7 +155,7 @@ async function scan(query,market){
   const skuMatch=/YNDX[-\s]?00059/i.test(card.title)&&/мини\s*3\s*про|mini\s*3\s*pro/i.test(query);
   if(!modelMatch&&!skuMatch){wrongModel++;continue;}
   for(const p of variants(card)){
-   result.offers.push({title:card.title,price:p.price,condition:p.condition,variant:p.kind,observed:true,verified:false,url:canonical(card.url),source:p.source});
+   result.offers.push({title:card.title,price:p.price,condition:p.condition,variant:p.kind,observed:true,verified:false,url:canonical(card.url),source:p.source,delivery:card.delivery||null});
   }
  }
  result.diagnostic=`Просмотрено карточек: ${readCount}; кандидатов: ${candidates.length}; ошибочных моделей: ${wrongModel}; недоступных: ${blockedCount}.`;
