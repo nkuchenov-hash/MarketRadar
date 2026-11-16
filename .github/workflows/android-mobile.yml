@@ -1,4 +1,4 @@
-name: MarketRadar Android native test APK
+name: MarketRadar Android verified upgrade APK
 on:
   push:
     branches: [main]
@@ -29,58 +29,77 @@ jobs:
           set -euo pipefail
           gradle -p android --no-daemon --console=plain testDebugUnitTest assembleRelease
           test -s android/app/build/outputs/apk/release/app-release-unsigned.apk
-      - name: Sign installable release APK with isolated test key
+      # Publishing a new random signing certificate would force users to uninstall
+      # and lose their Android WebView cookies. Do not publish incompatible APKs.
+      - name: Sign and verify upgrade compatibility with existing Android 0.1 installation
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MARKETRADAR_KEYSTORE_B64: ${{ secrets.MARKETRADAR_ANDROID_KEYSTORE_BASE64 }}
+          MARKETRADAR_STORE_PASS: ${{ secrets.MARKETRADAR_ANDROID_KEYSTORE_PASSWORD }}
+          MARKETRADAR_KEY_ALIAS: ${{ secrets.MARKETRADAR_ANDROID_KEY_ALIAS }}
+          MARKETRADAR_KEY_PASS: ${{ secrets.MARKETRADAR_ANDROID_KEY_PASSWORD }}
         run: |
           set -euo pipefail
-          mkdir -p dist
-          testpass="$(openssl rand -hex 24)"
-          keytool -genkeypair -noprompt -keystore /tmp/marketradar-preview.jks \
-            -storepass "$testpass" -keypass "$testpass" -alias markradar \
-            -keyalg RSA -keysize 3072 -validity 365 \
-            -dname "CN=MarketRadar Preview,O=Testing,C=US" >/dev/null 2>&1
+          if [[ -z "$MARKETRADAR_KEYSTORE_B64" || -z "$MARKETRADAR_STORE_PASS" || -z "$MARKETRADAR_KEY_ALIAS" || -z "$MARKETRADAR_KEY_PASS" ]]; then
+            echo "::error::Permanent Android signing secrets are not configured. Refusing to generate a one-time certificate that would wipe existing marketplace sessions on upgrade."
+            exit 1
+          fi
+          mkdir -p dist /tmp/market-previous
+          printf '%s' "$MARKETRADAR_KEYSTORE_B64" | base64 --decode > /tmp/marketradar-release.jks
+          chmod 600 /tmp/marketradar-release.jks
           sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
           signer="$(find "$sdk/build-tools" -maxdepth 2 -type f -name apksigner | sort -V | tail -1)"
           aapt="$(find "$sdk/build-tools" -maxdepth 2 -type f -name aapt | sort -V | tail -1)"
           test -x "$signer" && test -x "$aapt"
-          "$signer" sign --ks /tmp/marketradar-preview.jks \
-            --ks-key-alias markradar --ks-pass "pass:$testpass" \
-            --key-pass "pass:$testpass" \
-            --out dist/MarketRadar-Android-0.1.0-preview.apk \
+          "$signer" sign --ks /tmp/marketradar-release.jks \
+            --ks-key-alias "$MARKETRADAR_KEY_ALIAS" --ks-pass "env:MARKETRADAR_STORE_PASS" \
+            --key-pass "env:MARKETRADAR_KEY_PASS" \
+            --out dist/MarketRadar-Android-0.2.0.apk \
             android/app/build/outputs/apk/release/app-release-unsigned.apk
-          "$signer" verify --verbose dist/MarketRadar-Android-0.1.0-preview.apk
-          "$aapt" dump badging dist/MarketRadar-Android-0.1.0-preview.apk > /tmp/marketradar-apk-badging.txt
-          head -n 5 /tmp/marketradar-apk-badging.txt
-          grep -Fq "package: name='com.marketradar.mobile' versionCode='1' versionName='0.1.0'" /tmp/marketradar-apk-badging.txt
-          test -s dist/MarketRadar-Android-0.1.0-preview.apk
-          (cd dist && sha256sum MarketRadar-Android-0.1.0-preview.apk > SHA256SUMS.txt)
-          rm -f /tmp/marketradar-preview.jks
-      - name: Publish test APK
+          "$signer" verify --verbose dist/MarketRadar-Android-0.2.0.apk
+          "$aapt" dump badging dist/MarketRadar-Android-0.2.0.apk > /tmp/badging.txt
+          grep -Fq "package: name='com.marketradar.mobile' versionCode='2' versionName='0.2.0'" /tmp/badging.txt
+          # The 0.1.0 release was signed with an ephemeral certificate.
+          # No compatible upgrade is possible unless THAT original signing
+          # private key is recovered. Compare fingerprints before publishing.
+          gh release download marketradar-android-0.1.0-preview \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern 'MarketRadar-Android-0.1.0-preview.apk' \
+            --dir /tmp/market-previous
+          original="$( "$signer" verify --print-certs /tmp/market-previous/MarketRadar-Android-0.1.0-preview.apk | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -1)"
+          current="$( "$signer" verify --print-certs dist/MarketRadar-Android-0.2.0.apk | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -1)"
+          if [[ -z "$original" || -z "$current" || "$original" != "$current" ]]; then
+            echo "::error::APK signing certificate differs from the installed 0.1.0 release. Publishing is blocked to protect existing WebView sessions."
+            exit 1
+          fi
+          (cd dist && sha256sum MarketRadar-Android-0.2.0.apk > SHA256SUMS.txt)
+          rm -f /tmp/marketradar-release.jks
+
+      - name: Publish compatible upgrade only
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          tag=marketradar-android-0.1.0-preview
+          tag=marketradar-android-0.2.0
           cat > /tmp/notes.md <<'EOF'
-          # MarketRadar Android 0.1.0 — Test build
-          Native WebView session connection for Ozon, Wildberries and Yandex Market.
-          Search reads publicly rendered or logged-in product cards inside the Android application.
-          Credentials and cookies remain on the device; never transmitted to MarketRadar.
-          The WebView access and account login have **not been verified on a real phone**.
-          Price extraction is experimental and does not guarantee any lowest price.
-          IMPORTANT: preview release signed with an ephemeral test certificate. Next builds may require uninstalling this version and losing saved sessions. Do not use for important accounts until tested.
-          Requires Android 8.0+. Local Java unit tests and APK signature verification are run in CI.
+          # MarketRadar Android 0.2.0 — Search-first interface
+          Light blue search-first home screen, marketplace sessions in their own menu,
+          more honest structured product-specific price detection and search summary.
+          Only published when the release APK is signed with the SAME certificate as
+          the existing Android 0.1.0 APK. Updates do not uninstall app data.
+          Account login and exact marketplace prices still require testing on a real device.
           EOF
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release edit "$tag" --repo "$GITHUB_REPOSITORY" \
-              --title "MarketRadar Android 0.1.0 — Test APK" --notes-file /tmp/notes.md --prerelease
+              --title "MarketRadar Android 0.2.0" --notes-file /tmp/notes.md --prerelease
             gh release upload "$tag" --repo "$GITHUB_REPOSITORY" \
-              dist/MarketRadar-Android-0.1.0-preview.apk dist/SHA256SUMS.txt --clobber
+              dist/MarketRadar-Android-0.2.0.apk dist/SHA256SUMS.txt --clobber
           else
             gh release create "$tag" --repo "$GITHUB_REPOSITORY" \
-              dist/MarketRadar-Android-0.1.0-preview.apk dist/SHA256SUMS.txt \
-              --title "MarketRadar Android 0.1.0 — Test APK" --notes-file /tmp/notes.md --prerelease
+              dist/MarketRadar-Android-0.2.0.apk dist/SHA256SUMS.txt \
+              --title "MarketRadar Android 0.2.0" --notes-file /tmp/notes.md --prerelease
           fi
           gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets \
             --jq '.assets[] | [.name,.size] | @tsv'
