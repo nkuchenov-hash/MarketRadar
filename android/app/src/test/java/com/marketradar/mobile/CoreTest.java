@@ -57,4 +57,11 @@ public class CoreTest {
         assertEquals(0,ScanEngine.readStructuredPrice(data,query,query));
         assertFalse(ScanEngine.exact(query+" синий",query+" чёрный"));
     }
+    @Test public void distinctProductVariantsMustNotBeMixed() {
+        assertTrue(ScanEngine.exact("iPhone 16 Pro","Apple iPhone 16 Pro 256 ГБ"));
+        assertFalse(ScanEngine.exact("iPhone 16 Pro","Apple iPhone 16 Pro Max 256 ГБ"));
+        assertFalse(ScanEngine.exact("Samsung Galaxy S25","Samsung Galaxy S25 Ultra"));
+        assertFalse(ScanEngine.exact("Xiaomi 14","Xiaomi 14 Lite"));
+        assertTrue(ScanEngine.exact("iPhone 16 Pro Max","Apple iPhone 16 Pro Max"));
+    }
 }
