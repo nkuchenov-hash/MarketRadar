@@ -149,6 +149,9 @@ final class ScanEngine {
     }
     void onPageFinished(String url) {
         if(!running)return;
+        // A stale completion callback from a previous card must not be
+        // interpreted as a result for the card currently being loaded.
+        if(details&&!cleanUrl(url).equals(cleanUrl(expectedUrl)))return;
         int request=token;
         handler.postDelayed(() -> {
             if(running&&request==token) {
@@ -168,8 +171,9 @@ final class ScanEngine {
     }
     void onPageError(String url) {
         if(!running)return;
+        int request=token;
         handler.postDelayed(() -> {
-            if(running)failPage("Ошибка загрузки");
+            if(running&&request==token)failPage("Ошибка загрузки");
         },1500);
     }
     private void failPage(String message) {
