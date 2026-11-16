@@ -64,4 +64,24 @@ public class CoreTest {
         assertFalse(ScanEngine.exact("Xiaomi 14","Xiaomi 14 Lite"));
         assertTrue(ScanEngine.exact("iPhone 16 Pro Max","Apple iPhone 16 Pro Max"));
     }
+    @Test public void queryColorIsNotReplacedByDifferentVariant() {
+        assertTrue(ScanEngine.exact("Яндекс Станция Мини 3 Про синий",
+            "Яндекс Станция Мини 3 Про, синий (YNDX-00059BLU)"));
+        assertFalse(ScanEngine.exact("Яндекс Станция Мини 3 Про синий",
+            "Яндекс Станция Мини 3 Про, серый (YNDX-00059GRY)"));
+        assertFalse(ScanEngine.exact("Samsung Galaxy A56 синий",
+            "Samsung Galaxy A56 чёрный"));
+        assertTrue(ScanEngine.exact("Samsung Galaxy A56 синий",
+            "Samsung Galaxy A56 Blue"));
+        assertFalse(ScanEngine.exact("Samsung Galaxy A56 синий",
+            "Samsung Galaxy A56 Blue, Black"));
+    }
+    @Test public void usedItemsAreNotPassedOffAsNew() {
+        assertFalse(ScanEngine.exact("Samsung Galaxy A56 256 ГБ",
+            "Samsung Galaxy A56 256 ГБ восстановленный"));
+        assertFalse(ScanEngine.exact("Samsung Galaxy A56 256 ГБ",
+            "Samsung Galaxy A56 256 ГБ бу"));
+        assertTrue(ScanEngine.exact("Samsung Galaxy A56 256 ГБ",
+            "Samsung Galaxy A56 256 ГБ, оригинал"));
+    }
 }
