@@ -1,11 +1,37 @@
 {
- "manifest_version":3,
- "name":"MarketRadar · Browser Search Beta",
- "version":"1.4.0",
- "description":"Фоновый поиск точных товаров на маркетплейсах в вашем авторизованном браузере. Пароли и cookies не собираются.",
- "permissions":["tabs","scripting","windows"],
- "host_permissions":["https://*.ozon.ru/*","https://ozon.ru/*","https://*.wildberries.ru/*","https://wildberries.ru/*","https://market.yandex.ru/*"],
- "content_scripts":[{"matches":["https://nkuchenov-hash.github.io/MarketRadar/*","https://raw.githack.com/nkuchenov-hash/MarketRadar/main/live-preview/*"],"js":["bridge.js"],"run_at":"document_idle"}],
- "background":{"service_worker":"worker.js"},
- "action":{"default_title":"MarketRadar"}
+  "manifest_version": 3,
+  "name": "MarketRadar — поиск цен",
+  "version": "1.5.0",
+  "description": "Фоновый поиск точных товаров на маркетплейсах в вашем авторизованном браузере. Пароли и cookies не собираются.",
+  "permissions": [
+    "tabs",
+    "scripting",
+    "windows"
+  ],
+  "host_permissions": [
+    "https://*.ozon.ru/*",
+    "https://ozon.ru/*",
+    "https://*.wildberries.ru/*",
+    "https://wildberries.ru/*",
+    "https://market.yandex.ru/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://nkuchenov-hash.github.io/MarketRadar/*",
+        "https://raw.githack.com/nkuchenov-hash/MarketRadar/main/live-preview/*"
+      ],
+      "js": [
+        "bridge.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "background": {
+    "service_worker": "worker.js"
+  },
+  "action": {
+    "default_title": "MarketRadar — открыть поиск",
+    "default_popup": "popup.html"
+  }
 }

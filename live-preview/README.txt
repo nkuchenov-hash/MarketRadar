@@ -1,6 +1,5 @@
-MarketRadar — browser-only search preview.
-
-This is a test surface, NOT a commercial-ready service.
-It does not use AI APIs or claim an exhaustive market minimum.
-All search data is read locally by the companion Chrome/Yandex Browser extension.
-Do not include login credentials or cookies in bug reports.
+MarketRadar v1.5 — browser-search testing site.
+The extension is downloaded from this page and installed once in Chrome or Yandex Browser.
+This is an integration test of browsing, not a verified commercial release or AI-agent search.
+The results must not claim a universal lowest price if any marketplace cannot be checked.
+Prices on pages may differ from basket prices; bank conditions are separate.

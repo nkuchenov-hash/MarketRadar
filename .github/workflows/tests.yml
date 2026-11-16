@@ -14,3 +14,6 @@ jobs:
       - run: python -m pip install --upgrade pip
       - run: python -m pip install -r requirements.txt pytest
       - run: python -m pytest -q tests
+      - run: node extension-preview/test_match.js
+      - run: node extension-preview/test_matching_extended.js
+      - run: node --check extension-preview/worker.js && node --check extension-preview/bridge.js && node --check extension-preview/popup.js && node --check live-preview/app.js
