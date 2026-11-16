@@ -111,14 +111,17 @@ final class ScanEngine {
     private boolean details=false;
     private int maxCards=8, checkedMarket=0;
     private String expectedUrl="";
+    private List<Shop> activeMarkets=Shop.ALL;
 
     ScanEngine(WebView browser, Handler handler, Listener listener) {
         this.browser=browser;this.handler=handler;this.listener=listener;
     }
     boolean isRunning(){return running;}
-    void start(String q) { start(q,8); }
-    void start(String q,int limit) {
+    void start(String q) { start(q,8,Shop.ALL); }
+    void start(String q,int limit) { start(q,limit,Shop.ALL); }
+    void start(String q,int limit,List<Shop> markets) {
         stop();
+        activeMarkets=new ArrayList<>(markets);
         query=q.trim(); maxCards=Math.max(1,Math.min(12,limit)); running=true; marketIndex=0;checked=0;
         nextMarket();
     }
@@ -126,12 +129,12 @@ final class ScanEngine {
 
     private void nextMarket() {
         if(!running)return;
-        if(marketIndex>=Shop.ALL.size()) {
+        if(marketIndex>=activeMarkets.size()) {
             running=false;
             listener.done();
             return;
         }
-        shop=Shop.ALL.get(marketIndex++);
+        shop=activeMarkets.get(marketIndex++);
         candidates.clear();seen.clear();
         cardIndex=0;details=false;checkedMarket=0;expectedUrl="";
         listener.status(shop,"Ищем точную модель…");
