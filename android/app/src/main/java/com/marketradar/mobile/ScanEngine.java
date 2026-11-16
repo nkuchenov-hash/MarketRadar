@@ -372,6 +372,19 @@ final class ScanEngine {
         for(String term:terms){
             if(term.length()<3&&!term.matches(".*[0-9].*"))continue;
             required++;
+            boolean isColor=false,matchedColor=false;
+            for(String[] group:colorNames){
+                boolean alias=false;
+                for(String word:group)if(word.equals(term))alias=true;
+                if(alias){
+                    isColor=true;
+                    for(String word:group)
+                        if(titleWords.contains(word)||t.contains("00059"+word))
+                            matchedColor=true;
+                    break;
+                }
+            }
+            if(isColor){if(matchedColor)ok++;else return false;continue;}
             if(term.matches(".*[0-9].*")&&!all.contains(term))return false;
             if(all.contains(term))ok++;
         }
