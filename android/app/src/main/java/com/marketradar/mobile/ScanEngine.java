@@ -6,6 +6,9 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 import org.json.JSONTokener;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
@@ -213,28 +216,50 @@ final class ScanEngine {
         else readSearch(data);
     }
     private void readSearch(JSONObject data) {
-        JSONArray links=data.optJSONArray("links");
-        if(links!=null){
-            for(int i=0;i<links.length();i++){
-                JSONObject candidate=links.optJSONObject(i);
-                if(candidate==null)continue;
-                String url=candidate.optString("url","");
-                String title=candidate.optString("title","");
-                String context=candidate.optString("context","");
-                if(shop.productLink(url)&&(exact(query,title)||
-                     (title.length()<8&&exact(query,context)))&&seen.add(cleanUrl(url))){
-                    candidates.add(new Candidate(cleanUrl(url),readCardPrice(context)));
-                }
-                if(candidates.size()>=maxCards)break;
-            }
-        }
+        candidates.clear();
+        candidates.addAll(selectCandidates(data.optJSONArray("links"),shop,query,maxCards));
         if(candidates.isEmpty()){
             listener.status(shop,"Точные карточки не обнаружены — это не значит, что товара нет");
             nextMarket();return;
         }
         details=true;
-        listener.status(shop,"Найдено "+candidates.size()+" карточек. Проверяем цены…");
+        listener.status(shop,"Отобрано "+candidates.size()+" карточек из выдачи. Проверяем товар…");
         nextCandidate();
+    }
+
+    /**
+     * Do not just take the first N links in DOM order. Marketplaces show sponsored
+     * cards and unrelated recommendations before the cheaper matching products.
+     * Retain every exact-model product candidate, prefer cheaper listed offers,
+     * then visit each selected product page to validate model and URL.
+     */
+    static ArrayList<Candidate> selectCandidates(JSONArray links,Shop shop,String query,int maxCards){
+        Map<String,Candidate> unique=new LinkedHashMap<>();
+        if(links==null||shop==null)return new ArrayList<>();
+        for(int i=0;i<links.length();i++){
+            JSONObject item=links.optJSONObject(i);
+            if(item==null)continue;
+            String url=item.optString("url","");
+            if(!shop.productLink(url))continue;
+            String title=item.optString("title","").trim();
+            String context=item.optString("context","").trim();
+            // Link text like 'Открыть' may require using its containing card.
+            // The product page is always rechecked for the precise model.
+            if(!exact(query,title) && !(title.length()<8&&exact(query,context)))continue;
+            String clean=cleanUrl(url);
+            int listingPrice=readCardPrice(context);
+            Candidate previous=unique.get(clean);
+            if(previous==null || (listingPrice>0 && (previous.listingPrice==0 ||
+               listingPrice<previous.listingPrice))){
+                unique.put(clean,new Candidate(clean,listingPrice));
+            }
+        }
+        ArrayList<Candidate> ordered=new ArrayList<>(unique.values());
+        ordered.sort(Comparator.comparingInt(c->c.listingPrice==0?
+            Integer.MAX_VALUE:c.listingPrice));
+        if(ordered.size()>maxCards)
+            return new ArrayList<>(ordered.subList(0,maxCards));
+        return ordered;
     }
     private void nextCandidate() {
         if(!running)return;
@@ -254,12 +279,18 @@ final class ScanEngine {
             if(exact(query,title)){
                 int detailPrice=readStructuredPrice(data.optJSONArray("structuredPrices"),query,title);
                 int listingPrice=candidates.get(cardIndex-1).listingPrice;
-                int price=detailPrice>0&&listingPrice>0?Math.min(detailPrice,listingPrice):
-                          detailPrice>0?detailPrice:listingPrice;
+                // A drastically cheaper listing amount is frequently a financing
+                // teaser, an accessory, or a different card in the DOM. Do not
+                // replace a product-page price with a suspiciously low amount.
+                int safeListing=(listingPrice>0 &&
+                    (detailPrice==0 || listingPrice>=detailPrice*0.65))?
+                    listingPrice:0;
+                int price=detailPrice>0&&safeListing>0?Math.min(detailPrice,safeListing):
+                          detailPrice>0?detailPrice:safeListing;
                 String note;
-                if(price>0&&listingPrice>0&&listingPrice<detailPrice)
+                if(price>0&&safeListing>0&&safeListing<detailPrice)
                     note="Цена из выдачи · в данных товара "+detailPrice+" ₽ · проверяйте корзину";
-                else if(price>0&&listingPrice>0&&detailPrice==0)
+                else if(price>0&&safeListing>0&&detailPrice==0)
                     note="Цена из выдачи · товар совпадает · корзина не проверена";
                 else if(price>0&&detailPrice>0)
                     note="Цена из данных товара · условия карты и доставки не проверены";
