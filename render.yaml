@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: marketradar-online
+    runtime: docker
+    plan: starter
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    autoDeployTrigger: checksPass
+    disk:
+      name: marketradar-data
+      mountPath: /app/data
+      sizeGB: 1
+    envVars:
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: DB_PATH
+        value: /app/data/marketradar.sqlite3
+      - key: MARKETRADAR_AI_PROVIDER
+        value: api
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: MARKETRADAR_MODEL
+        value: gpt-4.1-mini
+      - key: FREE_SEARCHES
+        value: "3"
+      - key: PAID_SEARCHES_PER_MONTH
+        value: "100"

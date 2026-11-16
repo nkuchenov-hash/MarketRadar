@@ -1,0 +1,31 @@
+{
+  "manifest_version": 3,
+  "name": "MarketRadar · Персональный браузер",
+  "version": "1.3.0",
+  "description": "Сравнение цен с вашего разрешения через авторизованный браузер. Сервис не получает пароли и cookies.",
+  "permissions": [
+    "storage",
+    "tabs",
+    "scripting",
+    "alarms",
+    "windows"
+  ],
+  "host_permissions": [
+    "https://ozon.ru/*",
+    "https://*.ozon.ru/*",
+    "https://wildberries.ru/*",
+    "https://*.wildberries.ru/*",
+    "https://market.yandex.ru/*",
+    "https://*.market.yandex.ru/*",
+    "http://127.0.0.1/*"
+  ],
+  "optional_host_permissions": [
+    "https://*/*"
+  ],
+  "background": {
+    "service_worker": "worker.js"
+  },
+  "action": {
+    "default_popup": "popup.html"
+  }
+}
