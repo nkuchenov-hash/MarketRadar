@@ -283,4 +283,47 @@ public class CoreTest {
         assertFalse(ScanEngine.isNextSearchPage(Shop.byId("ozon"),
             "https://example.com/search/?text=mini",visited));
     }
+    @Test public void priceFrontierLowersTargetOnEveryObservedBatch() {
+        DynamicPriceFrontier frontier=new DynamicPriceFrontier();
+        assertEquals(0,frontier.observedCeiling());
+        frontier.observe(12000);
+        frontier.observe(13000);
+        frontier.observe(14000);
+        assertEquals(12000,frontier.observedCeiling());
+        frontier.observe(11000);
+        assertEquals(11000,frontier.observedCeiling());
+        assertEquals(0,frontier.confirmedCeiling());
+    }
+
+    @Test public void unconfirmedLowListingMustNotHideRealFallback() {
+        DynamicPriceFrontier frontier=new DynamicPriceFrontier();
+        java.util.ArrayList<ScanEngine.Candidate> candidates=new java.util.ArrayList<>();
+        candidates.add(new ScanEngine.Candidate("https://www.ozon.ru/product/pro-2000001/",12000));
+        candidates.add(new ScanEngine.Candidate("https://www.ozon.ru/product/pro-2000002/",13000));
+        candidates.add(new ScanEngine.Candidate("https://www.ozon.ru/product/pro-2000003/",14000));
+        frontier.observe(12000);
+        assertEquals(1,DynamicPriceFrontier.nextUnpruned(candidates,1,frontier));
+        // The 12,000 ₽ teaser turned out to be an accessory: no hard ceiling.
+        assertEquals(0,frontier.confirmedCeiling());
+        assertEquals(1,DynamicPriceFrontier.nextUnpruned(candidates,1,frontier));
+        // Only after model + product page verify can the expensive cards be deferred.
+        frontier.confirm(12000);
+        assertEquals(3,DynamicPriceFrontier.nextUnpruned(candidates,1,frontier));
+    }
+
+    @Test public void cheaperListingStillQualifiesAfterTrustedPrice() {
+        DynamicPriceFrontier frontier=new DynamicPriceFrontier();
+        frontier.observe(12000);
+        frontier.confirm(12000);
+        assertTrue(frontier.deferHigher(14000));
+        assertFalse(frontier.deferHigher(11542));
+        assertFalse(frontier.deferHigher(12000));
+        frontier.observe(11000);
+        frontier.confirm(11000);
+        assertTrue(frontier.deferHigher(11542));
+        assertEquals(11000,frontier.confirmedCeiling());
+        frontier.reset();
+        assertEquals(0,frontier.confirmedCeiling());
+        assertFalse(frontier.deferHigher(14000));
+    }
 }
