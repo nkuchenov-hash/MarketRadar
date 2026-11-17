@@ -34,6 +34,7 @@ final class ParallelScanCoordinator {
     private final WebView primaryBrowser;
     private final Handler handler;
     private final ScanEngine.Listener listener;
+    private final DynamicPriceFrontier frontier=new DynamicPriceFrontier();
     private final List<Worker> workers=new ArrayList<>();
     private final Map<WebView,Worker> byBrowser=new IdentityHashMap<>();
     private boolean running=false;
@@ -63,6 +64,12 @@ final class ParallelScanCoordinator {
         }
         @Override public void offer(ScanEngine.Offer offer){
             if(isCurrent(this))listener.offer(offer);
+        }
+        @Override public void assess(ScanEngine.Offer offer,
+                java.util.function.Consumer<Boolean> verdict){
+            if(isCurrent(this))
+                listener.assess(offer,answer->verdict.accept(
+                    isCurrent(this)?answer:Boolean.FALSE));
         }
         @Override public void done(){
             if(!isCurrent(this)||finished)return;
@@ -113,6 +120,7 @@ final class ParallelScanCoordinator {
         workersInSearch=markets.size();
         wasTimeLimited=false;
         coverageIncomplete=false;
+        frontier.reset();
         ensureWorkers(markets.size());
         // Launch all shop searches without waiting for another store to finish.
         for(int index=0;index<markets.size();index++){
@@ -122,6 +130,7 @@ final class ParallelScanCoordinator {
             worker.finished=false;
             worker.lastStatus="";
             worker.startedAt=android.os.SystemClock.elapsedRealtime();
+            worker.scan.setPriceFrontier(frontier);
             worker.scan.start(query,maxCards,
                 java.util.Collections.singletonList(worker.shop));
         }
