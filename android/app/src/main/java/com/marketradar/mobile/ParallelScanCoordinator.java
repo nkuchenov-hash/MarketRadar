@@ -38,6 +38,7 @@ final class ParallelScanCoordinator {
     private final Map<WebView,Worker> byBrowser=new IdentityHashMap<>();
     private boolean running=false;
     private boolean wasTimeLimited=false;
+    private boolean coverageIncomplete=false;
     private int generation=0;
     private int completed=0;
 
@@ -68,8 +69,11 @@ final class ParallelScanCoordinator {
             finished=true;
             completed++;
             wasTimeLimited|=scan.wasTimeLimited();
+            coverageIncomplete|=scan.coverageIncomplete();
             long duration=(android.os.SystemClock.elapsedRealtime()-startedAt)/1000L;
-            String diagnostic="Проверка завершена за "+duration+" с";
+            String diagnostic=(scan.coverageIncomplete()?
+                "Выдача проверена не полностью":"Доступная выдача просмотрена")+
+                " · "+duration+" с";
             if(!lastStatus.isBlank())diagnostic+=" · "+lastStatus;
             listener.status(shop,diagnostic);
             if(completed==workersInSearch){
@@ -96,6 +100,7 @@ final class ParallelScanCoordinator {
     }
     boolean isRunning(){return running;}
     boolean wasTimeLimited(){return wasTimeLimited;}
+    boolean coverageIncomplete(){return coverageIncomplete;}
     void start(String query,int maxCards,List<Shop> markets){
         stop();
         if(markets==null||markets.isEmpty()){
@@ -107,6 +112,7 @@ final class ParallelScanCoordinator {
         completed=0;
         workersInSearch=markets.size();
         wasTimeLimited=false;
+        coverageIncomplete=false;
         ensureWorkers(markets.size());
         // Launch all shop searches without waiting for another store to finish.
         for(int index=0;index<markets.size();index++){
