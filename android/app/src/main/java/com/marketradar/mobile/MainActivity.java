@@ -63,6 +63,9 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
     private ParallelScanCoordinator engine;
     private EditText queryInput;
     private Button searchButton;
+    private EditText deliveryDaysInput, discountPercentInput;
+    private CheckBox allowLateDiscount;
+    private DeliveryPolicy deliveryPolicy=DeliveryPolicy.standard();
     private TextView progress, count, loginCaption;
     private SharedPreferences prefs;
     private boolean loginMode=false;
@@ -229,8 +232,40 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
             marketsRow.addView(cb,new LinearLayout.LayoutParams(0,dp(42),1));
         }
         add(filterPanel,marketsRow,-1,-2);
+        gap(filterPanel,12);
+        add(filterPanel,text("Доставка максимум за сколько дней?",13,TEXT,true),-1,24);
+        deliveryDaysInput=new EditText(this);
+        deliveryDaysInput.setSingleLine(true);
+        deliveryDaysInput.setTextSize(16);
+        deliveryDaysInput.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+        deliveryDaysInput.setTextColor(TEXT);
+        deliveryDaysInput.setBackground(bg(SURFACE,13,BORDER));
+        deliveryDaysInput.setPadding(dp(13),0,dp(13),0);
+        deliveryDaysInput.setText(Integer.toString(prefs.getInt("delivery_days",3)));
+        add(filterPanel,deliveryDaysInput,-1,45);
         gap(filterPanel,8);
-        add(filterPanel,text("Проверяем все доступные предложения каждой площадки",12,MUTED,false),-1,-2);
+        allowLateDiscount=new CheckBox(this);
+        allowLateDiscount.setText("Допускать долгую доставку со скидкой");
+        allowLateDiscount.setTextSize(13);
+        allowLateDiscount.setTextColor(TEXT);
+        allowLateDiscount.setButtonTintList(ColorStateList.valueOf(ACCENT));
+        allowLateDiscount.setChecked(prefs.getBoolean("delivery_late_discount",false));
+        add(filterPanel,allowLateDiscount,-1,45);
+        add(filterPanel,text("Минимальная скидка относительно лучшей быстрой доставки, %",12,MUTED,false),-1,-2);
+        discountPercentInput=new EditText(this);
+        discountPercentInput.setSingleLine(true);
+        discountPercentInput.setTextSize(16);
+        discountPercentInput.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+        discountPercentInput.setTextColor(TEXT);
+        discountPercentInput.setBackground(bg(SURFACE,13,BORDER));
+        discountPercentInput.setPadding(dp(13),0,dp(13),0);
+        discountPercentInput.setText(Integer.toString(prefs.getInt("late_discount_percent",15)));
+        discountPercentInput.setEnabled(allowLateDiscount.isChecked());
+        allowLateDiscount.setOnCheckedChangeListener((v,checked)->
+            discountPercentInput.setEnabled(checked));
+        add(filterPanel,discountPercentInput,-1,45);
+        gap(filterPanel,10);
+        add(filterPanel,text("Поиск просматривает доступную выдачу целиком; цены и сроки без проверки корзины предварительные.",12,MUTED,false),-1,-2);
         add(page,filterPanel,-1,-2);
         settingsButton.setOnClickListener(v->{
             filtersVisible=!filtersVisible;
@@ -419,6 +454,12 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
                 });
             }).show();
     }
+    private int boundedField(EditText field,int fallback,int min,int max){
+        try{
+            return Math.max(min,Math.min(max,
+                Integer.parseInt(field.getText().toString().trim())));
+        }catch(Exception ignored){return fallback;}
+    }
     private void beginSearch(){
         if(engine.isRunning()||aiChecking){
             aiGeneration++;
@@ -446,6 +487,16 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
                 .setPositiveButton("ОК",null).show();
             return;
         }
+        int days=boundedField(deliveryDaysInput,3,0,90);
+        int discount=boundedField(discountPercentInput,15,1,90);
+        boolean allowSlow=allowLateDiscount.isChecked();
+        deliveryDaysInput.setText(Integer.toString(days));
+        discountPercentInput.setText(Integer.toString(discount));
+        prefs.edit().putInt("delivery_days",days)
+            .putInt("late_discount_percent",discount)
+            .putBoolean("delivery_late_discount",allowSlow).apply();
+        deliveryPolicy=new DeliveryPolicy(days,allowSlow,discount,
+            java.time.LocalDate.now());
         ++aiGeneration;
         lastSelectedMarkets=chosen;
         setAccountsVisible(false);
@@ -457,7 +508,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         count.setVisibility(View.GONE);
         searchButton.setText("Остановить");
         progress.setText("Поиск…");
-        engine.start(q,Integer.MAX_VALUE,chosen);
+        engine.start(q,Integer.MAX_VALUE,chosen,deliveryPolicy);
     }
     @Override public void status(Shop shop,String state){
         runOnUiThread(()->{
@@ -504,35 +555,52 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
     private String rubles(int amount){
         return NumberFormat.getNumberInstance(new Locale("ru","RU")).format(amount)+" ₽";
     }
-    private void updateSummary(){
-        ScanEngine.Offer bestOffer=null;
+    private int bestTimelyPrice(){
+        int best=Integer.MAX_VALUE;
         for(ScanEngine.Offer o:offers){
-            if(o.price>0&&(bestOffer==null||o.price<bestOffer.price))bestOffer=o;
+            if(o.price>0&&deliveryPolicy.timely(o.deliveryHint))
+                best=Math.min(best,o.price);
         }
-        bestPrice.setText(bestOffer==null?"Нет подтверждённой цены":rubles(bestOffer.price));
-        bestPrice.setTextSize(bestOffer==null?17:31);
+        return best==Integer.MAX_VALUE?0:best;
+    }
+    private boolean qualifies(ScanEngine.Offer o,int timelyBest){
+        return deliveryPolicy.eligible(o.price,o.deliveryHint,timelyBest);
+    }
+    private void updateSummary(){
+        int timelyBest=bestTimelyPrice();
+        int minimum=Integer.MAX_VALUE;
+        for(ScanEngine.Offer o:offers)
+            if(qualifies(o,timelyBest))minimum=Math.min(minimum,o.price);
+        bestPrice.setText(minimum==Integer.MAX_VALUE?
+            "Нет цены с подтверждённой доставкой":rubles(minimum));
+        bestPrice.setTextSize(minimum==Integer.MAX_VALUE?16:31);
         StringBuilder states=new StringBuilder();
         for(Shop shop:lastSelectedMarkets){
             int marketMin=Integer.MAX_VALUE;
-            for(ScanEngine.Offer o:offers)
-                if(o.shop.id.equals(shop.id)&&o.price>0)
-                    marketMin=Math.min(marketMin,o.price);
+            boolean hasUnqualified=false;
+            for(ScanEngine.Offer o:offers)if(o.shop.id.equals(shop.id)){
+                if(qualifies(o,timelyBest))marketMin=Math.min(marketMin,o.price);
+                else hasUnqualified=true;
+            }
             if(states.length()>0)states.append("\n");
             states.append(shop.name).append("   ");
-            if(marketMin<Integer.MAX_VALUE)states.append(rubles(marketMin));
-            else {
+            if(marketMin<Integer.MAX_VALUE){
+                states.append(rubles(marketMin));
+            }else if(hasUnqualified){
+                states.append("срок доставки не подходит или неизвестен");
+            }else{
                 String detail=marketStates.get(shop.id);
                 if(detail==null)states.append("не проверен");
-                else if(detail.contains("Время проверки истекло")||
+                else if(detail.contains("Нет прогресса")||
                         detail.contains("не ответила")||
                         detail.contains("Ошибка загрузки"))
-                    states.append("не удалось завершить проверку");
+                    states.append("поиск прерван: нет ответа");
                 else if(detail.contains("ограничил доступ")||
                         detail.contains("Переадресация"))
                     states.append("доступ ограничен");
                 else if(detail.contains("отложено дорогих"))
-                    states.append("дороже найденного минимума");
-                else states.append("цена не подтверждена");
+                    states.append("отсеяны более дорогие предложения");
+                else states.append("нет подтверждённых предложений");
             }
         }
         marketProgress.setText(states.toString());
@@ -546,8 +614,13 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         report.append(java.text.DateFormat.getDateTimeInstance().format(new java.util.Date()));
         report.append("\nЗапрос: ").append(prefs.getString("last_query",""));
         report.append("\n").append(reason);
-        report.append("\nВремя браузера ограничено: ")
-              .append(engine.coverageIncomplete()?"да":"нет").append("\n");
+        report.append("\nВыдача проверена полностью: ")
+              .append(engine.coverageIncomplete()?"нет":"только доступные страницы").append("\n");
+        report.append("Доставка до ").append(deliveryPolicy.maxDays).append(" дней");
+        if(deliveryPolicy.allowSlowDiscount)
+            report.append("; исключение при скидке ").append(
+                deliveryPolicy.slowDiscountPercent).append("%");
+        report.append("\n");
         for(Shop shop:lastSelectedMarkets){
             report.append("\n").append(shop.name).append(": ");
             report.append(marketStates.containsKey(shop.id)?
@@ -570,7 +643,10 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         prefs.edit().putString("last_search_diagnostics",report.toString()).apply();
     }
     private void renderResults(){
-        offers.sort(Comparator.comparingInt(o->o.price==0?Integer.MAX_VALUE:o.price));
+        final int timelyBest=bestTimelyPrice();
+        offers.sort(Comparator
+            .comparingInt((ScanEngine.Offer o)->qualifies(o,timelyBest)?0:1)
+            .thenComparingInt(o->o.price==0?Integer.MAX_VALUE:o.price));
         results.removeAllViews();
         updateSummary();
         for(ScanEngine.Offer o:offers){
@@ -587,11 +663,14 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
             title.setMaxLines(3);
             title.setEllipsize(android.text.TextUtils.TruncateAt.END);
             add(card,title,-1,-2);
-            if(!o.deliveryHint.isBlank()){
-                gap(card,5);
-                add(card,text("Доставка из выдачи: "+o.deliveryHint+
-                    " · уточнить в магазине",12,MUTED,false),-1,-2);
-            }
+            gap(card,5);
+            String deliveryState=deliveryPolicy.days(o.deliveryHint)<0?
+                "Дата доставки неизвестна":
+                ("Доставка из выдачи: "+o.deliveryHint);
+            if(!qualifies(o,timelyBest))
+                deliveryState+=" · не включено в минимум";
+            else deliveryState+=" · уточнить в магазине";
+            add(card,text(deliveryState,12,MUTED,false),-1,-2);
             gap(card,5);
             String origin=o.note.startsWith("Цена из выдачи")?
                 "Цена из поиска · без проверки корзины":
