@@ -24,6 +24,7 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import org.json.JSONTokener;
+import org.json.JSONObject;
 import android.widget.Button;
 import android.widget.CheckBox;
 import android.content.res.ColorStateList;
