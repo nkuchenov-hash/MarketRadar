@@ -70,7 +70,7 @@ final class ScanEngine {
               const title=(a.getAttribute('title')||a.innerText||img?.alt||
                            a.getAttribute('aria-label')||'').trim().slice(0,300);
               const context=tileText(a);
-              links.push({url:url.href,title,context:context.slice(0,700)});
+              links.push({url:url.href,title,context:context.slice(0,650)});
             }
             return JSON.stringify({
               url:location.href,
@@ -170,6 +170,7 @@ final class ScanEngine {
     private int scrollPass=0;
     private boolean searchSampling=false;
     private int hydrationRetries=0;
+    private int detailHydrationRetries=0;
 
     ScanEngine(WebView browser, Handler handler, Listener listener) {
         this.browser=browser;this.handler=handler;this.listener=listener;
@@ -203,6 +204,7 @@ final class ScanEngine {
         cardIndex=0;details=false;checkedMarket=0;expectedUrl="";
         scrollPass=0;searchSampling=false;searchPool.clear();
         hydrationRetries=0;
+        detailHydrationRetries=0;
         listener.status(shop,"Ищем точную модель…");
         load(shop.searchUrl(query));
     }
@@ -294,6 +296,30 @@ final class ScanEngine {
         // only the first ten DOM links. Each candidate still needs its own
         // product page verification before it can become a visible offer.
         mergeSearchSnapshot(searchPool,data.optJSONArray("links"),shop,query);
+        // Marketplaces are SPAs. A page may finish loading before product
+        // cards are rendered; poll only when the relevant DOM is still empty.
+        if(searchPool.isEmpty() && hydrationRetries<5){
+            hydrationRetries++;
+            final int request=token;
+            handler.postDelayed(()->{
+                if(!running||request!=token||details)return;
+                browser.evaluateJavascript(SEARCH_SNAPSHOT,value->{
+                    if(!running||request!=token||details)return;
+                    try {
+                        Object decoded=new JSONTokener(value).nextValue();
+                        JSONObject snapshot=new JSONObject(String.valueOf(decoded));
+                        if(snapshot.has("error")){failPage("Не удалось прочитать выдачу");return;}
+                        if(!shop.allowed(snapshot.optString("url",""))){
+                            failPage("Магазин перенаправил выдачу");return;
+                        }
+                        readSearch(snapshot);
+                    }catch(Exception e){
+                        failPage("Не удалось прочитать выдачу");
+                    }
+                });
+            },330);
+            return;
+        }
         final int maxScrolls=maxCards<=12?3:8;
         if(scrollPass<maxScrolls){
             scrollPass++;
@@ -394,9 +420,31 @@ final class ScanEngine {
             nextMarket();return;
         }
         expectedUrl=candidates.get(cardIndex++).url;
+        detailHydrationRetries=0;
         load(expectedUrl);
     }
     private void readDetail(JSONObject data,String url) {
+        // A blank product heading often means hydration is still in progress.
+        // Reactively retry rather than sleeping a fixed second on EVERY card.
+        if(sameProductPage(shop,expectedUrl,url) &&
+           data.optString("heading","").isBlank() &&
+           detailHydrationRetries<4){
+            detailHydrationRetries++;
+            final int request=token;
+            handler.postDelayed(()->{
+                if(!running||request!=token||!details)return;
+                browser.evaluateJavascript(DETAIL_SNAPSHOT,value->{
+                    if(!running||request!=token||!details)return;
+                    try{
+                        Object decoded=new JSONTokener(value).nextValue();
+                        JSONObject snapshot=new JSONObject(String.valueOf(decoded));
+                        if(snapshot.has("error")){failPage("Не удалось прочитать товар");return;}
+                        readDetail(snapshot,snapshot.optString("url",""));
+                    }catch(Exception e){failPage("Не удалось прочитать товар");}
+                });
+            },330);
+            return;
+        }
         checked++;checkedMarket++;
         // Never report a price from a redirect or a different product URL.
         if(sameProductPage(shop,expectedUrl,url)){
