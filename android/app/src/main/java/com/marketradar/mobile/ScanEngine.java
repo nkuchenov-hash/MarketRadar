@@ -791,12 +791,16 @@ final class ScanEngine {
             if(title.isEmpty())title=data.optString("title","").trim();
             if(exact(query,title)){
                 int detailPrice=readStructuredPrice(data.optJSONArray("structuredPrices"),query,title);
-                int listingPrice=candidates.get(cardIndex-1).listingPrice;
-                // A drastically cheaper listing amount is frequently a financing
-                // teaser, an accessory, or a different card in the DOM. Do not
-                // replace a product-page price with a suspiciously low amount.
-                int safeListing=validListingPrice(detailPrice,listingPrice);
-                int price=compareCardAndListingPrice(detailPrice,listingPrice);
+                Candidate selected=candidates.get(cardIndex-1);
+                int listingPrice=selected.listingPrice;
+                // WB Wallet / verified promotional prices may be MUCH lower
+                // than the regular page price (e.g. 10 772 vs 19 640 RUB).
+                // These aren't necessarily financing teasers; payment conditions
+                // must survive the comparison and appear in the app.
+                int safeListing=validListingPrice(
+                    detailPrice,listingPrice,selected.priceCondition);
+                int price=compareCardAndListingPrice(
+                    detailPrice,listingPrice,selected.priceCondition);
                 String note;
                 if(price>0&&safeListing>0&&safeListing<detailPrice)
                     note="Цена из выдачи · в данных товара "+detailPrice+" ₽ · проверяйте корзину";
@@ -854,12 +858,24 @@ final class ScanEngine {
         return match.find()?match.group().trim():"";
     }
     static int validListingPrice(int pagePrice,int listingPrice){
+        return validListingPrice(pagePrice,listingPrice,"");
+    }
+    static int validListingPrice(int pagePrice,int listingPrice,
+                                 String priceCondition){
         if(listingPrice<=0)return 0;
+        // Explicit WB Wallet conditions explain otherwise extreme differences
+        // from standard prices. Financing and cashback amounts are filtered
+        // by readCardPrice before reaching this method.
+        if("с WB Кошельком".equals(priceCondition))return listingPrice;
         return pagePrice>0&&listingPrice<pagePrice*0.65?0:listingPrice;
     }
 
     static int compareCardAndListingPrice(int pagePrice,int listingPrice){
-        int listing=validListingPrice(pagePrice,listingPrice);
+        return compareCardAndListingPrice(pagePrice,listingPrice,"");
+    }
+    static int compareCardAndListingPrice(int pagePrice,int listingPrice,
+                                          String priceCondition){
+        int listing=validListingPrice(pagePrice,listingPrice,priceCondition);
         if(pagePrice>0&&listing>0)return Math.min(pagePrice,listing);
         return pagePrice>0?pagePrice:listing;
     }
