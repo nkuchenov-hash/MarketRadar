@@ -31,6 +31,12 @@ final class LocalModelVerifier {
     private final OrtEnvironment environment;
     private final OrtSession session;
     private final UnigramTokenizer tokenizer;
+    private final Map<String,Boolean> sessionDecisions=
+        new java.util.LinkedHashMap<String,Boolean>(256,0.75f,true){
+            @Override protected boolean removeEldestEntry(Map.Entry<String,Boolean> eldest){
+                return size()>1024;
+            }
+        };
 
     private LocalModelVerifier(Context context) throws Exception {
         Context app=context.getApplicationContext();
@@ -97,15 +103,20 @@ final class LocalModelVerifier {
         }
     }
 
-    boolean identical(String query,String title) throws Exception {
+    synchronized boolean identical(String query,String title) throws Exception {
         if(!ScanEngine.exact(query,title))return false;
+        String key=ScanEngine.norm(query)+"\u0001"+ScanEngine.norm(title);
+        Boolean cached=sessionDecisions.get(key);
+        if(cached!=null)return cached;
         String premise="В продаже: "+title+".";
         float same=entailment(premise,"Продаваемый предмет — это "+query+".");
         float accessory=entailment(premise,
             "Продаваемый предмет является аксессуаром или запчастью для "+query+".");
         float different=entailment(premise,
             "Продаваемый предмет является другим товаром, не "+query+".");
-        return ProductIdentityGate.confirms(query,title,same,accessory,different);
+        boolean accepted=ProductIdentityGate.confirms(query,title,same,accessory,different);
+        sessionDecisions.put(key,accepted);
+        return accepted;
     }
 
     static void verify(Context context,String query,List<ScanEngine.Offer> offers,
