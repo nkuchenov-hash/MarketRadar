@@ -331,4 +331,66 @@ public class CoreTest {
         assertEquals(0,frontier.confirmedCeiling());
         assertFalse(frontier.deferHigher(14000));
     }
+    @Test public void wildberriesTruncatedNameMustReachFullPageVerification() throws Exception {
+        String query="Яндекс Станция Мини 3 Про";
+        String url="https://www.wildberries.ru/catalog/123456789/detail.aspx";
+        // Realistic WB search tile: the visible name is abbreviated, while
+        // its product image identifies the requested Mini 3 Pro speaker.
+        JSONArray links=new JSONArray().put(new org.json.JSONObject()
+            .put("url",url)
+            .put("title","Умная колонка Станция Мини")
+            .put("imageAlt","Яндекс Станция Мини 3 Про")
+            .put("context","Умная колонка Станция Мини\\n11 316 ₽\\n20 ноября"));
+        assertFalse(ScanEngine.exact(query,"Умная колонка Станция Мини"));
+        java.util.ArrayList<ScanEngine.Candidate> found=
+            ScanEngine.selectCandidates(links,Shop.byId("wb"),query,12);
+        assertEquals(1,found.size());
+        assertEquals(11316,found.get(0).listingPrice);
+        assertEquals("20 ноября",found.get(0).deliveryHint);
+        assertTrue(ScanEngine.exact(query,
+            "Яндекс Станция Мини 3 Про 18 Вт Bluetooth Zigbee"));
+    }
+
+    @Test public void truncatedWbTitleShouldReachDetailEvenWithoutImageAlt() throws Exception {
+        String query="Яндекс Станция Мини 3 Про";
+        JSONArray links=new JSONArray()
+            .put(new org.json.JSONObject()
+                .put("url","https://www.wildberries.ru/catalog/987654321/detail.aspx")
+                .put("title","Умная колонка Станция Мини")
+                .put("context","Умная колонка Станция Мини\\n10 772 ₽\\n25 ноября"))
+            .put(new org.json.JSONObject()
+                .put("url","https://www.wildberries.ru/catalog/987654322/detail.aspx")
+                .put("title","Кейс для наушников")
+                .put("context","Кейс для наушников\\n2 200 ₽"));
+        java.util.ArrayList<ScanEngine.Candidate> found=
+            ScanEngine.selectCandidates(links,Shop.byId("wb"),query,10);
+        assertEquals(1,found.size());
+        assertEquals(10772,found.get(0).listingPrice);
+        // Must not confuse a candidate with a confirmed product.
+        assertFalse(ScanEngine.exact(query,"Умная колонка Станция Мини"));
+    }
+
+    @Test public void ozonPriceMustNotPruneWbPriceOrDeliveryVariants() {
+        DynamicPriceFrontier frontier=new DynamicPriceFrontier();
+        Shop ozon=Shop.byId("ozon"),wb=Shop.byId("wb");
+        frontier.configure(new DeliveryPolicy(3,false,15,
+            java.time.LocalDate.of(2026,11,18)));
+        assertTrue(frontier.confirm(12045,"21 ноября",ozon));
+        assertEquals(12045,frontier.confirmedCeiling());
+        java.util.ArrayList<ScanEngine.Candidate> wbOffers=new java.util.ArrayList<>();
+        wbOffers.add(new ScanEngine.Candidate(
+            "https://www.wildberries.ru/catalog/1000001/detail.aspx",11316,"20 ноября"));
+        wbOffers.add(new ScanEngine.Candidate(
+            "https://www.wildberries.ru/catalog/1000002/detail.aspx",13100,"20 ноября"));
+        wbOffers.add(new ScanEngine.Candidate(
+            "https://www.wildberries.ru/catalog/1000003/detail.aspx",10772,"25 ноября"));
+        assertEquals(0,DynamicPriceFrontier.nextUnpruned(wbOffers,0,frontier,wb));
+        // Even 13 100 on WB cannot be suppressed by Ozon's quote before
+        // WB page checks: WB may have an account-specific discounted price.
+        assertEquals(1,DynamicPriceFrontier.nextUnpruned(wbOffers,1,frontier,wb));
+        assertTrue(frontier.confirm(11316,"20 ноября",wb));
+        assertEquals(2,DynamicPriceFrontier.nextUnpruned(wbOffers,1,frontier,wb));
+        assertFalse(frontier.deferHigher(11316,"20 ноября",wb));
+        assertTrue(frontier.deferHigher(13100,"20 ноября",wb));
+    }
 }
