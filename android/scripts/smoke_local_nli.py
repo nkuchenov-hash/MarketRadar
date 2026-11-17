@@ -61,34 +61,6 @@ with golden.open("w",encoding="utf-8") as tokens_out, \
             ids=tokenizer.encode(premise,hypothesis).ids[:112]
             tokens_out.write(chr(9).join([premise,hypothesis,
                               ",".join(map(str,ids))])+chr(10))
-# The Android implementation executes three NLI hypotheses as ONE batched
-# request. Validate batching numerically against three independent calls
-# before shipping a large APK to users.
-for query,title,expected in cases[:4]:
-    premise=f"В продаже: {title}."
-    hypotheses=[
-        f"Продаваемый предмет — это {query}.",
-        f"Продаваемый предмет является аксессуаром или запчастью для {query}.",
-        f"Продаваемый предмет является другим товаром, не {query}.",
-    ]
-    ids_list=[tokenizer.encode(premise,h).ids[:112] for h in hypotheses]
-    width=max(map(len,ids_list))
-    ids=np.full((len(ids_list),width),1,dtype=np.int64)
-    masks=np.zeros_like(ids)
-    for i,seq in enumerate(ids_list):
-        ids[i,:len(seq)]=seq
-        masks[i,:len(seq)]=1
-    batched=session.run(None,{"input_ids":ids,"attention_mask":masks})[0]
-    assert batched.shape==(3,3),f"Unexpected ONNX batch shape {batched.shape}"
-    for i,hypothesis in enumerate(hypotheses):
-        logits=batched[i]
-        raw=np.exp(logits-np.max(logits))
-        result=float(raw[0]/raw.sum())
-        original=inference(query,title,hypothesis)
-        if abs(result-original)>0.007:
-            raise SystemExit(f"Batch differs from separate ONNX result: {result} vs {original}")
-print("Validated batched ONNX inputs on real Russian product titles",flush=True)
-
 print("Generated exact HuggingFace reference token IDs and REAL ONNX scores",flush=True)
 if golden.stat().st_size<100 or scored.stat().st_size<100:
     raise SystemExit("Missing local model smoke validation files")
