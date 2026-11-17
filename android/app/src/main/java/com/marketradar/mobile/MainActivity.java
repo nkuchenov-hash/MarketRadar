@@ -55,7 +55,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
     private ScrollView searchScroll, accountsScroll;
     private Button navButton, depthButton;
     private boolean accountsVisible=false, fastSearch=true, filtersVisible=false;
-    private TextView bestPrice, priceSummary, marketProgress, resultsHeading;
+    private TextView bestPrice, priceSummary, marketProgress, resultsHeading, bestPriceLabel;
     private LinearLayout summaryPanel, filterPanel;
     private final Map<String,String> marketStates=new HashMap<>();
     private final Map<String,CheckBox> marketChoices=new HashMap<>();
@@ -286,7 +286,8 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         gap(page,16);
         summaryPanel=panel();
         summaryPanel.setVisibility(View.GONE);
-        add(summaryPanel,text("Минимум среди найденных",14,MUTED,true),-1,22);
+        bestPriceLabel=text("Лучшая цена с подходящей доставкой",14,MUTED,true);
+        add(summaryPanel,bestPriceLabel,-1,24);
         gap(summaryPanel,4);
         bestPrice=text("—",31,TEXT,true);
         add(summaryPanel,bestPrice,-1,47);
@@ -504,6 +505,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
             .putBoolean("delivery_late_discount",allowSlow).apply();
         deliveryPolicy=new DeliveryPolicy(days,allowSlow,discount,
             java.time.LocalDate.now());
+        bestPriceLabel.setText("Лучшая цена · доставка до "+days+" дн.");
         ++aiGeneration;
         lastSelectedMarkets=chosen;
         setAccountsVisible(false);
@@ -659,7 +661,15 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
             .thenComparingInt(o->o.price==0?Integer.MAX_VALUE:o.price));
         results.removeAllViews();
         updateSummary();
+        int displayed=0;
+        int excludedLate=0;
         for(ScanEngine.Offer o:offers){
+            if(deliveryPolicy.days(o.deliveryHint)>deliveryPolicy.maxDays &&
+               !qualifies(o,timelyBest)){
+                excludedLate++;
+                continue;
+            }
+            displayed++;
             LinearLayout card=panel();
             LinearLayout heading=linear(LinearLayout.HORIZONTAL);
             heading.setGravity(Gravity.CENTER_VERTICAL);
@@ -695,6 +705,11 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
             add(results,card,-1,-2);
             gap(results,9);
         }
+        if(excludedLate>0){
+            add(results,text("Исключено из-за долгой доставки: "+
+                excludedLate,12,MUTED,false),-1,-2);
+        }
+        resultsHeading.setVisibility(displayed==0?View.GONE:View.VISIBLE);
     }
     @Override public void done(){
         runOnUiThread(()->{
