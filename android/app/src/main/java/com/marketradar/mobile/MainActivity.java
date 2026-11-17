@@ -694,7 +694,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
             .putBoolean("delivery_late_discount",allowSlow).apply();
         deliveryPolicy=new DeliveryPolicy(days,allowSlow,discount,
             java.time.LocalDate.now());
-        bestPriceLabel.setText("Лучшая цена · доставка до "+days+" дн.");
+        bestPriceLabel.setText("Минимум найденных · доставка до "+days+" дн.");
         ++aiGeneration;
         lastSelectedMarkets=chosen;
         setAccountsVisible(false);
@@ -800,7 +800,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
                         detail.contains("Нет прогресса"))
                     states.append("выдача не загрузилась полностью");
                 else if(detail.contains("отложено дорогих"))
-                    states.append("отсеяны более дорогие предложения");
+                    states.append("нет подтверждённой цены · см. отчёт");
                 else states.append("нет подтверждённых предложений");
             }
         }
@@ -922,7 +922,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
             }else{
                 progress.setText(engine.coverageIncomplete()?
                     "Показана лучшая проверенная цена среди доступных результатов":
-                    "Найден лучший проверенный вариант в доступной выдаче");
+                    "Предварительные цены найдены · корзина и персональные скидки не проверены");
             }
         });
     }
