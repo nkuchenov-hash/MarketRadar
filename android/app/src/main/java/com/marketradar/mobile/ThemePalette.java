@@ -13,7 +13,7 @@ final class ThemePalette {
         surface=dark?0xFF192639:0xFFFFFFFF;
         border=dark?0xFF30415A:0xFFDCE6F4;
         foreground=dark?0xFFF1F6FF:0xFF152844;
-        muted=dark?0xFFAFBFD5:0xFF647791;
+        muted=dark?0xFFAFBFD5:0xFF576A83;
         accent=dark?0xFF80ADFF:0xFF2369E8;
     }
 
