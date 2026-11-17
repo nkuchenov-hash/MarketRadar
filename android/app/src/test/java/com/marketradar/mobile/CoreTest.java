@@ -453,4 +453,19 @@ public class CoreTest {
         assertEquals("",ScanEngine.priceConditionForCard(
             "Яндекс Станция Мини 3 Про\\n12 045 ₽","",Shop.byId("wb")));
     }
+    @Test public void wildberriesWalletPromotionMayBeOverThirtyFivePercentBelowRegularPrice(){
+        // Real example supplied by user: 10 772 ₽ with WB Wallet,
+        // crossed-out 19 640 ₽. The old blanket 35% fraud heuristic
+        // incorrectly deleted a valid conditional marketplace price.
+        assertEquals(0,ScanEngine.validListingPrice(19640,10772));
+        assertEquals(10772,ScanEngine.validListingPrice(
+            19640,10772,"с WB Кошельком"));
+        assertEquals(10772,ScanEngine.compareCardAndListingPrice(
+            19640,10772,"с WB Кошельком"));
+        assertEquals(10893,ScanEngine.compareCardAndListingPrice(
+            19860,10893,"с WB Кошельком"));
+        assertEquals(19640,ScanEngine.compareCardAndListingPrice(19640,10772));
+        assertEquals(19640,ScanEngine.compareCardAndListingPrice(
+            19640,10772,""));
+    }
 }
