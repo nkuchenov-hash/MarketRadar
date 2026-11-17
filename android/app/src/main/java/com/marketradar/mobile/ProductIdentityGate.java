@@ -14,8 +14,14 @@ final class ProductIdentityGate {
 
     static boolean literalMatch(String query,String title){
         String wanted=ScanEngine.norm(query);
-        return !wanted.isBlank()&&wanted.equals(ScanEngine.norm(title))&&
-            ScanEngine.exact(query,title);
+        if(wanted.isBlank()||!ScanEngine.exact(query,title))return false;
+        String actual=ScanEngine.norm(title);
+        // A full requested model embedded in a longer retail heading
+        // ("Умная колонка ... 18 Вт") is a literal match as well.
+        // ScanEngine.exact rejects accessories, wrong model variants,
+        // wrong requested colors and used/refurbished devices first.
+        return actual.equals(wanted)||actual.startsWith(wanted+" ")||
+            actual.endsWith(" "+wanted)||actual.contains(" "+wanted+" ");
     }
 
     static boolean confirms(String query,String title,
