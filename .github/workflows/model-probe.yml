@@ -1,0 +1,31 @@
+name: probe local AI model compatibility
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: [.github/workflows/model-probe.yml]
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read external ONNX model metadata (no release)
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 2 --max-time 140 -o /tmp/tokenizer.json 'https://huggingface.co/onnx-community/multilingual-MiniLMv2-L6-mnli-xnli-ONNX/resolve/main/tokenizer.json'
+          python - <<'PY'
+          import json,hashlib,os
+          d=json.load(open('/tmp/tokenizer.json'))
+          model=d['model']
+          print('tokenizer bytes',os.path.getsize('/tmp/tokenizer.json'))
+          print('sha256',hashlib.sha256(open('/tmp/tokenizer.json','rb').read()).hexdigest())
+          print('model type',model.get('type'))
+          print('model fields',list(model))
+          print('normalizer',str(d.get('normalizer'))[:450])
+          print('pre_tokenizer',str(d.get('pre_tokenizer'))[:450])
+          print('post_processor',str(d.get('post_processor'))[:450])
+          print('special_tokens',str(d.get('added_tokens'))[:250])
+          vocab=model.get('vocab',{})
+          print('vocab entries',len(vocab))
+          print('vocab examples',str(list(vocab.items())[:8])[:900])
+          PY
