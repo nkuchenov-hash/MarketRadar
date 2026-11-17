@@ -251,13 +251,13 @@ public class CoreTest {
             .put(new org.json.JSONObject()
                 .put("url",link)
                 .put("title","Умная колонка Яндекс Станция Мини 3 Про")
-                .put("context","Умная колонка Яндекс Станция Мини 3 Про\\n"+
-                    "11 542 ₽\\nДоставка завтра"))
+                .put("context","Умная колонка Яндекс Станция Мини 3 Про\n"+
+                    "11 542 ₽\nДоставка завтра"))
             .put(new org.json.JSONObject()
                 .put("url",link)
                 .put("title","Умная колонка Яндекс Станция Мини 3 Про")
-                .put("context","Умная колонка Яндекс Станция Мини 3 Про\\n"+
-                    "11 899 ₽\\nДоставка 23 ноября"));
+                .put("context","Умная колонка Яндекс Станция Мини 3 Про\n"+
+                    "11 899 ₽\nДоставка 23 ноября"));
         java.util.Map<String,ScanEngine.Candidate> pool=new java.util.LinkedHashMap<>();
         ScanEngine.mergeSearchSnapshot(pool,listing,Shop.byId("ozon"),query);
         assertEquals(2,pool.size());
