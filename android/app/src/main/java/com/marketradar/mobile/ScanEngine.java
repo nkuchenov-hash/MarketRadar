@@ -44,16 +44,30 @@ final class ScanEngine {
               const r = e.getBoundingClientRect();
               return r.width > 0 && r.height > 0;
             };
-            const allLinks = [...document.querySelectorAll('a[href]')].slice(0, 1800);
             const links = [];
-            for (const a of allLinks) {
+            const pricePattern = /[0-9][0-9\\s\\u00a0\\u202f]*\\s*(?:₽|руб)/i;
+            // Find the SMALLEST self-contained product tile with a price.
+            // [data-widget] often encloses the whole result grid and would
+            // incorrectly attach a neighbour's discounted price to this link.
+            const tileText = a => {
+              let parent=a;
+              for(let level=0;level<8 && parent && parent!==body;level++,parent=parent.parentElement){
+                const value=(parent.innerText||'').trim();
+                if(value.length>20 && value.length<=650 && pricePattern.test(value) &&
+                  (parent.querySelector('img') || parent.querySelector('picture')))return value;
+              }
+              return '';
+            };
+            for (const a of [...document.querySelectorAll('a[href]')].slice(0, 3500)) {
               if (!visible(a)) continue;
-              const card = a.closest('article,li,[data-widget],[data-testid]') ||
-                           a.parentElement?.parentElement;
+              const img=a.querySelector('img');
+              const title=(a.getAttribute('title') || img?.alt || a.innerText ||
+                    a.getAttribute('aria-label') || '').trim().slice(0,260);
+              const context=tileText(a);
               links.push({
-                url: a.href,
-                title: (a.getAttribute('title') || a.innerText || a.querySelector('img')?.alt || '').trim().slice(0, 260),
-                context: (card?.innerText || '').trim().slice(0, 450)
+                url:a.href,
+                title,
+                context:context.slice(0,650)
               });
             }
             const structuredPrices=[];
@@ -95,7 +109,7 @@ final class ScanEngine {
               url: location.href, title: document.title,
               heading: document.querySelector('h1')?.innerText || '',
               text: (body?.innerText || '').slice(0, 42000),
-              links: links.slice(0, 1200),
+              links: links.slice(0, 2000),
               structuredPrices
             });
           } catch (err) {
