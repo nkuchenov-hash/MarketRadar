@@ -12,7 +12,12 @@ final class Shop {
         this.id=id; this.name=name; this.domain=domain; this.home=home; this.searchBase=searchBase; this.accent=accent;
     }
     String searchUrl(String query) {
-        return searchBase + URLEncoder.encode(query, StandardCharsets.UTF_8);
+        String encoded=URLEncoder.encode(query, StandardCharsets.UTF_8);
+        // Prefer price ordering where the native marketplace UI supports it.
+        // Match IDs and product type anyway; cheap accessories are not offers.
+        if(id.equals("wb"))return searchBase+encoded+"&sort=priceup";
+        if(id.equals("ym"))return searchBase+encoded+"&how=aprice";
+        return searchBase+encoded;
     }
     static final List<Shop> ALL=Arrays.asList(
         new Shop("ozon","Ozon","ozon.ru","https://www.ozon.ru/",
