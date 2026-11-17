@@ -466,14 +466,39 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
             updateSummary();
         });
     }
+    @Override public void assess(ScanEngine.Offer proposal,
+            java.util.function.Consumer<Boolean> verdict){
+        // The local model checks each candidate AS IT ARRIVES, not only after
+        // all shops have exhausted their listings. The global price ceiling
+        // changes immediately when the model confirms a better product.
+        final int active=aiGeneration;
+        if(isFinishing()||isDestroyed()){verdict.accept(false);return;}
+        pendingOffers.add(proposal);
+        LocalModelVerifier.verify(this,activeQuery,
+            java.util.Collections.singletonList(proposal),ui,(approved,error)->{
+                if(active!=aiGeneration||isFinishing()||isDestroyed()){
+                    verdict.accept(false);
+                    return;
+                }
+                if(error!=null){
+                    marketStates.put(proposal.shop.id,"Локальная проверка недоступна");
+                    verdict.accept(null);
+                    return;
+                }
+                verdict.accept(!approved.isEmpty());
+            });
+    }
     @Override public void offer(ScanEngine.Offer o){
         runOnUiThread(()->{
             boolean exists=false;
-            for(ScanEngine.Offer prior:pendingOffers)
+            for(ScanEngine.Offer prior:offers)
                 if(prior.url.equals(o.url)&&prior.deliveryHint.equals(o.deliveryHint)
                     &&prior.price==o.price){exists=true;break;}
-            // The summary and cards read ONLY from verified "offers".
-            if(!exists)pendingOffers.add(o);
+            if(!exists){
+                offers.add(o);
+                renderResults();
+                progress.setText("Подбираем предложения дешевле найденной цены…");
+            }
         });
     }
     private String rubles(int amount){
@@ -583,61 +608,23 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
     @Override public void done(){
         runOnUiThread(()->{
             for(Shop shop:Shop.ALL)refreshShop(shop);
-            List<ScanEngine.Offer> provisional=new ArrayList<>(pendingOffers);
-            pendingOffers.clear();
-            offers.clear();
-            results.removeAllViews();
-            bestPrice.setText("—");
-            resultsHeading.setVisibility(View.GONE);
-            if(provisional.isEmpty()){
+            searchButton.setText("Найти лучшую цену");
+            renderResults();
+            String reason=engine.coverageIncomplete()?
+                "Часть выдачи недоступна. Окончательный минимум не доказан.":
+                "Обход доступной выдачи завершён; дорогие карточки отсечены.";
+            saveSearchReport(new ArrayList<>(pendingOffers),reason);
+            if(offers.isEmpty()){
                 summaryPanel.setVisibility(View.VISIBLE);
                 updateSummary();
-                saveSearchReport(provisional,"Нет кандидатов для локальной проверки");
                 progress.setText(engine.coverageIncomplete()?
-                    "Поиск неполный: часть страниц не проверена":
-                    "Подтверждённые предложения не найдены");
-                searchButton.setText("Найти лучшую цену");
-                return;
+                    "Поиск неполный: часть выдачи недоступна":
+                    "Не найдены подтверждённые предложения");
+            }else{
+                progress.setText(engine.coverageIncomplete()?
+                    "Показана лучшая проверенная цена среди доступных результатов":
+                    "Найден лучший проверенный вариант в доступной выдаче");
             }
-            aiChecking=true;
-            searchButton.setText("Остановить");
-            progress.setText("Проверка на устройстве…");
-            marketProgress.setText("Локальная модель проверяет товары…");
-            final int active=aiGeneration;
-            final String query=activeQuery;
-            LocalModelVerifier.verify(this,query,provisional,ui,(approved,error)->{
-                if(active!=aiGeneration||isFinishing()||isDestroyed())return;
-                aiChecking=false;
-                searchButton.setText("Найти лучшую цену");
-                if(error!=null){
-                    summaryPanel.setVisibility(View.VISIBLE);
-                    marketProgress.setText("Не удалось проверить товары на устройстве");
-                    progress.setText(error);
-                    saveSearchReport(provisional,error);
-                    return;
-                }
-                offers.addAll(approved);
-                if(offers.isEmpty()){
-                    summaryPanel.setVisibility(View.VISIBLE);
-                    updateSummary();
-                    saveSearchReport(provisional,"Локальный ИИ не подтвердил совпадения");
-                    progress.setText("Проверка совпадения не подтвердила найденные товары");
-                }else{
-                    renderResults();
-                    saveSearchReport(provisional,"Проверка товаров завершена");
-                    boolean missingMarket=false;
-                    for(Shop selected:lastSelectedMarkets){
-                        boolean hasOffer=false;
-                        for(ScanEngine.Offer found:offers){
-                            if(selected.id.equals(found.shop.id)){hasOffer=true;break;}
-                        }
-                        if(!hasOffer){missingMarket=true;break;}
-                    }
-                    progress.setText(missingMarket||engine.coverageIncomplete()?
-                        "Сравнение частичное: у некоторых магазинов нет подтверждённой цены":
-                        "Показаны подтверждённые модели · предложения могут меняться");
-                }
-            });
         });
     }
     @Override public void onBackPressed(){
