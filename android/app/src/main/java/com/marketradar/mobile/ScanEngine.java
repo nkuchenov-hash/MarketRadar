@@ -25,16 +25,24 @@ final class ScanEngine {
     }
     static final class Offer {
         final Shop shop;
-        final String url, title, note;
+        final String url, title, note, deliveryHint;
         final int price;
         Offer(Shop shop,String url,String title,int price,String note) {
-            this.shop=shop;this.url=url;this.title=title;this.price=price;this.note=note;
+            this(shop,url,title,price,note,"");
+        }
+        Offer(Shop shop,String url,String title,int price,String note,String deliveryHint) {
+            this.shop=shop;this.url=url;this.title=title;this.price=price;
+            this.note=note;this.deliveryHint=deliveryHint;
         }
     }
     static final class Candidate {
-        final String url;
+        final String url,deliveryHint;
         final int listingPrice;
-        Candidate(String url,int listingPrice){this.url=url;this.listingPrice=listingPrice;}
+        Candidate(String url,int listingPrice){this(url,listingPrice,"");}
+        Candidate(String url,int listingPrice,String deliveryHint){
+            this.url=url;this.listingPrice=listingPrice;
+            this.deliveryHint=deliveryHint==null?"":deliveryHint;
+        }
     }
     // Search and product details use DISTINCT, minimal DOM extraction paths.
     // A previous universal scraper walked thousands of links and returned
@@ -225,7 +233,8 @@ final class ScanEngine {
         stop();
         activeMarkets=new ArrayList<>(markets);
         query=q.trim();
-        maxCards=Math.max(1,Math.min(40,limit));
+        // No arbitrary count limit: collect and visit every exposed candidate.
+        maxCards=Integer.MAX_VALUE;
         running=true;
         marketIndex=0;
         checked=0;
@@ -379,6 +388,10 @@ final class ScanEngine {
         else stableBottom=0;
         lastHeight=height;lastPoolSize=searchPool.size();
 
+        if(height<=0||viewport<=0){
+            failPage("Нет данных о конце выдачи, полноту не подтвердить");
+            return;
+        }
         if(stableBottom<2){
             listener.status(shop,"Собрано "+searchPool.size()+
                 " кандидатов · просматриваем выдачу");
@@ -471,10 +484,11 @@ final class ScanEngine {
     static void mergeSearchSnapshot(Map<String,Candidate> pool,JSONArray links,
             Shop shop,String query){
         for(Candidate candidate:selectCandidates(links,shop,query,Integer.MAX_VALUE)){
-            Candidate old=pool.get(candidate.url);
+            String key=candidate.url+"\u0001"+candidate.deliveryHint;
+            Candidate old=pool.get(key);
             if(old==null || (candidate.listingPrice>0 &&
                 (old.listingPrice<=0 || candidate.listingPrice<old.listingPrice)))
-                pool.put(candidate.url,candidate);
+                pool.put(key,candidate);
         }
     }
 
@@ -506,10 +520,12 @@ final class ScanEngine {
             if(!exact(query,title) && !(title.length()<8&&exact(query,context)))continue;
             String clean=cleanUrl(url);
             int listingPrice=readCardPrice(context);
-            Candidate previous=unique.get(clean);
+            String delivery=readDeliveryHint(context);
+            String key=clean+"\u0001"+delivery;
+            Candidate previous=unique.get(key);
             if(previous==null || (listingPrice>0 && (previous.listingPrice==0 ||
                listingPrice<previous.listingPrice))){
-                unique.put(clean,new Candidate(clean,listingPrice));
+                unique.put(key,new Candidate(clean,listingPrice,delivery));
             }
         }
         return rankCandidates(unique.values(),maxCards);
@@ -571,11 +587,24 @@ final class ScanEngine {
                     note="Цена из данных товара · условия карты и доставки не проверены";
                 else
                     note="Модель совпадает · цена не найдена";
-                listener.offer(new Offer(shop,cleanUrl(url),title,price,note));
+                String delivery=candidates.get(cardIndex-1).deliveryHint;
+                listener.offer(new Offer(shop,cleanUrl(url),title,price,note,delivery));
             }
         }
         listener.status(shop,"Карточек проверено: "+checkedMarket+" / "+candidates.size());
         nextCandidate();
+    }
+    static String readDeliveryHint(String context){
+        if(context==null||context.isBlank())return "";
+        // Delivery information is taken ONLY from the matching marketplace
+        // listing. It is an estimate, not a verified checkout slot.
+        java.util.regex.Pattern p=java.util.regex.Pattern.compile(
+            "(?iu)(?:за\\s+час|сегодня|завтра|послезавтра|"+
+            "(?:в\\s+)?(?:понедельник|вторник|среду|четверг|пятницу|субботу|воскресенье)|"+
+            "\\d{1,2}\\s+(?:января|февраля|марта|апреля|мая|июня|июля|августа|"+
+            "сентября|октября|ноября|декабря)|самовывоз)");
+        Matcher match=p.matcher(context);
+        return match.find()?match.group().trim():"";
     }
     static int validListingPrice(int pagePrice,int listingPrice){
         if(listingPrice<=0)return 0;
