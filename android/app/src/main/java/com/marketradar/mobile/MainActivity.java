@@ -776,17 +776,26 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         StringBuilder states=new StringBuilder();
         for(Shop shop:lastSelectedMarkets){
             int marketMin=Integer.MAX_VALUE;
-            boolean hasUnqualified=false;
+            ScanEngine.Offer cheapestExcluded=null;
             for(ScanEngine.Offer o:offers)if(o.shop.id.equals(shop.id)){
                 if(qualifies(o,timelyBest))marketMin=Math.min(marketMin,o.price);
-                else hasUnqualified=true;
+                else if(o.price>0 && (cheapestExcluded==null ||
+                        o.price<cheapestExcluded.price))cheapestExcluded=o;
             }
             if(states.length()>0)states.append("\n");
             states.append(shop.name).append("   ");
             if(marketMin<Integer.MAX_VALUE){
                 states.append(rubles(marketMin));
-            }else if(hasUnqualified){
-                states.append("срок доставки не подходит или неизвестен");
+            }else if(cheapestExcluded!=null){
+                states.append(rubles(cheapestExcluded.price));
+                if(!cheapestExcluded.priceCondition.isBlank())
+                    states.append(" ").append(cheapestExcluded.priceCondition);
+                states.append(" · ");
+                if(deliveryPolicy.days(cheapestExcluded.deliveryHint)<0)
+                    states.append("срок доставки неизвестен");
+                else
+                    states.append("доставка ").append(cheapestExcluded.deliveryHint)
+                        .append(" не подходит");
             }else{
                 String detail=marketStates.get(shop.id);
                 if(detail==null)states.append("не проверен");
