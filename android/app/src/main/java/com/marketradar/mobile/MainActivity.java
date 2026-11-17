@@ -140,6 +140,13 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
             View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
         buildBrowser();
         buildInterface();
+        if(state!=null){
+            int restored=state.getInt("screen",SCREEN_SEARCH);
+            if(restored<SCREEN_SEARCH||restored>SCREEN_SETTINGS)restored=SCREEN_SEARCH;
+            showScreen(restored);
+            String draft=state.getString("query_draft");
+            if(draft!=null)queryInput.setText(draft);
+        }
         engine=new ParallelScanCoordinator(this,root,browser,ui,this);
         for(Shop shop:Shop.ALL)refreshShop(shop);
     }
@@ -931,6 +938,12 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
                     engine.stop();searchButton.setText("Найти предложения");
                 }).show();
         }else super.onBackPressed();
+    }
+    @Override protected void onSaveInstanceState(Bundle saved){
+        saved.putInt("screen",currentScreen);
+        if(queryInput!=null)
+            saved.putString("query_draft",queryInput.getText().toString());
+        super.onSaveInstanceState(saved);
     }
     @Override protected void onDestroy(){
         aiGeneration++;
