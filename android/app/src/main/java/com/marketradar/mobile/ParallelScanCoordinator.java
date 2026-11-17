@@ -121,6 +121,10 @@ final class ParallelScanCoordinator {
             listener.done();
             return;
         }
+        // A login completed in the visible browser uses the same Android
+        // WebView cookie jar as each search worker. Flush recent cookie
+        // changes before starting the parallel navigation.
+        CookieManager.getInstance().flush();
         generation++;
         running=true;
         completed=0;
