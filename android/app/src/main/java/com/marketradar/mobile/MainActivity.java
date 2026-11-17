@@ -58,6 +58,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
     private TextView bestPrice, priceSummary, marketProgress, resultsHeading, bestPriceLabel;
     private LinearLayout summaryPanel, filterPanel;
     private final Map<String,String> marketStates=new HashMap<>();
+    private final Map<String,SessionProbe.Verdict> accountEvidence=new HashMap<>();
     private final Map<String,CheckBox> marketChoices=new HashMap<>();
     private List<Shop> lastSelectedMarkets=Shop.ALL;
     private WebView browser;
@@ -152,6 +153,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
             @Override public void onPageFinished(WebView view,String url){
                 if(!loginMode&&engine!=null)engine.onPageFinished(view,url);
                 else if(loginMode&&inspectedOffer!=null)inspectPageDestination(url);
+                else if(loginMode&&currentShop!=null)checkCurrentAccountPage(url);
             }
             @Override public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error){
                 if(request.isForMainFrame()&&!loginMode&&engine!=null)
@@ -312,7 +314,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         add(marketPage,text("МОИ МАРКЕТПЛЕЙСЫ",11,ACCENT,true),-1,22);
         add(marketPage,text("Подключения и сессии магазинов",24,TEXT,true),-1,-2);
         gap(marketPage,8);
-        add(marketPage,text("Авторизуйтесь только на официальных сайтах. Cookies остаются в Android WebView. Сохранённая сессия не гарантирует активный вход.",13,MUTED,false),-1,-2);
+        add(marketPage,text("Вход выполняется на сайтах магазинов. MarketRadar проверяет признаки авторизации на странице; наличие cookies само по себе не подтверждает вход.",13,MUTED,false),-1,-2);
         gap(marketPage,18);
         for(Shop shop:Shop.ALL){
             LinearLayout card=panel();
@@ -373,13 +375,63 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         navButton.setText(show?"Поиск":"Магазины");
     }
     private void refreshShop(Shop shop){
-        TextView label=statuses.get(shop.id);if(label==null)return;
-        boolean marked=prefs.getBoolean("user_finished_"+shop.id,false);
+        TextView label=statuses.get(shop.id);
+        if(label==null)return;
+        SessionProbe.Verdict observed=accountEvidence.get(shop.id);
+        if(observed!=null){
+            if(observed.state==SessionProbe.State.SIGNED_IN){
+                label.setText("Вход обнаружен на последней странице");
+                return;
+            }
+            if(observed.state==SessionProbe.State.SIGN_IN_REQUIRED){
+                label.setText("Необходимо войти заново");
+                return;
+            }
+        }
         String cookie=CookieManager.getInstance().getCookie(shop.home);
-        if(marked && cookie!=null&&!cookie.isEmpty())
-            label.setText("Сессия сохранена · вход не проверен");
-        else if(marked)label.setText("Вход не подтверждён · откройте магазин");
-        else label.setText("Откройте магазин и войдите");
+        if(cookie!=null&&!cookie.isEmpty()){
+            label.setText("Есть cookies · вход не подтверждён");
+        }else{
+            label.setText("Вход не подтверждён · откройте магазин");
+        }
+    }
+    private void recordAccountEvidence(Shop shop,SessionProbe.Verdict verdict){
+        if(shop==null||verdict==null)return;
+        accountEvidence.put(shop.id,verdict);
+        refreshShop(shop);
+    }
+    @Override public void session(Shop shop,SessionProbe.Verdict evidence){
+        runOnUiThread(()->{
+            recordAccountEvidence(shop,evidence);
+            if(evidence.state==SessionProbe.State.SIGN_IN_REQUIRED){
+                marketStates.put(shop.id,"Требуется повторно войти в аккаунт");
+                updateSummary();
+            }
+        });
+    }
+    private void checkCurrentAccountPage(String loadedUrl){
+        final Shop shop=currentShop;
+        if(shop==null)return;
+        final String pageUrl=loadedUrl;
+        ui.postDelayed(()->{
+            if(!loginMode||currentShop!=shop||!pageUrl.equals(browser.getUrl()))return;
+            if(shop.isLoginUrl(pageUrl)){
+                recordAccountEvidence(shop,new SessionProbe.Verdict(
+                    SessionProbe.State.SIGN_IN_REQUIRED,"Открыта авторизация"));
+                return;
+            }
+            browser.evaluateJavascript(SessionProbe.SCRIPT,value->{
+                if(!loginMode||currentShop!=shop||!pageUrl.equals(browser.getUrl()))return;
+                try{
+                    JSONObject signals=new JSONObject(
+                        String.valueOf(new JSONTokener(value).nextValue()));
+                    recordAccountEvidence(shop,SessionProbe.evaluate(shop,signals));
+                }catch(Exception ignored){
+                    recordAccountEvidence(shop,new SessionProbe.Verdict(
+                        SessionProbe.State.UNKNOWN,"Не удалось проверить вход"));
+                }
+            });
+        },550);
     }
     private void showShop(Shop shop,String url){
         showShopInternal(shop,url,null);
@@ -436,13 +488,32 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
     }
     private void finishShop(){
         if(!loginMode)return;
-        CookieManager.getInstance().flush();
-        if(currentShop!=null&&inspectedOffer==null){
-            prefs.edit().putBoolean("user_finished_"+currentShop.id,true).apply();
-            refreshShop(currentShop);
+        final Shop leavingShop=currentShop;
+        final String leavingUrl=browser.getUrl();
+        // Read actual DOM account evidence BEFORE leaving the login screen.
+        // Cookies are opaque and must never be treated as login proof.
+        if(leavingShop!=null&&leavingUrl!=null){
+            if(leavingShop.isLoginUrl(leavingUrl)){
+                recordAccountEvidence(leavingShop,new SessionProbe.Verdict(
+                    SessionProbe.State.SIGN_IN_REQUIRED,
+                    "Вход ещё не завершён"));
+            }else if(leavingShop.allowed(leavingUrl)){
+                browser.evaluateJavascript(SessionProbe.SCRIPT,value->{
+                    if(!leavingUrl.equals(browser.getUrl()))return;
+                    try{
+                        JSONObject signals=new JSONObject(
+                            String.valueOf(new JSONTokener(value).nextValue()));
+                        recordAccountEvidence(leavingShop,
+                            SessionProbe.evaluate(leavingShop,signals));
+                    }catch(Exception ignored){
+                        recordAccountEvidence(leavingShop,new SessionProbe.Verdict(
+                            SessionProbe.State.UNKNOWN,"Вход не удалось подтвердить"));
+                    }
+                });
+            }
         }
+        CookieManager.getInstance().flush();
         loginMode=false;currentShop=null;inspectedOffer=null;
-        browser.stopLoading();
         loginBar.setVisibility(View.GONE);
         mainPane.setVisibility(View.VISIBLE);
         getWindow().clearFlags(WindowManager.LayoutParams.FLAG_SECURE);
@@ -457,6 +528,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
                     SharedPreferences.Editor e=prefs.edit();
                     for(Shop shop:Shop.ALL)e.remove("user_finished_"+shop.id);
                     e.apply();
+                    accountEvidence.clear();
                     for(Shop shop:Shop.ALL)refreshShop(shop);
                     progress.setText("Входы очищены. Авторизуйтесь заново.");
                 });
@@ -635,6 +707,10 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         report.append("\n");
         for(Shop shop:lastSelectedMarkets){
             report.append("\n").append(shop.name).append(": ");
+            SessionProbe.Verdict evidence=accountEvidence.get(shop.id);
+            report.append("\n  Авторизация: ").append(
+                evidence==null?"не проверена":evidence.state.toString()+
+                " ("+evidence.reason+")");
             report.append(marketStates.containsKey(shop.id)?
                 marketStates.get(shop.id):"магазин не проверялся");
             int candidates=0,confirmed=0;
