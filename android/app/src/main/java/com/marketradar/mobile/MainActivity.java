@@ -742,6 +742,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
             boolean exists=false;
             for(ScanEngine.Offer prior:offers)
                 if(prior.url.equals(o.url)&&prior.deliveryHint.equals(o.deliveryHint)
+                    &&prior.priceCondition.equals(o.priceCondition)
                     &&prior.price==o.price){exists=true;break;}
             if(!exists){
                 offers.add(o);
@@ -876,6 +877,11 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
             title.setMaxLines(3);
             title.setEllipsize(android.text.TextUtils.TruncateAt.END);
             add(card,title,-1,-2);
+            if(!o.priceCondition.isBlank()){
+                gap(card,5);
+                add(card,text(o.priceCondition+" · требуется соответствующий способ оплаты",
+                    12,ACCENT,false),-1,-2);
+            }
             gap(card,5);
             String deliveryState=deliveryPolicy.days(o.deliveryHint)<0?
                 "Дата доставки неизвестна":
