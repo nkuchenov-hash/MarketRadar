@@ -730,8 +730,8 @@ final class ScanEngine {
                         coverageIncomplete=true;
                         listener.status(shop,"Локальный ИИ не подтвердил проверку");
                     }else if(verdict.booleanValue()){
-                        if(price>0&&frontier.confirm(price))
-                            listener.status(shop,"Новый ценовой порог: "+price+" ₽");
+                        if(price>0&&frontier.confirm(price,delivery))
+                            listener.status(shop,"Новый минимум с подходящей доставкой: "+price+" ₽");
                         listener.offer(proposal);
                     }
                     nextCandidate();
