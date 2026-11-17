@@ -389,8 +389,68 @@ public class CoreTest {
         // WB page checks: WB may have an account-specific discounted price.
         assertEquals(1,DynamicPriceFrontier.nextUnpruned(wbOffers,1,frontier,wb));
         assertTrue(frontier.confirm(11316,"20 ноября",wb));
-        assertEquals(2,DynamicPriceFrontier.nextUnpruned(wbOffers,1,frontier,wb));
+        // Candidate #1 is more expensive; candidate #2 arrives too late.
+        // Both are skipped under the configured three-day delivery policy.
+        assertEquals(3,DynamicPriceFrontier.nextUnpruned(wbOffers,1,frontier,wb));
         assertFalse(frontier.deferHigher(11316,"20 ноября",wb));
         assertTrue(frontier.deferHigher(13100,"20 ноября",wb));
+    }
+    @Test public void publicWbWalletListingsFromScreenshotsPreserveConditionAndDelivery() throws Exception {
+        String requested="Яндекс Станция Мини 3 Про";
+        JSONArray grid=new JSONArray()
+            .put(new org.json.JSONObject()
+                .put("url","https://www.wildberries.ru/catalog/311100001/detail.aspx")
+                .put("title","Умная колонка Яндекс Станция Мини 3")
+                .put("context","Станция Мини 3\\n10 640 ₽\\nс WB Кошельком\\n21 ноября"))
+            .put(new org.json.JSONObject()
+                .put("url","https://www.wildberries.ru/catalog/311100002/detail.aspx")
+                .put("title","Яндекс Станция Мини 3 Про")
+                .put("context","Умная колонка Яндекс Станция Мини 3 Про\\n10 772 ₽\\nс WB Кошельком\\n27 ноября"))
+            .put(new org.json.JSONObject()
+                .put("url","https://www.wildberries.ru/catalog/311100003/detail.aspx")
+                .put("title","Яндекс Станция Мини 3 Black")
+                .put("context","Станция Мини 3 Black\\n10 881 ₽\\nс WB Кошельком"))
+            .put(new org.json.JSONObject()
+                .put("url","https://www.wildberries.ru/catalog/311100004/detail.aspx")
+                .put("title","Яндекс Станция Мини 3 Про")
+                .put("context","Умная колонка Яндекс Станция Мини 3 Про\\n10 893 ₽\\nс WB Кошельком\\n27 ноября"));
+        java.util.ArrayList<ScanEngine.Candidate> candidates=
+            ScanEngine.selectCandidates(grid,Shop.byId("wb"),requested,20);
+        assertEquals("Mini 3, not Pro, cannot be a Pro result",2,candidates.size());
+        assertEquals(10772,candidates.get(0).listingPrice);
+        assertEquals(10893,candidates.get(1).listingPrice);
+        for(ScanEngine.Candidate candidate:candidates){
+            assertEquals("с WB Кошельком",candidate.priceCondition);
+            assertEquals("27 ноября",candidate.deliveryHint);
+        }
+        DeliveryPolicy defaultPolicy=new DeliveryPolicy(3,false,15,
+            java.time.LocalDate.of(2026,11,18));
+        assertFalse(defaultPolicy.timely(candidates.get(0).deliveryHint));
+        assertFalse(defaultPolicy.timely(candidates.get(1).deliveryHint));
+    }
+
+    @Test public void wbWalletCardTitleTruncationMustNotDiscardPotentialPro() {
+        String requested="Яндекс Станция Мини 3 Про";
+        assertTrue(CandidateDiscovery.shouldInspect(requested,
+            "Умная колонка Станция Мини","10 772 ₽\\nс WB Кошельком\\n27 ноября",""));
+        assertTrue(CandidateDiscovery.shouldInspect(requested,
+            "Умная колонка Станция Ми…",
+            "Умная колонка Станция Мини\\n10 772 ₽",""));
+        assertFalse(CandidateDiscovery.shouldInspect(requested,
+            "Яндекс Станция Мини 3","10 640 ₽", ""));
+        assertFalse(CandidateDiscovery.shouldInspect(requested,
+            "Климатический модуль для Станции Мини 3 Про","2 137 ₽",""));
+    }
+
+    @Test public void walletPriceIsNotUnconditional() {
+        String context="Умная колонка Яндекс Станция Мини 3 Про\\n"+
+            "10 772 ₽\\nс WB Кошельком\\n27 ноября";
+        assertEquals(10772,ScanEngine.readCardPrice(context));
+        assertEquals("с WB Кошельком",ScanEngine.priceConditionForCard(
+            context,"",Shop.byId("wb")));
+        assertEquals("",ScanEngine.priceConditionForCard(
+            "Яндекс Станция Мини 3 Про\\n12 045 ₽","",Shop.byId("ozon")));
+        assertEquals("",ScanEngine.priceConditionForCard(
+            "Яндекс Станция Мини 3 Про\\n12 045 ₽","",Shop.byId("wb")));
     }
 }
