@@ -530,6 +530,8 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
                 else if(detail.contains("ограничил доступ")||
                         detail.contains("Переадресация"))
                     states.append("доступ ограничен");
+                else if(detail.contains("отложено дорогих"))
+                    states.append("дороже найденного минимума");
                 else states.append("цена не подтверждена");
             }
         }
