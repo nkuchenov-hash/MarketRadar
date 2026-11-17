@@ -47,13 +47,18 @@ final class ParallelScanCoordinator {
         Shop shop;
         int generation;
         boolean finished;
+        long startedAt;
+        String lastStatus="";
 
         Worker(WebView view){
             this.view=view;
             this.scan=new ScanEngine(view,handler,this);
         }
         @Override public void status(Shop market,String text){
-            if(isCurrent(this))listener.status(market,text);
+            if(isCurrent(this)){
+                lastStatus=text;
+                listener.status(market,text);
+            }
         }
         @Override public void offer(ScanEngine.Offer offer){
             if(isCurrent(this))listener.offer(offer);
@@ -63,6 +68,10 @@ final class ParallelScanCoordinator {
             finished=true;
             completed++;
             wasTimeLimited|=scan.wasTimeLimited();
+            long duration=(android.os.SystemClock.elapsedRealtime()-startedAt)/1000L;
+            String diagnostic="Проверка завершена за "+duration+" с";
+            if(!lastStatus.isBlank())diagnostic+=" · "+lastStatus;
+            listener.status(shop,diagnostic);
             if(completed==workersInSearch){
                 running=false;
                 listener.done();
@@ -105,6 +114,8 @@ final class ParallelScanCoordinator {
             worker.shop=markets.get(index);
             worker.generation=generation;
             worker.finished=false;
+            worker.lastStatus="";
+            worker.startedAt=android.os.SystemClock.elapsedRealtime();
             worker.scan.start(query,maxCards,
                 java.util.Collections.singletonList(worker.shop));
         }
