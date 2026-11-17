@@ -17,6 +17,7 @@ final class Shop {
         // Match IDs and product type anyway; cheap accessories are not offers.
         if(id.equals("wb"))return searchBase+encoded+"&sort=priceup";
         if(id.equals("ym"))return searchBase+encoded+"&how=aprice";
+        if(id.equals("ozon"))return searchBase+encoded+"&sorting=price";
         return searchBase+encoded;
     }
     static final List<Shop> ALL=Arrays.asList(
