@@ -11,10 +11,16 @@ final class DynamicPriceFrontier {
     private int observed=Integer.MAX_VALUE;
     private int confirmed=Integer.MAX_VALUE;
     private DeliveryPolicy policy=DeliveryPolicy.standard();
+    // Independent confirmed thresholds per website. A price from Ozon
+    // must never suppress WB cards: native WB app prices, account discounts,
+    // and the scraped web listing can be materially different.
+    private final java.util.Map<String,Integer> confirmedPerShop=
+        new java.util.HashMap<>();
 
     synchronized void reset(){
         observed=Integer.MAX_VALUE;
         confirmed=Integer.MAX_VALUE;
+        confirmedPerShop.clear();
     }
 
     synchronized void configure(DeliveryPolicy policy){
@@ -35,12 +41,17 @@ final class DynamicPriceFrontier {
     }
 
     synchronized boolean confirm(int verifiedPrice,String deliveryHint){
-        // Confirmed threshold is only comparable for deliveries that meet
-        // the requested deadline. A slower exception has a separate rule.
-        if(!policy.timely(deliveryHint)||
-           verifiedPrice<=0||verifiedPrice>=confirmed)return false;
-        confirmed=verifiedPrice;
-        return true;
+        return confirm(verifiedPrice,deliveryHint,null);
+    }
+    synchronized boolean confirm(int verifiedPrice,String deliveryHint,Shop shop){
+        if(!policy.timely(deliveryHint)||verifiedPrice<=0)return false;
+        boolean improved=verifiedPrice<confirmed;
+        confirmed=Math.min(confirmed,verifiedPrice);
+        if(shop!=null){
+            int existing=confirmedPerShop.getOrDefault(shop.id,Integer.MAX_VALUE);
+            confirmedPerShop.put(shop.id,Math.min(existing,verifiedPrice));
+        }
+        return improved;
     }
 
     synchronized int observedCeiling(){
@@ -69,12 +80,34 @@ final class DynamicPriceFrontier {
         return true;
     }
 
+    synchronized boolean deferHigher(int listingPrice,String deliveryHint,Shop shop){
+        if(shop==null)return deferHigher(listingPrice,deliveryHint);
+        int shopBest=confirmedPerShop.getOrDefault(shop.id,Integer.MAX_VALUE);
+        // There is NO safe confirmed price baseline for this marketplace yet.
+        if(shopBest==Integer.MAX_VALUE)return false;
+        if(!policy.potentiallyEligible(deliveryHint))return true;
+        int days=policy.days(deliveryHint);
+        if(days<0||listingPrice<=0)return false;
+        if(days<=policy.maxDays)return listingPrice>shopBest;
+        if(policy.allowSlowDiscount)
+            return (long)listingPrice*100 >
+                (long)shopBest*(100-policy.slowDiscountPercent);
+        return true;
+    }
+
     static int nextUnpruned(java.util.List<ScanEngine.Candidate> ordered,
                             int index,DynamicPriceFrontier frontier){
+        return nextUnpruned(ordered,index,frontier,null);
+    }
+    static int nextUnpruned(java.util.List<ScanEngine.Candidate> ordered,
+                            int index,DynamicPriceFrontier frontier,Shop shop){
         int next=index;
         while(next<ordered.size() &&
-              frontier.deferHigher(ordered.get(next).listingPrice,
-                                   ordered.get(next).deliveryHint))next++;
+              (shop==null?
+                  frontier.deferHigher(ordered.get(next).listingPrice,
+                                       ordered.get(next).deliveryHint):
+                  frontier.deferHigher(ordered.get(next).listingPrice,
+                                       ordered.get(next).deliveryHint,shop)))next++;
         return next;
     }
 }
