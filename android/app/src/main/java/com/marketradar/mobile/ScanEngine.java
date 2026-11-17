@@ -215,6 +215,7 @@ final class ScanEngine {
     private final Set<String> visitedSearchPages=new HashSet<>();
     private int hydrationRetries=0;
     private int detailHydrationRetries=0;
+    private int retryCount=0;
 
     ScanEngine(WebView browser, Handler handler, Listener listener) {
         this.browser=browser;this.handler=handler;this.listener=listener;
@@ -263,6 +264,7 @@ final class ScanEngine {
         visitedSearchPages.add(shop.searchUrl(query));
         hydrationRetries=0;
         detailHydrationRetries=0;
+        retryCount=0;
         listener.status(shop,"Ищем точную модель…");
         load(shop.searchUrl(query));
     }
@@ -319,6 +321,19 @@ final class ScanEngine {
         },1500);
     }
     private void failPage(String message) {
+        // Retry intermittent network failures before declaring incomplete
+        // coverage. Page timeouts are NOT a global search completion rule.
+        if((message.contains("не ответила")||message.contains("Ошибка загрузки")) &&
+                retryCount<2){
+            int attempt=++retryCount;
+            String destination=details?expectedUrl:shop.searchUrl(query);
+            token++;
+            listener.status(shop,"Повторяем недоступную страницу: "+attempt+"/2");
+            handler.postDelayed(()->{
+                if(running)load(destination);
+            },300L*attempt);
+            return;
+        }
         coverageIncomplete=true;
         if(message.contains("не ответила"))timeLimitReached=true;
         token++;
@@ -409,6 +424,7 @@ final class ScanEngine {
             visitedSearchPages.add(next);
             stableBottom=0;lastHeight=-1;lastPoolSize=-1;
             hydrationRetries=0;searchSampling=false;
+            retryCount=0;
             listener.status(shop,"Следующая страница · кандидатов "+searchPool.size());
             load(next);
             return;
@@ -547,6 +563,7 @@ final class ScanEngine {
         }
         expectedUrl=candidates.get(cardIndex++).url;
         detailHydrationRetries=0;
+        retryCount=0;
         JSONObject cached=detailCache.get(expectedUrl);
         if(cached!=null){
             final String candidateUrl=expectedUrl;
