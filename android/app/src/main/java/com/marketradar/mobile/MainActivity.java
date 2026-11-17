@@ -245,7 +245,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         gap(page,16);
         summaryPanel=panel();
         summaryPanel.setVisibility(View.GONE);
-        add(summaryPanel,text("Лучшая найденная цена",14,MUTED,true),-1,22);
+        add(summaryPanel,text("Минимум среди найденных",14,MUTED,true),-1,22);
         gap(summaryPanel,4);
         bestPrice=text("—",31,TEXT,true);
         add(summaryPanel,bestPrice,-1,47);
@@ -473,7 +473,8 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         for(ScanEngine.Offer o:offers){
             if(o.price>0&&(bestOffer==null||o.price<bestOffer.price))bestOffer=o;
         }
-        bestPrice.setText(bestOffer==null?"—":rubles(bestOffer.price));
+        bestPrice.setText(bestOffer==null?"Нет подтверждённой цены":rubles(bestOffer.price));
+        bestPrice.setTextSize(bestOffer==null?17:31);
         StringBuilder states=new StringBuilder();
         for(Shop shop:lastSelectedMarkets){
             int marketMin=Integer.MAX_VALUE;
@@ -483,7 +484,18 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
             if(states.length()>0)states.append("\n");
             states.append(shop.name).append("   ");
             if(marketMin<Integer.MAX_VALUE)states.append(rubles(marketMin));
-            else states.append(marketStates.containsKey(shop.id)?"—":"…");
+            else {
+                String detail=marketStates.get(shop.id);
+                if(detail==null)states.append("не проверен");
+                else if(detail.contains("Время проверки истекло")||
+                        detail.contains("не ответила")||
+                        detail.contains("Ошибка загрузки"))
+                    states.append("не удалось завершить проверку");
+                else if(detail.contains("ограничил доступ")||
+                        detail.contains("Переадресация"))
+                    states.append("доступ ограничен");
+                else states.append("цена не подтверждена");
+            }
         }
         marketProgress.setText(states.toString());
         resultsHeading.setVisibility(offers.isEmpty()?View.GONE:View.VISIBLE);
@@ -507,7 +519,14 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
             title.setMaxLines(3);
             title.setEllipsize(android.text.TextUtils.TruncateAt.END);
             add(card,title,-1,-2);
-            gap(card,11);
+            gap(card,5);
+            String origin=o.note.startsWith("Цена из выдачи")?
+                "Цена из поиска · без проверки корзины":
+                (o.note.startsWith("Цена из данных товара")?
+                    "Цена со страницы товара · без проверки корзины":
+                    "Источник цены не подтверждён");
+            add(card,text(origin,11,MUTED,false),-1,-2);
+            gap(card,10);
             Button inspect=button("Открыть товар",false);
             add(card,inspect,-1,42);
             inspect.setOnClickListener(v->inspectOffer(o));
@@ -525,8 +544,10 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
             resultsHeading.setVisibility(View.GONE);
             if(provisional.isEmpty()){
                 summaryPanel.setVisibility(View.VISIBLE);
-                marketProgress.setText("Подходящие товары не найдены");
-                progress.setText("Поиск завершён");
+                updateSummary();
+                progress.setText(engine.wasTimeLimited()?
+                    "Поиск неполный: часть страниц не проверена":
+                    "Подтверждённые предложения не найдены");
                 searchButton.setText("Найти лучшую цену");
                 return;
             }
@@ -549,11 +570,13 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
                 offers.addAll(approved);
                 if(offers.isEmpty()){
                     summaryPanel.setVisibility(View.VISIBLE);
-                    marketProgress.setText("ИИ не подтвердил совпадение товаров");
-                    progress.setText("Проверьте запрос");
+                    updateSummary();
+                    progress.setText("Проверка совпадения не подтвердила найденные товары");
                 }else{
                     renderResults();
-                    progress.setText("Модели проверены на устройстве");
+                    progress.setText(engine.wasTimeLimited()?
+                        "Поиск неполный: показаны только найденные предложения":
+                        "Модели проверены на устройстве");
                 }
             });
         });
