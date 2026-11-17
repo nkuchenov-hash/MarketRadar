@@ -41,6 +41,31 @@ final class Shop {
                 &&(hostname.equalsIgnoreCase(domain)||hostname.toLowerCase().endsWith("."+domain));
         }catch(Exception e){return false;}
     }
+    boolean isLoginUrl(String url){
+        if(url==null)return false;
+        try{
+            java.net.URI uri=new java.net.URI(url);
+            if(!"https".equalsIgnoreCase(uri.getScheme()))return false;
+            String host=uri.getHost();
+            if(host==null)return false;
+            host=host.toLowerCase(java.util.Locale.ROOT);
+            String path=uri.getPath()==null?"":uri.getPath().toLowerCase(java.util.Locale.ROOT);
+            if(id.equals("ozon") &&
+               (host.equals("id.ozon.ru")||host.equals("login.ozon.ru")))
+                return true;
+            if(id.equals("wb") &&
+               (host.equals("id.wildberries.ru")||
+                host.equals("login.wildberries.ru")||
+                host.equals("id.wb.ru")))return true;
+            if(id.equals("ym") &&
+               (host.equals("passport.yandex.ru")||
+                host.equals("id.yandex.ru")||
+                host.equals("oauth.yandex.ru")))return true;
+            return allowed(url)&&(
+                path.equals("/login")||path.equals("/auth")||
+                path.startsWith("/login/")||path.startsWith("/auth/"));
+        }catch(Exception ignored){return false;}
+    }
     boolean productLink(String url) {
         if(!allowed(url))return false;
         try{
