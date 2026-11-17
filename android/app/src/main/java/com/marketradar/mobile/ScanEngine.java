@@ -62,10 +62,12 @@ final class ScanEngine {
             };
             for(const a of document.querySelectorAll('a[href]')){
               if(links.length>=1600)break;
-              if(!visible(a))continue;
               let url;
               try{url=new URL(a.href)}catch(e){continue;}
               if(url.protocol!=='https:'||!productPath.test(url.pathname))continue;
+              // Layout measurements force reflow. Do them for product links
+              // only, not thousands of menu/filter/navigation anchors.
+              if(!visible(a))continue;
               const img=a.querySelector('img');
               const title=(a.getAttribute('title')||a.innerText||img?.alt||
                            a.getAttribute('aria-label')||'').trim().slice(0,300);
