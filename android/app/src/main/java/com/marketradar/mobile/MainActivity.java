@@ -45,7 +45,9 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
     private static final int BG=0xFFF6F9FE, SURFACE=0xFFFFFFFF, BORDER=0xFFDCE6F4;
     private static final int TEXT=0xFF152844, MUTED=0xFF647791, ACCENT=0xFF2369E8;
     private final Handler ui=new Handler(Looper.getMainLooper());
+    // Never mix provisional scraped prices with AI-confirmed offers.
     private final ArrayList<ScanEngine.Offer> offers=new ArrayList<>();
+    private final ArrayList<ScanEngine.Offer> pendingOffers=new ArrayList<>();
     private final Map<String,TextView> statuses=new HashMap<>();
     private FrameLayout root;
     private LinearLayout mainPane, loginBar, results;
@@ -428,6 +430,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
             aiChecking=false;
             engine.stop();
             offers.clear();
+            pendingOffers.clear();
             results.removeAllViews();
             summaryPanel.setVisibility(View.GONE);
             searchButton.setText("Найти лучшую цену");
@@ -451,7 +454,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         ++aiGeneration;
         lastSelectedMarkets=chosen;
         setAccountsVisible(false);
-        offers.clear();results.removeAllViews();marketStates.clear();
+        offers.clear();pendingOffers.clear();results.removeAllViews();marketStates.clear();
         summaryPanel.setVisibility(View.VISIBLE);
         resultsHeading.setVisibility(View.GONE);
         bestPrice.setText("—");
@@ -471,9 +474,10 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
     @Override public void offer(ScanEngine.Offer o){
         runOnUiThread(()->{
             boolean exists=false;
-            for(ScanEngine.Offer prior:offers)if(prior.url.equals(o.url)){exists=true;break;}
-            // Provisional scan results must never appear as verified offers.
-            if(!exists)offers.add(o);
+            for(ScanEngine.Offer prior:pendingOffers)
+                if(prior.url.equals(o.url)){exists=true;break;}
+            // The summary and cards read ONLY from verified "offers".
+            if(!exists)pendingOffers.add(o);
         });
     }
     private String rubles(int amount){
@@ -578,7 +582,8 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
     @Override public void done(){
         runOnUiThread(()->{
             for(Shop shop:Shop.ALL)refreshShop(shop);
-            List<ScanEngine.Offer> provisional=new ArrayList<>(offers);
+            List<ScanEngine.Offer> provisional=new ArrayList<>(pendingOffers);
+            pendingOffers.clear();
             offers.clear();
             results.removeAllViews();
             bestPrice.setText("—");
