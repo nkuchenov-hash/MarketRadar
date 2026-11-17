@@ -83,7 +83,10 @@ final class ScanEngine {
               const title=(a.getAttribute('title')||a.innerText||img?.alt||
                            a.getAttribute('aria-label')||'').trim().slice(0,300);
               const context=tileText(a);
-              links.push({url:url.href,title,context:context.slice(0,650)});
+              const imageAlt=(img?.alt||a.querySelector('picture img')?.alt||'')
+                  .trim().slice(0,300);
+              links.push({url:url.href,title,context:context.slice(0,650),
+                          imageAlt});
             }
             return JSON.stringify({
               url:location.href,
@@ -698,7 +701,8 @@ final class ScanEngine {
             if(!shop.productLink(url))continue;
             String title=item.optString("title","").trim();
             String context=item.optString("context","").trim();
-            if(!exact(query,title) && !(title.length()<8&&exact(query,context)))continue;
+            String imageAlt=item.optString("imageAlt","").trim();
+            if(!CandidateDiscovery.shouldInspect(query,title,context,imageAlt))continue;
             String clean=cleanUrl(url);
             int listingPrice=readCardPrice(context);
             String delivery=readDeliveryHint(context);
@@ -714,7 +718,9 @@ final class ScanEngine {
 
     private void nextCandidate() {
         if(!running)return;
-        int next=DynamicPriceFrontier.nextUnpruned(candidates,cardIndex,frontier);
+        // Do not let a cheaper Ozon quote suppress WB candidates whose
+        // personalized WB-app prices may differ from website snippets.
+        int next=DynamicPriceFrontier.nextUnpruned(candidates,cardIndex,frontier,shop);
         skippedAboveBest+=next-cardIndex;
         cardIndex=next;
         if(cardIndex>=candidates.size()){
@@ -800,7 +806,7 @@ final class ScanEngine {
                         coverageIncomplete=true;
                         listener.status(shop,"Локальный ИИ не подтвердил проверку");
                     }else if(verdict.booleanValue()){
-                        if(price>0&&frontier.confirm(price,delivery))
+                        if(price>0&&frontier.confirm(price,delivery,shop))
                             listener.status(shop,"Новый минимум с подходящей доставкой: "+price+" ₽");
                         listener.offer(proposal);
                     }
