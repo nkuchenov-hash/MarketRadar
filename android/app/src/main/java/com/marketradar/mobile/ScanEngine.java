@@ -383,6 +383,9 @@ final class ScanEngine {
         long height=data.optLong("scrollHeight",0);
         long viewport=data.optLong("viewportHeight",0);
         boolean bottom=atPageEnd(y,height,viewport);
+        // Reset "show more" retries whenever fresh results actually appear:
+        // there is no fixed cap on how many successful load-more pages we open.
+        if(height>lastHeight||searchPool.size()>lastPoolSize)loadMoreAttempts=0;
         if(settledAtBottom(bottom,height,lastHeight,
                 searchPool.size(),lastPoolSize))stableBottom++;
         else stableBottom=0;
