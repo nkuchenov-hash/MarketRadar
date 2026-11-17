@@ -56,6 +56,21 @@ with golden.open("w",encoding="utf-8") as out:
         ids=tokenizer.encode(premise,hypothesis).ids[:112]
         out.write(premise+"\\t"+hypothesis+"\\t"+",".join(map(str,ids))+"\\n")
 print("Wrote reference XLM-R token pairs:",golden,flush=True)
+print("Alternative hypothesis diagnostics:",flush=True)
+for query,title,expected in cases:
+    options=[
+        f"Продаётся {query}.",
+        f"Это и есть {query}.",
+        f"Основной предмет продажи — {query}.",
+        f"Это отдельный аксессуар для {query}.",
+        f"Продается запчасть или модуль для {query}.",
+        f"Продается комплект или принадлежность для {query}.",
+        "Это дополнительный аксессуар для другого устройства.",
+        "Этот товар является самостоятельным готовым устройством.",
+    ]
+    values=[inference(query,title,h) for h in options]
+    print("DIAG",expected,title," ".join(f"{x:.3f}" for x in values),flush=True)
+
 print(f"Smoke-check result: {len(cases)-failure}/{len(cases)} expected",flush=True)
 if failure:
     raise SystemExit(f"{failure} on-device inference cases misclassified; APK not publishable")
