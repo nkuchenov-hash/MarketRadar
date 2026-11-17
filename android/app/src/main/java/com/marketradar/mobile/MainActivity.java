@@ -58,7 +58,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
     private final Map<String,CheckBox> marketChoices=new HashMap<>();
     private List<Shop> lastSelectedMarkets=Shop.ALL;
     private WebView browser;
-    private ScanEngine engine;
+    private ParallelScanCoordinator engine;
     private EditText queryInput;
     private Button searchButton;
     private TextView progress, count, loginCaption;
@@ -115,7 +115,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         prefs=getSharedPreferences("market_sessions",MODE_PRIVATE);
         buildBrowser();
         buildInterface();
-        engine=new ScanEngine(browser,ui,this);
+        engine=new ParallelScanCoordinator(this,root,browser,ui,this);
         for(Shop shop:Shop.ALL)refreshShop(shop);
     }
     private void buildBrowser(){
@@ -143,11 +143,12 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         browser.setWebChromeClient(new WebChromeClient());
         browser.setWebViewClient(new WebViewClient(){
             @Override public void onPageFinished(WebView view,String url){
-                if(!loginMode&&engine!=null)engine.onPageFinished(url);
+                if(!loginMode&&engine!=null)engine.onPageFinished(view,url);
                 else if(loginMode&&inspectedOffer!=null)inspectPageDestination(url);
             }
             @Override public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error){
-                if(request.isForMainFrame()&&!loginMode&&engine!=null)engine.onPageError(request.getUrl().toString());
+                if(request.isForMainFrame()&&!loginMode&&engine!=null)
+                    engine.onPageError(view,request.getUrl().toString());
             }
             @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request){
                 // Never load intent://, file:// or other non-HTTPS URLs in our authenticated browser.
@@ -456,7 +457,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         count.setVisibility(View.GONE);
         searchButton.setText("Остановить");
         progress.setText("Поиск…");
-        engine.start(q,fastSearch?3:8,chosen);
+        engine.start(q,fastSearch?12:32,chosen);
     }
     @Override public void status(Shop shop,String state){
         runOnUiThread(()->{
@@ -638,7 +639,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
     }
     @Override protected void onDestroy(){
         aiGeneration++;
-        if(engine!=null)engine.stop();
+        if(engine!=null)engine.destroy();
         browser.destroy();
         super.onDestroy();
     }
