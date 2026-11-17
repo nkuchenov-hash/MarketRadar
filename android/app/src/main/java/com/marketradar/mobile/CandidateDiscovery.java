@@ -20,6 +20,23 @@ final class CandidateDiscovery {
 
         String q=ScanEngine.norm(query);
         String evidence=ScanEngine.norm(title+" "+imageAlt+" "+context);
+        String mainTitle=ScanEngine.norm(title);
+        // A clear accessory headline must not be sent to the model as a
+        // plausible standalone device; avoid exploding the candidate count.
+        if(mainTitle.startsWith("климатический модуль")||
+           mainTitle.startsWith("модуль для")||
+           mainTitle.startsWith("комплект для")||
+           mainTitle.startsWith("комплект крепления")||
+           mainTitle.startsWith("чехол для")||
+           mainTitle.startsWith("крепление для"))return false;
+        // An explicit full non-Pro model isn't a truncated Pro listing.
+        // An abbreviated "Умная колонка Станция Мини" still qualifies,
+        // and an image ALT bearing "Про" was accepted above.
+        if(q.contains("мини 3 про")&&
+           mainTitle.matches(".*\\bмини 3\\b.*")&&
+           !mainTitle.contains("мини 3 про")&&
+           !mainTitle.contains("yndx 00059")&&
+           !title.contains("…")&&!title.contains("..."))return false;
         if(q.isBlank()||evidence.isBlank())return false;
         Set<String> words=new HashSet<>(
             java.util.Arrays.asList(evidence.split(" ")));
