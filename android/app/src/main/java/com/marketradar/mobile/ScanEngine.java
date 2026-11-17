@@ -120,6 +120,12 @@ final class ScanEngine {
     private int maxCards=8, checkedMarket=0;
     private String expectedUrl="";
     private List<Shop> activeMarkets=Shop.ALL;
+    // Search-result grids virtualize offscreen items. Collect several viewport
+    // snapshots before applying the candidate limit; otherwise an exact,
+    // cheaper listing below the first fold can never enter the comparison.
+    private final Map<String,Candidate> searchPool=new LinkedHashMap<>();
+    private int scrollPass=0;
+    private boolean searchSampling=false;
 
     ScanEngine(WebView browser, Handler handler, Listener listener) {
         this.browser=browser;this.handler=handler;this.listener=listener;
@@ -145,6 +151,7 @@ final class ScanEngine {
         shop=activeMarkets.get(marketIndex++);
         candidates.clear();seen.clear();
         cardIndex=0;details=false;checkedMarket=0;expectedUrl="";
+        scrollPass=0;searchSampling=false;searchPool.clear();
         listener.status(shop,"Ищем точную модель…");
         load(shop.searchUrl(query));
     }
@@ -159,6 +166,7 @@ final class ScanEngine {
         if(!running)return;
         // A stale completion callback from a previous card must not be
         // interpreted as a result for the card currently being loaded.
+        if(!details&&searchSampling)return;
         if(details&&!sameProductPage(shop,expectedUrl,url)){
             // Marketplace may redirect a product link to search or a login page.
             // Check the actual WebView destination before timing out this card.
@@ -171,6 +179,7 @@ final class ScanEngine {
             return;
         }
         int request=token;
+        if(!details)searchSampling=true;
         handler.postDelayed(() -> {
             if(running&&request==token) {
                 int sample=token;
@@ -226,22 +235,73 @@ final class ScanEngine {
         else readSearch(data);
     }
     private void readSearch(JSONObject data) {
+        // Combine all scroll snapshots, not only the initial screen and not
+        // only the first ten DOM links. Each candidate still needs its own
+        // product page verification before it can become a visible offer.
+        for(Candidate candidate:selectCandidates(data.optJSONArray("links"),shop,query,250)){
+            Candidate old=searchPool.get(candidate.url);
+            if(old==null || (candidate.listingPrice>0 &&
+                (old.listingPrice<=0 || candidate.listingPrice<old.listingPrice)))
+                searchPool.put(candidate.url,candidate);
+        }
+        final int maxScrolls=maxCards<=3?2:6;
+        if(scrollPass<maxScrolls){
+            scrollPass++;
+            listener.status(shop,"Просматриваем выдачу: "+scrollPass+"/"+maxScrolls+
+                " · подходящих ссылок "+searchPool.size());
+            scrollSearchPage();
+            return;
+        }
         candidates.clear();
-        candidates.addAll(selectCandidates(data.optJSONArray("links"),shop,query,maxCards));
+        candidates.addAll(rankCandidates(searchPool.values(),maxCards));
+        searchSampling=false;
         if(candidates.isEmpty()){
-            listener.status(shop,"Точные карточки не обнаружены — это не значит, что товара нет");
+            listener.status(shop,"Подходящие ссылки не найдены в просмотренной выдаче");
             nextMarket();return;
         }
         details=true;
-        listener.status(shop,"Отобрано "+candidates.size()+" карточек из выдачи. Проверяем товар…");
+        listener.status(shop,"В выдаче "+searchPool.size()+" подходящих ссылок. Проверяем "+
+            candidates.size()+" карточек товара…");
         nextCandidate();
     }
 
+    private void scrollSearchPage(){
+        int request=token;
+        browser.evaluateJavascript(
+            "window.scrollBy(0, Math.max(window.innerHeight * 1.35, 850));",
+            ignored -> handler.postDelayed(()->{
+                if(!running||request!=token||details)return;
+                browser.evaluateJavascript(SNAPSHOT,value->{
+                    if(!running||request!=token||details)return;
+                    try{
+                        Object decoded=new JSONTokener(value).nextValue();
+                        JSONObject data=new JSONObject(String.valueOf(decoded));
+                        if(data.has("error")){failPage("Не удалось прочитать выдачу");return;}
+                        String url=data.optString("url","");
+                        if(!shop.allowed(url)){failPage("Магазин перенаправил выдачу");return;}
+                        readSearch(data);
+                    }catch(Exception e){
+                        failPage("Не удалось прочитать результаты прокрутки");
+                    }
+                });
+            },1050)
+        );
+    }
+
+    static ArrayList<Candidate> rankCandidates(
+            java.util.Collection<Candidate> values,int limit){
+        ArrayList<Candidate> ordered=new ArrayList<>(values);
+        ordered.sort(Comparator.comparingInt(c->c.listingPrice<=0?
+            Integer.MAX_VALUE:c.listingPrice));
+        if(ordered.size()>limit)
+            return new ArrayList<>(ordered.subList(0,limit));
+        return ordered;
+    }
+
     /**
-     * Do not just take the first N links in DOM order. Marketplaces show sponsored
-     * cards and unrelated recommendations before the cheaper matching products.
-     * Retain every exact-model product candidate, prefer cheaper listed offers,
-     * then visit each selected product page to validate model and URL.
+     * A marketplace may load product cards only while scrolling. Collect all
+     * exact-model links across snapshots and rank by the visible listing
+     * price before opening the limited number of candidate detail pages.
      */
     static ArrayList<Candidate> selectCandidates(JSONArray links,Shop shop,String query,int maxCards){
         Map<String,Candidate> unique=new LinkedHashMap<>();
@@ -253,8 +313,6 @@ final class ScanEngine {
             if(!shop.productLink(url))continue;
             String title=item.optString("title","").trim();
             String context=item.optString("context","").trim();
-            // Link text like 'Открыть' may require using its containing card.
-            // The product page is always rechecked for the precise model.
             if(!exact(query,title) && !(title.length()<8&&exact(query,context)))continue;
             String clean=cleanUrl(url);
             int listingPrice=readCardPrice(context);
@@ -264,13 +322,9 @@ final class ScanEngine {
                 unique.put(clean,new Candidate(clean,listingPrice));
             }
         }
-        ArrayList<Candidate> ordered=new ArrayList<>(unique.values());
-        ordered.sort(Comparator.comparingInt(c->c.listingPrice==0?
-            Integer.MAX_VALUE:c.listingPrice));
-        if(ordered.size()>maxCards)
-            return new ArrayList<>(ordered.subList(0,maxCards));
-        return ordered;
+        return rankCandidates(unique.values(),maxCards);
     }
+
     private void nextCandidate() {
         if(!running)return;
         if(cardIndex>=candidates.size()){
