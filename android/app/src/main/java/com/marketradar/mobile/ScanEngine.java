@@ -21,6 +21,9 @@ final class ScanEngine {
     interface Listener {
         void status(Shop shop, String text);
         void offer(Offer offer);
+        // Called before a candidate can change the price ceiling.
+        // null indicates local-AI failure, not an identity mismatch.
+        void assess(Offer offer,java.util.function.Consumer<Boolean> verdict);
         void done();
     }
     static final class Offer {
@@ -188,6 +191,8 @@ final class ScanEngine {
     private final WebView browser;
     private final Handler handler;
     private final Listener listener;
+    private DynamicPriceFrontier frontier=new DynamicPriceFrontier();
+    private int skippedAboveBest=0;
     private final ArrayList<Candidate> candidates = new ArrayList<>();
     private final Set<String> seen = new HashSet<>();
     private boolean running=false;
@@ -225,6 +230,9 @@ final class ScanEngine {
     boolean wasTimeLimited(){return timeLimitReached;}
     boolean coverageIncomplete(){return coverageIncomplete||timeLimitReached;}
     int totalCandidates(){return checked;}
+    void setPriceFrontier(DynamicPriceFrontier shared){
+        if(shared!=null)frontier=shared;
+    }
     static boolean settledAtBottom(boolean bottom,long height,long previousHeight,
                                    int count,int previousCount){
         return bottom&&height==previousHeight&&count==previousCount;
@@ -245,6 +253,7 @@ final class ScanEngine {
         checked=0;
         timeLimitReached=false;
         coverageIncomplete=false;
+        skippedAboveBest=0;
         nextMarket();
     }
     void stop() { running=false;token++; }
@@ -376,6 +385,11 @@ final class ScanEngine {
         // only the first ten DOM links. Each candidate still needs its own
         // product page verification before it can become a visible offer.
         mergeSearchSnapshot(searchPool,data.optJSONArray("links"),shop,query);
+        // Update the optimistic global target AS SOON AS another search
+        // viewport yields a cheaper exact-model listing. This does not
+        // discard fallback candidates before AI checks the cheapest one.
+        for(Candidate candidate:searchPool.values())
+            frontier.observe(candidate.listingPrice);
         // Marketplaces are SPAs. A page may finish loading before product
         // cards are rendered; poll only when the relevant DOM is still empty.
         if(searchPool.isEmpty() && hydrationRetries<5){
@@ -563,10 +577,14 @@ final class ScanEngine {
 
     private void nextCandidate() {
         if(!running)return;
+        int next=DynamicPriceFrontier.nextUnpruned(candidates,cardIndex,frontier);
+        skippedAboveBest+=next-cardIndex;
+        cardIndex=next;
         if(cardIndex>=candidates.size()){
             listener.status(shop,"Обработано "+checkedMarket+
                 " карточек из "+candidates.size()+
-                (coverageIncomplete?". Проверка неполная":" · все собранные карточки обработаны"));
+                (coverageIncomplete?". Проверка неполная":" · поиск завершён")+
+                (skippedAboveBest>0?" · отложено дорогих: "+skippedAboveBest:""));
             nextMarket();return;
         }
         expectedUrl=candidates.get(cardIndex++).url;
@@ -632,7 +650,23 @@ final class ScanEngine {
                 else
                     note="Модель совпадает · цена не найдена";
                 String delivery=candidates.get(cardIndex-1).deliveryHint;
-                listener.offer(new Offer(shop,cleanUrl(url),title,price,note,delivery));
+                Offer proposal=new Offer(shop,cleanUrl(url),title,price,note,delivery);
+                final int request=token;
+                final String candidateUrl=expectedUrl;
+                listener.status(shop,"Проверяем найденный товар локальным ИИ…");
+                listener.assess(proposal,verdict->handler.post(()->{
+                    if(!running||request!=token||!candidateUrl.equals(expectedUrl))return;
+                    if(verdict==null){
+                        coverageIncomplete=true;
+                        listener.status(shop,"Локальный ИИ не подтвердил проверку");
+                    }else if(verdict.booleanValue()){
+                        if(price>0&&frontier.confirm(price))
+                            listener.status(shop,"Новый ценовой порог: "+price+" ₽");
+                        listener.offer(proposal);
+                    }
+                    nextCandidate();
+                }));
+                return;
             }
         }
         listener.status(shop,"Карточек проверено: "+checkedMarket+" / "+candidates.size());
