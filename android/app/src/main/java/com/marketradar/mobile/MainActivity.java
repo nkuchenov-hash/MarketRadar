@@ -66,7 +66,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
     private boolean loginMode=false;
     private boolean aiChecking=false;
     private int aiGeneration=0;
-    private EditText aiServerInput;
+
     private Shop currentShop;
     private ScanEngine.Offer inspectedOffer;
 
@@ -290,33 +290,6 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
             add(marketPage,card,-1,-2);
             gap(marketPage,11);
         }
-        gap(marketPage,15);
-        add(marketPage,text("Сервер ИИ",16,TEXT,true),-1,28);
-        add(marketPage,text("Используется для проверки, что найден именно нужный товар. Нужен работающий сервер MarketRadar с настроенной ИИ-моделью.",12,MUTED,false),-1,-2);
-        gap(marketPage,8);
-        aiServerInput=new EditText(this);
-        aiServerInput.setSingleLine(true);
-        aiServerInput.setTextSize(13);
-        aiServerInput.setTextColor(TEXT);
-        aiServerInput.setHintTextColor(MUTED);
-        aiServerInput.setBackground(bg(SURFACE,13,BORDER));
-        aiServerInput.setPadding(dp(12),0,dp(12),0);
-        aiServerInput.setHint("https://server.example");
-        aiServerInput.setText(prefs.getString("ai_server","https://marketradar-online.onrender.com"));
-        add(marketPage,aiServerInput,-1,49);
-        gap(marketPage,6);
-        Button saveServer=button("Сохранить сервер",false);
-        add(marketPage,saveServer,-1,42);
-        saveServer.setOnClickListener(v->{
-            String address=aiServerInput.getText().toString().trim();
-            if(AiVerifier.endpoint(address)==null){
-                aiServerInput.setError("Укажите HTTPS-адрес сервера");
-                return;
-            }
-            prefs.edit().putString("ai_server",address).apply();
-            android.widget.Toast.makeText(this,"Адрес сервера сохранён",android.widget.Toast.LENGTH_SHORT).show();
-        });
-        gap(marketPage,18);
         Button clear=button("Сбросить все входы на этом телефоне",false);
         add(marketPage,clear,-1,46);
         clear.setOnClickListener(v->confirmClear());
@@ -559,19 +532,17 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
             }
             aiChecking=true;
             searchButton.setText("Остановить");
-            progress.setText("ИИ проверяет товары…");
-            marketProgress.setText("Проверяем совпадение моделей…");
+            progress.setText("Проверка на устройстве…");
+            marketProgress.setText("Локальная модель проверяет товары…");
             final int active=aiGeneration;
-            String server=prefs.getString("ai_server",
-                "https://marketradar-online.onrender.com");
             String query=queryInput.getText().toString().trim();
-            AiVerifier.verify(server,query,provisional,ui,(approved,error)->{
+            LocalModelVerifier.verify(this,query,provisional,ui,(approved,error)->{
                 if(active!=aiGeneration||isFinishing()||isDestroyed())return;
                 aiChecking=false;
                 searchButton.setText("Найти лучшую цену");
                 if(error!=null){
                     summaryPanel.setVisibility(View.VISIBLE);
-                    marketProgress.setText("ИИ недоступен. Цены не подтверждены.");
+                    marketProgress.setText("Не удалось проверить товары на устройстве");
                     progress.setText(error);
                     return;
                 }
@@ -582,7 +553,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
                     progress.setText("Проверьте запрос");
                 }else{
                     renderResults();
-                    progress.setText("Найдены товары с проверкой ИИ");
+                    progress.setText("Модели проверены на устройстве");
                 }
             });
         });
