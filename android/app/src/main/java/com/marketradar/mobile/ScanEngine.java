@@ -127,6 +127,8 @@ final class ScanEngine {
     private final ArrayList<Candidate> candidates = new ArrayList<>();
     private final Set<String> seen = new HashSet<>();
     private boolean running=false;
+    private int sessionToken=0;
+    private boolean timeLimitReached=false;
     private String query="";
     private Shop shop=null;
     private int marketIndex=0, cardIndex=0, token=0, checked=0;
@@ -146,15 +148,27 @@ final class ScanEngine {
         this.browser=browser;this.handler=handler;this.listener=listener;
     }
     boolean isRunning(){return running;}
+    boolean wasTimeLimited(){return timeLimitReached;}
     void start(String q) { start(q,8,Shop.ALL); }
     void start(String q,int limit) { start(q,limit,Shop.ALL); }
     void start(String q,int limit,List<Shop> markets) {
         stop();
         activeMarkets=new ArrayList<>(markets);
         query=q.trim(); maxCards=Math.max(1,Math.min(8,limit)); running=true; marketIndex=0;checked=0;
+        timeLimitReached=false;
+        final int activeSession=++sessionToken;
+        // A bounded default search is more useful than waiting for every
+        // third-party page to respond; the result remains explicitly partial.
+        handler.postDelayed(()->{
+            if(running&&sessionToken==activeSession){
+                timeLimitReached=true;
+                running=false;token++;
+                listener.done();
+            }
+        },30000);
         nextMarket();
     }
-    void stop() { running=false;token++; }
+    void stop() { running=false;token++;sessionToken++; }
 
     private void nextMarket() {
         if(!running)return;
@@ -527,7 +541,8 @@ final class ScanEngine {
              "батарея","подставки","переходник","кейс","футляр",
              "насадка","крышка","плата","разъем","крепеж","ремешок",
              "защита","пленка","стекло","комплект","термостат","датчик",
-             "климатический","настенный","коробка","крепления"};
+             "климатический","настенный","коробка","крепления",
+             "аксессуар","аксессуары","набор","совместимый","совместимая"};
         for(String word:accessories){
             if(titleWords.contains(word)&&!queryWords.contains(word))return false;
         }
