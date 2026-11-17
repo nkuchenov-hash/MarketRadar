@@ -140,6 +140,7 @@ final class ScanEngine {
     private final Map<String,Candidate> searchPool=new LinkedHashMap<>();
     private int scrollPass=0;
     private boolean searchSampling=false;
+    private long marketStartMs=0;
 
     ScanEngine(WebView browser, Handler handler, Listener listener) {
         this.browser=browser;this.handler=handler;this.listener=listener;
@@ -150,7 +151,7 @@ final class ScanEngine {
     void start(String q,int limit,List<Shop> markets) {
         stop();
         activeMarkets=new ArrayList<>(markets);
-        query=q.trim(); maxCards=Math.max(1,Math.min(12,limit)); running=true; marketIndex=0;checked=0;
+        query=q.trim(); maxCards=Math.max(1,Math.min(8,limit)); running=true; marketIndex=0;checked=0;
         nextMarket();
     }
     void stop() { running=false;token++; }
@@ -166,6 +167,7 @@ final class ScanEngine {
         candidates.clear();seen.clear();
         cardIndex=0;details=false;checkedMarket=0;expectedUrl="";
         scrollPass=0;searchSampling=false;searchPool.clear();
+        marketStartMs=android.os.SystemClock.elapsedRealtime();
         listener.status(shop,"Ищем точную модель…");
         load(shop.searchUrl(query));
     }
@@ -174,7 +176,7 @@ final class ScanEngine {
         browser.loadUrl(url);
         handler.postDelayed(() -> {
             if(running&&request==token)failPage("Страница не ответила");
-        },38000);
+        },18000);
     }
     void onPageFinished(String url) {
         if(!running)return;
@@ -208,7 +210,7 @@ final class ScanEngine {
                     }
                 });
             }
-        },2800);
+        },1050);
     }
     void onPageError(String url) {
         if(!running)return;
@@ -253,7 +255,7 @@ final class ScanEngine {
         // only the first ten DOM links. Each candidate still needs its own
         // product page verification before it can become a visible offer.
         mergeSearchSnapshot(searchPool,data.optJSONArray("links"),shop,query);
-        final int maxScrolls=maxCards<=3?2:6;
+        final int maxScrolls=maxCards<=3?1:3;
         if(scrollPass<maxScrolls){
             scrollPass++;
             listener.status(shop,"Просматриваем выдачу: "+scrollPass+"/"+maxScrolls+
@@ -293,7 +295,7 @@ final class ScanEngine {
                         failPage("Не удалось прочитать результаты прокрутки");
                     }
                 });
-            },1050)
+            },450)
         );
     }
 
@@ -346,7 +348,8 @@ final class ScanEngine {
 
     private void nextCandidate() {
         if(!running)return;
-        if(cardIndex>=candidates.size()){
+        if(cardIndex>=candidates.size() ||
+            android.os.SystemClock.elapsedRealtime()-marketStartMs>22000){
             listener.status(shop,"Проверено карточек: "+checkedMarket+". Покрытие неполное");
             nextMarket();return;
         }
@@ -515,9 +518,27 @@ final class ScanEngine {
             }
             if(requested&&!matched)return false;
         }
-        String[] accessories={"чехол","крепление","кронштейн","подставка","кабель","адаптер",
-             "держатель","пульт","наклейка","защитное стекло","корпус","запчасть"};
-        for(String word:accessories)if(t.contains(word)&&!q.contains(word))return false;
+        // A matching model name inside "accessory FOR model" is NOT the
+        // requested product. Generic containment caused a 2 137 ₽ climate
+        // accessory to be ranked above the actual Mini 3 Pro speaker.
+        String[] accessories={"чехол","крепление","кронштейн","подставка",
+             "кабель","адаптер","держатель","пульт","наклейка","корпус",
+             "запчасть","модуль","аккумулятор","блок","зарядка","зарядное",
+             "батарея","подставки","переходник","кейс","футляр",
+             "насадка","крышка","плата","разъем","крепеж","ремешок",
+             "защита","пленка","стекло","комплект","термостат","датчик",
+             "климатический","настенный","коробка","крепления"};
+        for(String word:accessories){
+            if(titleWords.contains(word)&&!queryWords.contains(word))return false;
+        }
+        if((t.contains("для станции")||t.contains("для яндекс")||
+            t.contains("совместим")||t.contains("подходит для")) &&
+           !(q.contains("для станции")||q.contains("для яндекс")||
+             q.contains("совместим")||q.contains("подходит для")))return false;
+        // Protect all exact-model queries from obvious product-family upsells.
+        for(String unrelated:new String[]{"мини 3 с","мини 3 без про"}){
+            if(t.contains(unrelated)&&!q.contains(unrelated))return false;
+        }
         boolean hasQueryColor=false;
         for(String[] group:colorNames){
             for(String alias:group)if(queryWords.contains(alias)){hasQueryColor=true;break;}
