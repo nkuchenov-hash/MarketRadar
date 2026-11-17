@@ -38,4 +38,24 @@ public final class LocalModelTest {
         }
         assertTrue("Need representative Russian and English examples",checked>=7);
     }
+    @Test public void localModelScoresPlusProductIdentityRejectWrongItems() throws Exception {
+        File golden=new File("src/main/assets/local-nli-score-golden.tsv");
+        assertTrue("Actual ONNX NLI smoke scores are required",golden.isFile());
+        int checked=0;
+        try(BufferedReader reader=new BufferedReader(new FileReader(golden))){
+            for(String line;(line=reader.readLine())!=null;){
+                String[] values=line.split("\\t",-1);
+                assertEquals(6,values.length);
+                boolean expected=Boolean.parseBoolean(values[2]);
+                boolean actual=ProductIdentityGate.confirms(
+                    values[0],values[1],
+                    Float.parseFloat(values[3]),
+                    Float.parseFloat(values[4]),
+                    Float.parseFloat(values[5]));
+                assertEquals("Wrong classification for "+values[1],expected,actual);
+                checked++;
+            }
+        }
+        assertTrue(checked>=7);
+    }
 }
