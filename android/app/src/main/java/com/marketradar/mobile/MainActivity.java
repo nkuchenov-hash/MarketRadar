@@ -66,6 +66,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
     private boolean loginMode=false;
     private boolean aiChecking=false;
     private int aiGeneration=0;
+    private String activeQuery="";
 
     private Shop currentShop;
     private ScanEngine.Offer inspectedOffer;
@@ -435,6 +436,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         }
         String q=queryInput.getText().toString().trim();
         if(q.length()<3){queryInput.setError("Введите название или модель");return;}
+        activeQuery=q;
         prefs.edit().putString("last_query",q).apply();
         ((InputMethodManager)getSystemService(Context.INPUT_METHOD_SERVICE)).hideSoftInputFromWindow(queryInput.getWindowToken(),0);
         queryInput.clearFocus();
@@ -596,7 +598,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
             progress.setText("Проверка на устройстве…");
             marketProgress.setText("Локальная модель проверяет товары…");
             final int active=aiGeneration;
-            String query=queryInput.getText().toString().trim();
+            final String query=activeQuery;
             LocalModelVerifier.verify(this,query,provisional,ui,(approved,error)->{
                 if(active!=aiGeneration||isFinishing()||isDestroyed())return;
                 aiChecking=false;
@@ -617,9 +619,17 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
                 }else{
                     renderResults();
                     saveSearchReport(provisional,"Проверка товаров завершена");
-                    progress.setText(engine.wasTimeLimited()?
-                        "Поиск неполный: показаны только найденные предложения":
-                        "Модели проверены на устройстве");
+                    boolean missingMarket=false;
+                    for(Shop selected:lastSelectedMarkets){
+                        boolean hasOffer=false;
+                        for(ScanEngine.Offer found:offers){
+                            if(selected.id.equals(found.shop.id)){hasOffer=true;break;}
+                        }
+                        if(!hasOffer){missingMarket=true;break;}
+                    }
+                    progress.setText(missingMarket||engine.wasTimeLimited()?
+                        "Сравнение частичное: у некоторых магазинов нет подтверждённой цены":
+                        "Показаны подтверждённые модели · предложения могут меняться");
                 }
             });
         });
