@@ -150,4 +150,47 @@ public class CoreTest {
             "https://www.wildberries.ru/catalog/24599111/detail.aspx",
             "https://www.wildberries.ru/catalog/0/search.aspx?search=mini"));
     }
+    @Test public void scrollingCanDiscoverCheaperProOfferBelowFirstViewport() throws Exception {
+        String q="Яндекс Станция Мини 3 Про";
+        Shop ozon=Shop.byId("ozon");
+        java.util.Map<String,ScanEngine.Candidate> pool=new java.util.LinkedHashMap<>();
+        JSONArray firstScreen=new JSONArray();
+        for(int n=0;n<10;n++)
+            firstScreen.put(new org.json.JSONObject()
+                .put("url","https://www.ozon.ru/product/mini-3-pro-"+(2399000000L+n)+"/")
+                .put("title",q+" синий")
+                .put("context",q+" синий\\n"+(11899+n*35)+" ₽"));
+        ScanEngine.mergeSearchSnapshot(pool,firstScreen,ozon,q);
+        assertEquals(10,pool.size());
+        JSONArray afterScroll=new JSONArray()
+            .put(new org.json.JSONObject()
+                .put("url","https://www.ozon.ru/product/mini-3-pro-2399149089/")
+                .put("title",q+" синий")
+                .put("context",q+" синий\\n11 542 ₽\\n13 590 ₽"))
+            .put(new org.json.JSONObject()
+                .put("url","https://www.ozon.ru/product/mini-3-2399149999/")
+                .put("title","Яндекс Станция Мини 3")
+                .put("context","Яндекс Станция Мини 3\\n11 507 ₽"));
+        ScanEngine.mergeSearchSnapshot(pool,afterScroll,ozon,q);
+        assertEquals(11,pool.size());
+        java.util.ArrayList<ScanEngine.Candidate> selected=
+            ScanEngine.rankCandidates(pool.values(),10);
+        assertEquals(11542,selected.get(0).listingPrice);
+        assertTrue(selected.get(0).url.contains("2399149089"));
+    }
+    @Test public void duplicateProductAcrossScrollsKeepsLowestAssociatedPrice() throws Exception {
+        String q="Яндекс Станция Мини 3 Про";
+        Shop ozon=Shop.byId("ozon");
+        java.util.Map<String,ScanEngine.Candidate> pool=new java.util.LinkedHashMap<>();
+        String url="https://www.ozon.ru/product/mini-3-pro-2399149089/";
+        JSONArray a=new JSONArray().put(new org.json.JSONObject()
+            .put("url",url).put("title",q).put("context",q+"\\n11 899 ₽"));
+        JSONArray b=new JSONArray().put(new org.json.JSONObject()
+            .put("url",url+"?utm_source=widget").put("title",q)
+            .put("context",q+"\\n11 542 ₽"));
+        ScanEngine.mergeSearchSnapshot(pool,a,ozon,q);
+        ScanEngine.mergeSearchSnapshot(pool,b,ozon,q);
+        assertEquals(1,pool.size());
+        assertEquals(11542,ScanEngine.rankCandidates(pool.values(),10).get(0).listingPrice);
+    }
 }
