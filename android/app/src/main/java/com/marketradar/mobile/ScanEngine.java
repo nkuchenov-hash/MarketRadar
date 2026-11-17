@@ -61,7 +61,7 @@ final class ScanEngine {
             for (const a of [...document.querySelectorAll('a[href]')].slice(0, 3500)) {
               if (!visible(a)) continue;
               const img=a.querySelector('img');
-              const title=(a.getAttribute('title') || img?.alt || a.innerText ||
+              const title=(a.getAttribute('title') || a.innerText || img?.alt ||
                     a.getAttribute('aria-label') || '').trim().slice(0,260);
               const context=tileText(a);
               links.push({
@@ -252,12 +252,7 @@ final class ScanEngine {
         // Combine all scroll snapshots, not only the initial screen and not
         // only the first ten DOM links. Each candidate still needs its own
         // product page verification before it can become a visible offer.
-        for(Candidate candidate:selectCandidates(data.optJSONArray("links"),shop,query,250)){
-            Candidate old=searchPool.get(candidate.url);
-            if(old==null || (candidate.listingPrice>0 &&
-                (old.listingPrice<=0 || candidate.listingPrice<old.listingPrice)))
-                searchPool.put(candidate.url,candidate);
-        }
+        mergeSearchSnapshot(searchPool,data.optJSONArray("links"),shop,query);
         final int maxScrolls=maxCards<=3?2:6;
         if(scrollPass<maxScrolls){
             scrollPass++;
@@ -300,6 +295,16 @@ final class ScanEngine {
                 });
             },1050)
         );
+    }
+
+    static void mergeSearchSnapshot(Map<String,Candidate> pool,JSONArray links,
+            Shop shop,String query){
+        for(Candidate candidate:selectCandidates(links,shop,query,250)){
+            Candidate old=pool.get(candidate.url);
+            if(old==null || (candidate.listingPrice>0 &&
+                (old.listingPrice<=0 || candidate.listingPrice<old.listingPrice)))
+                pool.put(candidate.url,candidate);
+        }
     }
 
     static ArrayList<Candidate> rankCandidates(
