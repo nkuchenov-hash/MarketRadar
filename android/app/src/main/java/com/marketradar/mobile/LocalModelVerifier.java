@@ -104,6 +104,7 @@ final class LocalModelVerifier {
     }
 
     synchronized boolean identical(String query,String title) throws Exception {
+        if(ProductIdentityGate.literalMatch(query,title))return true;
         if(!ScanEngine.exact(query,title))return false;
         String key=ScanEngine.norm(query)+"\u0001"+ScanEngine.norm(title);
         Boolean cached=sessionDecisions.get(key);
@@ -122,9 +123,11 @@ final class LocalModelVerifier {
     static void verify(Context context,String query,List<ScanEngine.Offer> offers,
             Handler ui,Callback callback){
         new Thread(()->{
+            ArrayList<ScanEngine.Offer> selected=new ArrayList<>();
             try{
-                LocalModelVerifier verifier=get(context);
-                ArrayList<ScanEngine.Offer> selected=new ArrayList<>();
+                // Exact normalized titles never depend on model startup or
+                // probabilistic NLI scores.
+                LocalModelVerifier verifier=null;
                 Map<String,Boolean> cache=new HashMap<>();
                 for(ScanEngine.Offer offer:offers){
                     if(Thread.currentThread().isInterrupted())break;
@@ -132,7 +135,12 @@ final class LocalModelVerifier {
                     String normalized=ScanEngine.norm(offer.title);
                     Boolean confirmed=cache.get(normalized);
                     if(confirmed==null){
-                        confirmed=verifier.identical(query,offer.title);
+                        if(ProductIdentityGate.literalMatch(query,offer.title)){
+                            confirmed=true;
+                        }else{
+                            if(verifier==null)verifier=get(context);
+                            confirmed=verifier.identical(query,offer.title);
+                        }
                         cache.put(normalized,confirmed);
                     }
                     if(confirmed)selected.add(offer);
