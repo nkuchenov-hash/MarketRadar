@@ -143,6 +143,7 @@ final class ScanEngine {
     private int scrollPass=0;
     private boolean searchSampling=false;
     private long marketStartMs=0;
+    private int marketEpoch=0;
 
     ScanEngine(WebView browser, Handler handler, Listener listener) {
         this.browser=browser;this.handler=handler;this.listener=listener;
@@ -165,7 +166,7 @@ final class ScanEngine {
                 running=false;token++;
                 listener.done();
             }
-        },30000);
+        },maxCards<=3?38000:76000);
         nextMarket();
     }
     void stop() { running=false;token++;sessionToken++; }
@@ -178,6 +179,18 @@ final class ScanEngine {
             return;
         }
         shop=activeMarkets.get(marketIndex++);
+        final Shop active=shop;
+        final int epoch=++marketEpoch;
+        // A single slow marketplace must not consume the whole search budget.
+        // All three selected marketplaces get an explicit opportunity to load.
+        handler.postDelayed(()->{
+            if(!running||epoch!=marketEpoch||shop!=active)return;
+            timeLimitReached=true;
+            token++;
+            browser.stopLoading();
+            listener.status(active,"Время проверки истекло, поиск неполный");
+            nextMarket();
+        },maxCards<=3?10500:22000);
         candidates.clear();seen.clear();
         cardIndex=0;details=false;checkedMarket=0;expectedUrl="";
         scrollPass=0;searchSampling=false;searchPool.clear();
@@ -194,6 +207,10 @@ final class ScanEngine {
     }
     void onPageFinished(String url) {
         if(!running)return;
+        // Ignore completion callbacks from the previous marketplace. Both
+        // search and product pages share one WebView, so a prior host can
+        // finish after the next shop has already started loading.
+        if(!details && !shop.allowed(url))return;
         // A stale completion callback from a previous card must not be
         // interpreted as a result for the card currently being loaded.
         if(!details&&searchSampling)return;
@@ -227,7 +244,7 @@ final class ScanEngine {
         },1050);
     }
     void onPageError(String url) {
-        if(!running)return;
+        if(!running||!shop.allowed(url))return;
         int request=token;
         handler.postDelayed(() -> {
             if(running&&request==token)failPage("Ошибка загрузки");
@@ -363,8 +380,10 @@ final class ScanEngine {
     private void nextCandidate() {
         if(!running)return;
         if(cardIndex>=candidates.size() ||
-            android.os.SystemClock.elapsedRealtime()-marketStartMs>22000){
-            listener.status(shop,"Проверено карточек: "+checkedMarket+". Покрытие неполное");
+            android.os.SystemClock.elapsedRealtime()-marketStartMs>
+            (maxCards<=3?10000:21500)){
+            listener.status(shop,"Карточек проверено: "+checkedMarket+
+                ". Выдача проверена частично");
             nextMarket();return;
         }
         expectedUrl=candidates.get(cardIndex++).url;
