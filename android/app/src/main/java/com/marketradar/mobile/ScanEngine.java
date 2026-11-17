@@ -61,7 +61,6 @@ final class ScanEngine {
               return '';
             };
             for(const a of document.querySelectorAll('a[href]')){
-              if(links.length>=1600)break;
               let url;
               try{url=new URL(a.href)}catch(e){continue;}
               if(url.protocol!=='https:'||!productPath.test(url.pathname))continue;
@@ -78,7 +77,34 @@ final class ScanEngine {
               url:location.href,
               title:document.title,
               text:(body?.innerText||'').slice(0,1800),
-              links
+              links,
+              scrollY:Math.round(window.scrollY||0),
+              scrollHeight:Math.max(body?.scrollHeight||0,
+                document.documentElement?.scrollHeight||0),
+              viewportHeight:Math.round(window.innerHeight||0),
+              // Treat an explicit next-page URL as another result page,
+              // never as a new marketplace or an unrelated product URL.
+              nextPage:(()=>{
+                const nodes=[...document.querySelectorAll('a[rel="next"],a[aria-label],nav a[href]')];
+                for(const node of nodes){
+                  const label=(node.getAttribute('aria-label')||node.textContent||'').trim();
+                  if(node.rel==='next'||/^(?:следующ(?:ая|ий|ую|ее)|далее|next|›|»|>)$/i.test(label)){
+                    try{const target=new URL(node.href,location.href);
+                      if(target.origin===location.origin&&target.href!==location.href)
+                        return target.href;
+                    }catch(e){}
+                  }
+                }
+                return '';
+              })(),
+              loadMore:(()=>{
+                for(const button of document.querySelectorAll('button,[role="button"]')){
+                  if(/^(?:показать ещё|показать еще|загрузить ещё|загрузить еще|show more|load more)$/i
+                       .test((button.textContent||'').trim())&&visible(button))
+                     return true;
+                }
+                return false;
+              })()
             });
           }catch(e){
             return JSON.stringify({error:'Не удалось прочитать выдачу'});
@@ -169,8 +195,13 @@ final class ScanEngine {
     // snapshots before applying the candidate limit; otherwise an exact,
     // cheaper listing below the first fold can never enter the comparison.
     private final Map<String,Candidate> searchPool=new LinkedHashMap<>();
-    private int scrollPass=0;
     private boolean searchSampling=false;
+    private int stableBottom=0;
+    private int lastPoolSize=-1;
+    private long lastHeight=-1;
+    private int loadMoreAttempts=0;
+    private boolean coverageIncomplete=false;
+    private final Set<String> visitedSearchPages=new HashSet<>();
     private int hydrationRetries=0;
     private int detailHydrationRetries=0;
 
@@ -179,6 +210,15 @@ final class ScanEngine {
     }
     boolean isRunning(){return running;}
     boolean wasTimeLimited(){return timeLimitReached;}
+    boolean coverageIncomplete(){return coverageIncomplete||timeLimitReached;}
+    int totalCandidates(){return checked;}
+    static boolean settledAtBottom(boolean bottom,long height,long previousHeight,
+                                   int count,int previousCount){
+        return bottom&&height==previousHeight&&count==previousCount;
+    }
+    static boolean atPageEnd(long y,long height,long viewport){
+        return height>0&&viewport>0&&y+viewport>=height-75;
+    }
     void start(String q) { start(q,8,Shop.ALL); }
     void start(String q,int limit) { start(q,limit,Shop.ALL); }
     void start(String q,int limit,List<Shop> markets) {
@@ -190,6 +230,7 @@ final class ScanEngine {
         marketIndex=0;
         checked=0;
         timeLimitReached=false;
+        coverageIncomplete=false;
         nextMarket();
     }
     void stop() { running=false;token++; }
@@ -204,7 +245,10 @@ final class ScanEngine {
         shop=activeMarkets.get(marketIndex++);
         candidates.clear();seen.clear();
         cardIndex=0;details=false;checkedMarket=0;expectedUrl="";
-        scrollPass=0;searchSampling=false;searchPool.clear();
+        searchSampling=false;searchPool.clear();
+        stableBottom=0;lastPoolSize=-1;lastHeight=-1;
+        loadMoreAttempts=0;visitedSearchPages.clear();
+        visitedSearchPages.add(shop.searchUrl(query));
         hydrationRetries=0;
         detailHydrationRetries=0;
         listener.status(shop,"Ищем точную модель…");
@@ -263,6 +307,7 @@ final class ScanEngine {
         },1500);
     }
     private void failPage(String message) {
+        coverageIncomplete=true;
         if(message.contains("не ответила"))timeLimitReached=true;
         token++;
         if(details) {
@@ -281,6 +326,7 @@ final class ScanEngine {
         String title=data.optString("title","");
         String body=(title+" "+text).toLowerCase(Locale.ROOT);
         if(!shop.allowed(url)){
+            coverageIncomplete=true;
             listener.status(shop,"Переадресация: возможно, требуется вход в магазин");
             nextMarket();return;
         }
@@ -288,6 +334,7 @@ final class ScanEngine {
             body.contains("похоже, нет соединения")||
             body.contains("вы не робот")||body.contains("captcha")||
             body.contains("access denied")||title.equals("403")) {
+            coverageIncomplete=true;
             listener.status(shop,"Магазин ограничил доступ");
             nextMarket();return;
         }
@@ -323,27 +370,81 @@ final class ScanEngine {
             },330);
             return;
         }
-        final int maxScrolls=maxCards<=12?3:8;
-        if(scrollPass<maxScrolls){
-            scrollPass++;
-            listener.status(shop,"Просматриваем выдачу: "+scrollPass+"/"+maxScrolls+
-                " · подходящих ссылок "+searchPool.size());
+        long y=data.optLong("scrollY",0);
+        long height=data.optLong("scrollHeight",0);
+        long viewport=data.optLong("viewportHeight",0);
+        boolean bottom=atPageEnd(y,height,viewport);
+        if(settledAtBottom(bottom,height,lastHeight,
+                searchPool.size(),lastPoolSize))stableBottom++;
+        else stableBottom=0;
+        lastHeight=height;lastPoolSize=searchPool.size();
+
+        if(stableBottom<2){
+            listener.status(shop,"Собрано "+searchPool.size()+
+                " кандидатов · просматриваем выдачу");
             scrollSearchPage();
             return;
         }
+        String next=data.optString("nextPage","");
+        if(isNextSearchPage(shop,next,visitedSearchPages)){
+            visitedSearchPages.add(next);
+            stableBottom=0;lastHeight=-1;lastPoolSize=-1;
+            hydrationRetries=0;searchSampling=false;
+            listener.status(shop,"Следующая страница · кандидатов "+searchPool.size());
+            load(next);
+            return;
+        }
+        if(data.optBoolean("loadMore",false)){
+            if(loadMoreAttempts++<2){
+                stableBottom=0;
+                final int request=token;
+                browser.evaluateJavascript(
+                    "(()=>{for(const b of document.querySelectorAll('button,[role=button]')){"+
+                    "const t=(b.textContent||'').trim();"+
+                    "if(/^(показать ещё|показать еще|загрузить ещё|загрузить еще|show more|load more)$/i.test(t)){"+
+                    "b.click();return true;}}return false;})()",
+                    ignored->handler.postDelayed(()->{
+                        if(running&&request==token&&!details)
+                            browser.evaluateJavascript(SEARCH_SNAPSHOT,value->{
+                                if(!running||request!=token||details)return;
+                                try{
+                                    Object decoded=new JSONTokener(value).nextValue();
+                                    readSearch(new JSONObject(String.valueOf(decoded)));
+                                }catch(Exception e){failPage("Не удалось подгрузить товары");}
+                            });
+                    },450));
+                return;
+            }
+            // "Show more" still exists but did not extend the listing:
+            // cannot honestly claim the entire catalogue was exhausted.
+            coverageIncomplete=true;
+            listener.status(shop,"Не удалось загрузить оставшиеся предложения");
+        }
         candidates.clear();
-        candidates.addAll(rankCandidates(searchPool.values(),maxCards));
+        candidates.addAll(rankCandidates(searchPool.values(),Integer.MAX_VALUE));
         searchSampling=false;
         if(candidates.isEmpty()){
-            listener.status(shop,"Подходящие ссылки не найдены в просмотренной выдаче");
+            listener.status(shop,coverageIncomplete?
+                "Выдача проверена не полностью":
+                "Подходящих ссылок нет в доступной выдаче");
             nextMarket();return;
         }
         details=true;
-        listener.status(shop,"В выдаче "+searchPool.size()+" подходящих ссылок. Проверяем "+
-            candidates.size()+" карточек товара…");
+        listener.status(shop,"Выдача просмотрена · проверяем все "+
+            candidates.size()+" найденных карточек");
         nextCandidate();
     }
 
+    static boolean isNextSearchPage(Shop shop,String next,Set<String> visited){
+        if(shop==null||next==null||next.isBlank()||visited.contains(next)||
+           !shop.allowed(next)||shop.productLink(next))return false;
+        try{
+            java.net.URI uri=new java.net.URI(next);
+            String path=uri.getPath().toLowerCase(Locale.ROOT);
+            return path.contains("search")||
+                (shop.id.equals("wb")&&path.contains("/catalog/0"));
+        }catch(Exception ignored){return false;}
+    }
     private void scrollSearchPage(){
         int request=token;
         browser.evaluateJavascript(
@@ -369,7 +470,7 @@ final class ScanEngine {
 
     static void mergeSearchSnapshot(Map<String,Candidate> pool,JSONArray links,
             Shop shop,String query){
-        for(Candidate candidate:selectCandidates(links,shop,query,250)){
+        for(Candidate candidate:selectCandidates(links,shop,query,Integer.MAX_VALUE)){
             Candidate old=pool.get(candidate.url);
             if(old==null || (candidate.listingPrice>0 &&
                 (old.listingPrice<=0 || candidate.listingPrice<old.listingPrice)))
@@ -419,7 +520,7 @@ final class ScanEngine {
         if(cardIndex>=candidates.size()){
             listener.status(shop,"Обработано "+checkedMarket+
                 " карточек из "+candidates.size()+
-                ". Покрытие рынка не гарантируется");
+                (coverageIncomplete?". Проверка неполная":" · все собранные карточки обработаны"));
             nextMarket();return;
         }
         expectedUrl=candidates.get(cardIndex++).url;
