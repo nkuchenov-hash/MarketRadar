@@ -127,7 +127,6 @@ final class ScanEngine {
     private final ArrayList<Candidate> candidates = new ArrayList<>();
     private final Set<String> seen = new HashSet<>();
     private boolean running=false;
-    private int sessionToken=0;
     private boolean timeLimitReached=false;
     private String query="";
     private Shop shop=null;
@@ -142,8 +141,7 @@ final class ScanEngine {
     private final Map<String,Candidate> searchPool=new LinkedHashMap<>();
     private int scrollPass=0;
     private boolean searchSampling=false;
-    private long marketStartMs=0;
-    private int marketEpoch=0;
+    private int hydrationRetries=0;
 
     ScanEngine(WebView browser, Handler handler, Listener listener) {
         this.browser=browser;this.handler=handler;this.listener=listener;
@@ -155,21 +153,15 @@ final class ScanEngine {
     void start(String q,int limit,List<Shop> markets) {
         stop();
         activeMarkets=new ArrayList<>(markets);
-        query=q.trim(); maxCards=Math.max(1,Math.min(8,limit)); running=true; marketIndex=0;checked=0;
+        query=q.trim();
+        maxCards=Math.max(1,Math.min(40,limit));
+        running=true;
+        marketIndex=0;
+        checked=0;
         timeLimitReached=false;
-        final int activeSession=++sessionToken;
-        // A bounded default search is more useful than waiting for every
-        // third-party page to respond; the result remains explicitly partial.
-        handler.postDelayed(()->{
-            if(running&&sessionToken==activeSession){
-                timeLimitReached=true;
-                running=false;token++;
-                listener.done();
-            }
-        },maxCards<=3?38000:76000);
         nextMarket();
     }
-    void stop() { running=false;token++;sessionToken++; }
+    void stop() { running=false;token++; }
 
     private void nextMarket() {
         if(!running)return;
@@ -179,22 +171,10 @@ final class ScanEngine {
             return;
         }
         shop=activeMarkets.get(marketIndex++);
-        final Shop active=shop;
-        final int epoch=++marketEpoch;
-        // A single slow marketplace must not consume the whole search budget.
-        // All three selected marketplaces get an explicit opportunity to load.
-        handler.postDelayed(()->{
-            if(!running||epoch!=marketEpoch||shop!=active)return;
-            timeLimitReached=true;
-            token++;
-            browser.stopLoading();
-            listener.status(active,"Время проверки истекло, поиск неполный");
-            nextMarket();
-        },maxCards<=3?10500:22000);
         candidates.clear();seen.clear();
         cardIndex=0;details=false;checkedMarket=0;expectedUrl="";
         scrollPass=0;searchSampling=false;searchPool.clear();
-        marketStartMs=android.os.SystemClock.elapsedRealtime();
+        hydrationRetries=0;
         listener.status(shop,"Ищем точную модель…");
         load(shop.searchUrl(query));
     }
@@ -286,7 +266,7 @@ final class ScanEngine {
         // only the first ten DOM links. Each candidate still needs its own
         // product page verification before it can become a visible offer.
         mergeSearchSnapshot(searchPool,data.optJSONArray("links"),shop,query);
-        final int maxScrolls=maxCards<=3?1:3;
+        final int maxScrolls=maxCards<=12?3:8;
         if(scrollPass<maxScrolls){
             scrollPass++;
             listener.status(shop,"Просматриваем выдачу: "+scrollPass+"/"+maxScrolls+
@@ -379,11 +359,10 @@ final class ScanEngine {
 
     private void nextCandidate() {
         if(!running)return;
-        if(cardIndex>=candidates.size() ||
-            android.os.SystemClock.elapsedRealtime()-marketStartMs>
-            (maxCards<=3?10000:21500)){
-            listener.status(shop,"Карточек проверено: "+checkedMarket+
-                ". Выдача проверена частично");
+        if(cardIndex>=candidates.size()){
+            listener.status(shop,"Обработано "+checkedMarket+
+                " карточек из "+candidates.size()+
+                ". Покрытие рынка не гарантируется");
             nextMarket();return;
         }
         expectedUrl=candidates.get(cardIndex++).url;
