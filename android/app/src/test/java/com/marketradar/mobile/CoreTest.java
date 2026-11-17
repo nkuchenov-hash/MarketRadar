@@ -298,9 +298,9 @@ public class CoreTest {
     @Test public void unconfirmedLowListingMustNotHideRealFallback() {
         DynamicPriceFrontier frontier=new DynamicPriceFrontier();
         java.util.ArrayList<ScanEngine.Candidate> candidates=new java.util.ArrayList<>();
-        candidates.add(new ScanEngine.Candidate("https://www.ozon.ru/product/pro-2000001/",12000));
-        candidates.add(new ScanEngine.Candidate("https://www.ozon.ru/product/pro-2000002/",13000));
-        candidates.add(new ScanEngine.Candidate("https://www.ozon.ru/product/pro-2000003/",14000));
+        candidates.add(new ScanEngine.Candidate("https://www.ozon.ru/product/pro-2000001/",12000,"завтра"));
+        candidates.add(new ScanEngine.Candidate("https://www.ozon.ru/product/pro-2000002/",13000,"завтра"));
+        candidates.add(new ScanEngine.Candidate("https://www.ozon.ru/product/pro-2000003/",14000,"завтра"));
         frontier.observe(12000);
         assertEquals(1,DynamicPriceFrontier.nextUnpruned(candidates,1,frontier));
         // The 12,000 ₽ teaser turned out to be an accessory: no hard ceiling.
@@ -309,6 +309,11 @@ public class CoreTest {
         // Only after model + product page verify can the expensive cards be deferred.
         frontier.confirm(12000);
         assertEquals(3,DynamicPriceFrontier.nextUnpruned(candidates,1,frontier));
+        // Delivery is unknown: a site detail page may still reveal a fast
+        // slot, so the optimiser must NOT drop it only because it costs more.
+        candidates.add(new ScanEngine.Candidate(
+            "https://www.ozon.ru/product/pro-2000004/",15000,""));
+        assertEquals(3,DynamicPriceFrontier.nextUnpruned(candidates,3,frontier));
     }
 
     @Test public void cheaperListingStillQualifiesAfterTrustedPrice() {
