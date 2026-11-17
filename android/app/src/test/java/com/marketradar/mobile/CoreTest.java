@@ -193,4 +193,29 @@ public class CoreTest {
         assertEquals(1,pool.size());
         assertEquals(11542,ScanEngine.rankCandidates(pool.values(),10).get(0).listingPrice);
     }
+    @Test public void climateAccessoryMustNeverWinSmartSpeakerPriceComparison() throws Exception {
+        String query="Яндекс Станция Мини 3 Про";
+        assertFalse(ScanEngine.exact(query,
+            "Климатический модуль для Станции Мини 3 Про с Алисой Яндекс 981125674 купить за 3 161 ₽"));
+        assertFalse(ScanEngine.exact(query,
+            "Климатический модуль для Яндекс Станции Мини 3 Про"));
+        assertFalse(ScanEngine.exact(query,
+            "Комплект крепления для Яндекс Станции Мини 3 Про"));
+        assertTrue(ScanEngine.exact(query,
+            "Умная колонка Яндекс Станция Мини 3 Про с Алисой, Zigbee, 18 Вт, синий"));
+        JSONArray listing=new JSONArray()
+            .put(new org.json.JSONObject().put("url","https://www.wildberries.ru/catalog/321211/detail.aspx")
+                .put("title","Климатический модуль для Станции Мини 3 Про с Алисой Яндекс")
+                .put("context","Климатический модуль для Станции Мини 3 Про\\n2 137 ₽"))
+            .put(new org.json.JSONObject().put("url","https://www.wildberries.ru/catalog/321212/detail.aspx")
+                .put("title","Комплект для Яндекс Станции Мини 3 Про")
+                .put("context","Комплект для Станции Мини 3 Про\\n2 450 ₽"))
+            .put(new org.json.JSONObject().put("url","https://www.wildberries.ru/catalog/321213/detail.aspx")
+                .put("title","Умная колонка Яндекс Станция Мини 3 Про")
+                .put("context","Умная колонка Яндекс Станция Мини 3 Про\\n11 542 ₽"));
+        java.util.ArrayList<ScanEngine.Candidate> result=
+            ScanEngine.selectCandidates(listing,Shop.byId("wb"),query,3);
+        assertEquals(1,result.size());
+        assertEquals(11542,result.get(0).listingPrice);
+    }
 }
