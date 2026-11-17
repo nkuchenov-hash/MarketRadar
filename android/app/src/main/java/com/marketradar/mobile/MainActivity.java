@@ -520,7 +520,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         report.append("\nЗапрос: ").append(prefs.getString("last_query",""));
         report.append("\n").append(reason);
         report.append("\nВремя браузера ограничено: ")
-              .append(engine.wasTimeLimited()?"да":"нет").append("\n");
+              .append(engine.coverageIncomplete()?"да":"нет").append("\n");
         for(Shop shop:lastSelectedMarkets){
             report.append("\n").append(shop.name).append(": ");
             report.append(marketStates.containsKey(shop.id)?
@@ -593,7 +593,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
                 summaryPanel.setVisibility(View.VISIBLE);
                 updateSummary();
                 saveSearchReport(provisional,"Нет кандидатов для локальной проверки");
-                progress.setText(engine.wasTimeLimited()?
+                progress.setText(engine.coverageIncomplete()?
                     "Поиск неполный: часть страниц не проверена":
                     "Подтверждённые предложения не найдены");
                 searchButton.setText("Найти лучшую цену");
@@ -633,7 +633,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
                         }
                         if(!hasOffer){missingMarket=true;break;}
                     }
-                    progress.setText(missingMarket||engine.wasTimeLimited()?
+                    progress.setText(missingMarket||engine.coverageIncomplete()?
                         "Сравнение частичное: у некоторых магазинов нет подтверждённой цены":
                         "Показаны подтверждённые модели · предложения могут меняться");
                 }
