@@ -105,8 +105,7 @@ final class LocalModelVerifier {
             "Продаваемый предмет является аксессуаром или запчастью для "+query+".");
         float different=entailment(premise,
             "Продаваемый предмет является другим товаром, не "+query+".");
-        return same>=0.65f && same>=accessory+0.13f &&
-               same>=different+0.13f;
+        return ProductIdentityGate.confirms(query,title,same,accessory,different);
     }
 
     static void verify(Context context,String query,List<ScanEngine.Offer> offers,
