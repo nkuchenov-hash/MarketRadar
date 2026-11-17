@@ -218,4 +218,12 @@ public class CoreTest {
         assertEquals(1,result.size());
         assertEquals(11542,result.get(0).listingPrice);
     }
+    @Test public void aiEndpointOnlyAllowsCleanHttpsBaseUrl() {
+        assertEquals("https://marketradar-online.onrender.com/api/mobile/verify",
+            AiVerifier.endpoint("https://marketradar-online.onrender.com"));
+        assertNull(AiVerifier.endpoint("http://marketradar-online.onrender.com"));
+        assertNull(AiVerifier.endpoint("https://host.example/redirect"));
+        assertNull(AiVerifier.endpoint("https://name:password@host.example"));
+        assertNull(AiVerifier.endpoint("javascript:alert(1)"));
+    }
 }
