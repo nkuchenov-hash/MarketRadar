@@ -6,6 +6,7 @@ import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
+import android.content.res.Configuration;
 import android.view.WindowInsets;
 import android.os.Handler;
 import android.os.Looper;
@@ -44,8 +45,10 @@ import java.util.Map;
 
 /** Local-only Android prototype. Sign-in occurs on official marketplace sites in WebView. */
 public final class MainActivity extends Activity implements ScanEngine.Listener {
-    private static final int BG=0xFFF6F9FE, SURFACE=0xFFFFFFFF, BORDER=0xFFDCE6F4;
-    private static final int TEXT=0xFF152844, MUTED=0xFF647791, ACCENT=0xFF2369E8;
+    private int BG, SURFACE, BORDER, TEXT, MUTED, ACCENT;
+    private ThemePalette themePalette;
+    private static final int SCREEN_SEARCH=0, SCREEN_SHOPS=1, SCREEN_SETTINGS=2;
+    private int currentScreen=SCREEN_SEARCH;
     private final Handler ui=new Handler(Looper.getMainLooper());
     // Never mix provisional scraped prices with AI-confirmed offers.
     private final ArrayList<ScanEngine.Offer> offers=new ArrayList<>();
@@ -53,9 +56,9 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
     private final Map<String,TextView> statuses=new HashMap<>();
     private FrameLayout root;
     private LinearLayout mainPane, loginBar, results;
-    private ScrollView searchScroll, accountsScroll;
-    private Button navButton, depthButton;
-    private boolean accountsVisible=false, fastSearch=true, filtersVisible=false;
+    private ScrollView searchScroll, accountsScroll, settingsScroll;
+    private Button navButton, settingsNavButton;
+    private boolean accountsVisible=false;
     private TextView bestPrice, priceSummary, marketProgress, resultsHeading, bestPriceLabel;
     private LinearLayout summaryPanel, filterPanel;
     private final Map<String,String> marketStates=new HashMap<>();
@@ -103,7 +106,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
     private Button button(String title,boolean primary){
         Button b=new Button(this);
         b.setText(title);b.setTextSize(14);b.setAllCaps(false);
-        b.setTextColor(primary?Color.WHITE:ACCENT);
+        b.setTextColor(primary?(themePalette.dark?0xFF091A33:Color.WHITE):ACCENT);
         b.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
         b.setBackground(bg(primary?ACCENT:SURFACE,13,primary?0:BORDER));
         b.setMinHeight(0);b.setMinimumHeight(0);
@@ -117,11 +120,24 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
 
     @Override public void onCreate(Bundle state){
         super.onCreate(state);
+        prefs=getSharedPreferences("market_sessions",MODE_PRIVATE);
+        boolean deviceDark=(getResources().getConfiguration().uiMode&
+            Configuration.UI_MODE_NIGHT_MASK)==Configuration.UI_MODE_NIGHT_YES;
+        themePalette=ThemePalette.resolve(
+            prefs.getString("theme_mode",ThemePalette.SYSTEM),deviceDark);
+        setTheme(themePalette.dark?
+            android.R.style.Theme_Material_NoActionBar:
+            android.R.style.Theme_Material_Light_NoActionBar);
+        BG=themePalette.background;
+        SURFACE=themePalette.surface;
+        BORDER=themePalette.border;
+        TEXT=themePalette.foreground;
+        MUTED=themePalette.muted;
+        ACCENT=themePalette.accent;
         getWindow().setStatusBarColor(BG);
         getWindow().setNavigationBarColor(BG);
-        getWindow().getDecorView().setSystemUiVisibility(
+        getWindow().getDecorView().setSystemUiVisibility(themePalette.dark?0:
             View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
-        prefs=getSharedPreferences("market_sessions",MODE_PRIVATE);
         buildBrowser();
         buildInterface();
         engine=new ParallelScanCoordinator(this,root,browser,ui,this);
@@ -180,12 +196,20 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         root.addView(mainPane,new FrameLayout.LayoutParams(-1,-1));
         LinearLayout top=linear(LinearLayout.HORIZONTAL);
         top.setGravity(Gravity.CENTER_VERTICAL);
-        top.setPadding(dp(18),dp(9),dp(18),dp(9));
-        TextView brand=text("M  MarketRadar",21,TEXT,true);
+        top.setPadding(dp(12),dp(9),dp(12),dp(9));
+        TextView brand=text("MarketRadar",19,TEXT,true);
         top.addView(brand,new LinearLayout.LayoutParams(0,dp(45),1));
         navButton=button("Магазины",false);
-        add(top,navButton,105,42);
-        navButton.setOnClickListener(v->setAccountsVisible(!accountsVisible));
+        navButton.setTextSize(12);
+        add(top,navButton,92,42);
+        gap(top,6);
+        settingsNavButton=button("Настройки",false);
+        settingsNavButton.setTextSize(12);
+        add(top,settingsNavButton,98,42);
+        navButton.setOnClickListener(v->showScreen(
+            currentScreen==SCREEN_SHOPS?SCREEN_SEARCH:SCREEN_SHOPS));
+        settingsNavButton.setOnClickListener(v->showScreen(
+            currentScreen==SCREEN_SETTINGS?SCREEN_SEARCH:SCREEN_SETTINGS));
         add(mainPane,top,-1,64);
         View line=new View(this);line.setBackgroundColor(BORDER);add(mainPane,line,-1,1);
 
@@ -198,6 +222,14 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         accountsScroll.setClipToPadding(false);
         mainPane.addView(accountsScroll,new LinearLayout.LayoutParams(-1,0,1));
         accountsScroll.setVisibility(View.GONE);
+        settingsScroll=new ScrollView(this);
+        settingsScroll.setFillViewport(true);
+        settingsScroll.setClipToPadding(false);
+        mainPane.addView(settingsScroll,new LinearLayout.LayoutParams(-1,0,1));
+        settingsScroll.setVisibility(View.GONE);
+        LinearLayout settingsPage=linear(LinearLayout.VERTICAL);
+        settingsPage.setPadding(dp(18),dp(16),dp(18),dp(40));
+        settingsScroll.addView(settingsPage);
         LinearLayout page=linear(LinearLayout.VERTICAL);
         page.setPadding(dp(18),dp(16),dp(18),dp(36));
         searchScroll.addView(page);
@@ -222,11 +254,68 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         searchButton.setOnClickListener(v->beginSearch());
         gap(page,9);
 
-        Button settingsButton=button("Параметры поиска",false);
-        add(page,settingsButton,-1,42);
+        Button settingsButton=button("Настроить условия поиска",false);
+        add(page,settingsButton,-1,43);
+        settingsButton.setOnClickListener(v->showScreen(SCREEN_SETTINGS));
         gap(page,9);
+        progress=text("",13,MUTED,false);
+        add(page,progress,-1,-2);
+
+        gap(page,16);
+        summaryPanel=panel();
+        summaryPanel.setVisibility(View.GONE);
+        bestPriceLabel=text("Лучшая цена с подходящей доставкой",14,MUTED,true);
+        add(summaryPanel,bestPriceLabel,-1,24);
+        gap(summaryPanel,4);
+        bestPrice=text("—",31,TEXT,true);
+        add(summaryPanel,bestPrice,-1,47);
+        priceSummary=text("",12,MUTED,false);
+        priceSummary.setVisibility(View.GONE);
+        gap(summaryPanel,8);
+        marketProgress=text("",14,TEXT,false);
+        add(summaryPanel,marketProgress,-1,-2);
+        add(page,summaryPanel,-1,-2);
+        gap(page,12);
+
+        resultsHeading=text("Предложения",19,TEXT,true);
+        resultsHeading.setVisibility(View.GONE);
+        add(page,resultsHeading,-1,28);
+        count=text("",12,MUTED,false);
+        count.setVisibility(View.GONE);
+        add(page,count,-1,-2);
+        gap(page,8);
+        results=linear(LinearLayout.VERTICAL);add(page,results,-1,-2);
+        gap(page,12);
+
+        add(settingsPage,text("Настройки",27,TEXT,true),-1,48);
+        add(settingsPage,text("Настрой условия сравнения цен и внешний вид приложения.",13,MUTED,false),-1,-2);
+        gap(settingsPage,22);
+
+        add(settingsPage,text("Оформление",19,TEXT,true),-1,34);
+        LinearLayout appearance=panel();
+        add(appearance,text("Тема приложения",15,TEXT,true),-1,27);
+        add(appearance,text("Системная автоматически следует настройкам телефона.",12,MUTED,false),-1,-2);
+        gap(appearance,12);
+        LinearLayout themeRow=linear(LinearLayout.HORIZONTAL);
+        String selectedMode=ThemePalette.normalize(
+            prefs.getString("theme_mode",ThemePalette.SYSTEM));
+        String[] themeKeys={ThemePalette.SYSTEM,ThemePalette.LIGHT,ThemePalette.DARK};
+        String[] themeNames={"Системная","Светлая","Тёмная"};
+        for(int i=0;i<themeKeys.length;i++){
+            final String key=themeKeys[i];
+            Button themeButton=button(themeNames[i],selectedMode.equals(key));
+            themeButton.setTextSize(12);
+            LinearLayout.LayoutParams option=new LinearLayout.LayoutParams(0,dp(46),1);
+            if(i>0)option.leftMargin=dp(5);
+            themeRow.addView(themeButton,option);
+            themeButton.setOnClickListener(v->applyTheme(key));
+        }
+        add(appearance,themeRow,-1,-2);
+        add(settingsPage,appearance,-1,-2);
+        gap(settingsPage,22);
+
+        add(settingsPage,text("Поиск и доставка",19,TEXT,true),-1,34);
         filterPanel=panel();
-        filterPanel.setVisibility(View.GONE);
         add(filterPanel,text("Выбрать магазины",14,TEXT,true),-1,24);
         gap(filterPanel,5);
         LinearLayout marketsRow=linear(LinearLayout.HORIZONTAL);
@@ -276,41 +365,24 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         add(filterPanel,discountPercentInput,-1,45);
         gap(filterPanel,10);
         add(filterPanel,text("Поиск просматривает доступную выдачу целиком; цены и сроки без проверки корзины предварительные.",12,MUTED,false),-1,-2);
-        add(page,filterPanel,-1,-2);
-        settingsButton.setOnClickListener(v->{
-            filtersVisible=!filtersVisible;
-            filterPanel.setVisibility(filtersVisible?View.VISIBLE:View.GONE);
-            settingsButton.setText(filtersVisible?"Скрыть параметры":"Параметры поиска");
+        add(settingsPage,filterPanel,-1,-2);
+        gap(settingsPage,14);
+        Button saveOptions=button("Сохранить настройки",true);
+        add(settingsPage,saveOptions,-1,51);
+        saveOptions.setOnClickListener(v->{
+            persistSearchOptions();
+            showScreen(SCREEN_SEARCH);
         });
-        gap(page,9);
-        progress=text("",13,MUTED,false);
-        add(page,progress,-1,-2);
-
-        gap(page,16);
-        summaryPanel=panel();
-        summaryPanel.setVisibility(View.GONE);
-        bestPriceLabel=text("Лучшая цена с подходящей доставкой",14,MUTED,true);
-        add(summaryPanel,bestPriceLabel,-1,24);
-        gap(summaryPanel,4);
-        bestPrice=text("—",31,TEXT,true);
-        add(summaryPanel,bestPrice,-1,47);
-        priceSummary=text("",12,MUTED,false);
-        priceSummary.setVisibility(View.GONE);
-        gap(summaryPanel,8);
-        marketProgress=text("",14,TEXT,false);
-        add(summaryPanel,marketProgress,-1,-2);
-        add(page,summaryPanel,-1,-2);
-        gap(page,12);
-
-        resultsHeading=text("Предложения",19,TEXT,true);
-        resultsHeading.setVisibility(View.GONE);
-        add(page,resultsHeading,-1,28);
-        count=text("",12,MUTED,false);
-        count.setVisibility(View.GONE);
-        add(page,count,-1,-2);
-        gap(page,8);
-        results=linear(LinearLayout.VERTICAL);add(page,results,-1,-2);
-        gap(page,12);
+        gap(settingsPage,18);
+        add(settingsPage,text("Проверка модели работает локально на устройстве. Итоговые цены и сроки доставки требуют проверки условий корзины магазина.",12,MUTED,false),-1,-2);
+        gap(settingsPage,14);
+        Button lastReport=button("Отчёт о последнем поиске",false);
+        add(settingsPage,lastReport,-1,44);
+        lastReport.setOnClickListener(v->new AlertDialog.Builder(this)
+            .setTitle("Отчёт о поиске")
+            .setMessage(prefs.getString("last_search_diagnostics","Поисков пока не было"))
+            .setPositiveButton("Закрыть",null).show());
+        gap(settingsPage,20);
 
         add(marketPage,text("МОИ МАРКЕТПЛЕЙСЫ",11,ACCENT,true),-1,22);
         add(marketPage,text("Подключения и сессии магазинов",24,TEXT,true),-1,-2);
@@ -366,14 +438,51 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         root.addView(loginBar,barParams);
         loginBar.setVisibility(View.GONE);
     }
+    private void showScreen(int screen){
+        currentScreen=screen;
+        accountsVisible=screen==SCREEN_SHOPS;
+        searchScroll.setVisibility(screen==SCREEN_SEARCH?View.VISIBLE:View.GONE);
+        accountsScroll.setVisibility(screen==SCREEN_SHOPS?View.VISIBLE:View.GONE);
+        settingsScroll.setVisibility(screen==SCREEN_SETTINGS?View.VISIBLE:View.GONE);
+        navButton.setText(screen==SCREEN_SHOPS?"Поиск":"Магазины");
+        settingsNavButton.setText(screen==SCREEN_SETTINGS?"Поиск":"Настройки");
+    }
     private void setAccountsVisible(boolean show){
-        accountsVisible=show;
-        if(engine!=null&&engine.isRunning()&&show){
-            // Search continues only while the app is foregrounded; menus do not reset it.
-        }
-        searchScroll.setVisibility(show?View.GONE:View.VISIBLE);
-        accountsScroll.setVisibility(show?View.VISIBLE:View.GONE);
-        navButton.setText(show?"Поиск":"Магазины");
+        showScreen(show?SCREEN_SHOPS:SCREEN_SEARCH);
+    }
+    private void persistSearchOptions(){
+        int days=boundedField(deliveryDaysInput,3,0,90);
+        int discount=boundedField(discountPercentInput,15,1,90);
+        boolean allowSlow=allowLateDiscount.isChecked();
+        deliveryDaysInput.setText(Integer.toString(days));
+        discountPercentInput.setText(Integer.toString(discount));
+        prefs.edit()
+            .putInt("delivery_days",days)
+            .putInt("late_discount_percent",discount)
+            .putBoolean("delivery_late_discount",allowSlow)
+            .apply();
+    }
+    private void applyTheme(String nextMode){
+        String chosen=ThemePalette.normalize(nextMode);
+        if(chosen.equals(ThemePalette.normalize(
+            prefs.getString("theme_mode",ThemePalette.SYSTEM))))return;
+        Runnable commit=()->{
+            persistSearchOptions();
+            if(queryInput!=null)
+                prefs.edit().putString("last_query",
+                    queryInput.getText().toString()).apply();
+            prefs.edit().putString("theme_mode",chosen).apply();
+            // Recreating native UI preserves the app's WebView cookie jar,
+            // saved marketplace settings and the latest user query.
+            recreate();
+        };
+        if(engine!=null&&engine.isRunning()){
+            new AlertDialog.Builder(this)
+                .setTitle("Сменить оформление?")
+                .setMessage("Для смены темы текущий поиск будет остановлен.")
+                .setNegativeButton("Продолжить поиск",null)
+                .setPositiveButton("Сменить", (d,w)->commit.run()).show();
+        }else commit.run();
     }
     private void refreshShop(Shop shop){
         TextView label=statuses.get(shop.id);
@@ -813,8 +922,8 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
     @Override public void onBackPressed(){
         if(loginMode){
             if(browser.canGoBack())browser.goBack();else finishShop();
-        }else if(accountsVisible){
-            setAccountsVisible(false);
+        }else if(currentScreen==SCREEN_SETTINGS||accountsVisible){
+            showScreen(SCREEN_SEARCH);
         }else if(engine!=null&&engine.isRunning()){
             new AlertDialog.Builder(this).setMessage("Остановить поиск?")
                 .setNegativeButton("Продолжить",null)
