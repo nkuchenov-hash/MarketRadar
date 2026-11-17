@@ -203,6 +203,9 @@ final class ScanEngine {
     // snapshots before applying the candidate limit; otherwise an exact,
     // cheaper listing below the first fold can never enter the comparison.
     private final Map<String,Candidate> searchPool=new LinkedHashMap<>();
+    // Multiple delivery choices can lead to the same product URL. Open the
+    // page once and reuse its verified product metadata for each choice.
+    private final Map<String,JSONObject> detailCache=new LinkedHashMap<>();
     private boolean searchSampling=false;
     private int stableBottom=0;
     private int lastPoolSize=-1;
@@ -254,7 +257,7 @@ final class ScanEngine {
         shop=activeMarkets.get(marketIndex++);
         candidates.clear();seen.clear();
         cardIndex=0;details=false;checkedMarket=0;expectedUrl="";
-        searchSampling=false;searchPool.clear();
+        searchSampling=false;searchPool.clear();detailCache.clear();
         stableBottom=0;lastPoolSize=-1;lastHeight=-1;
         loadMoreAttempts=0;visitedSearchPages.clear();
         visitedSearchPages.add(shop.searchUrl(query));
@@ -544,6 +547,16 @@ final class ScanEngine {
         }
         expectedUrl=candidates.get(cardIndex++).url;
         detailHydrationRetries=0;
+        JSONObject cached=detailCache.get(expectedUrl);
+        if(cached!=null){
+            final String candidateUrl=expectedUrl;
+            final int request=token;
+            handler.post(()->{
+                if(running&&request==token&&details&&expectedUrl.equals(candidateUrl))
+                    readDetail(cached,candidateUrl);
+            });
+            return;
+        }
         load(expectedUrl);
     }
     private void readDetail(JSONObject data,String url) {
@@ -569,6 +582,9 @@ final class ScanEngine {
             return;
         }
         checked++;checkedMarket++;
+        if(sameProductPage(shop,expectedUrl,url) &&
+            !data.optString("heading","").isBlank())
+            detailCache.put(expectedUrl,data);
         // Never report a price from a redirect or a different product URL.
         if(sameProductPage(shop,expectedUrl,url)){
             String title=data.optString("heading","").trim();
