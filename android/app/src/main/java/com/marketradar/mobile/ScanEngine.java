@@ -229,6 +229,7 @@ final class ScanEngine {
     private int stalledScrollChecks=0;
     private boolean awaitingAi=false;
     private int lastDetailCount=0;
+    private long lastSearchGrowthMs=0;
 
     ScanEngine(WebView browser, Handler handler, Listener listener) {
         this.browser=browser;this.handler=handler;this.listener=listener;
@@ -309,6 +310,7 @@ final class ScanEngine {
         awaitingAi=false;
         lastObservedScrollY=-1;lastObservedScrollHeight=-1;
         lastObservedPoolCount=-1;stalledScrollChecks=0;lastDetailCount=0;
+        lastSearchGrowthMs=android.os.SystemClock.elapsedRealtime();
         listener.status(shop,"Ищем точную модель…");
         load(currentSearchUrl);
     }
@@ -492,7 +494,10 @@ final class ScanEngine {
         }
         // Reset "show more" retries whenever fresh results actually appear:
         // there is no fixed cap on how many successful load-more pages we open.
-        if(height>lastHeight||searchPool.size()>lastPoolSize)loadMoreAttempts=0;
+        if(height>lastHeight||searchPool.size()>lastPoolSize){
+            loadMoreAttempts=0;
+            lastSearchGrowthMs=android.os.SystemClock.elapsedRealtime();
+        }
         if(settledAtBottom(bottom,height,lastHeight,
                 searchPool.size(),lastPoolSize))stableBottom++;
         else stableBottom=0;
@@ -502,7 +507,11 @@ final class ScanEngine {
             failPage("Нет данных о конце выдачи, полноту не подтвердить");
             return;
         }
-        if(stableBottom<2){
+        // Marketplace cards can hydrate AFTER the window reaches the bottom.
+        // Require the DOM to remain settled before calling a listing exhausted.
+        if(stableBottom<3 ||
+            !exceededIdle(lastSearchGrowthMs,
+                android.os.SystemClock.elapsedRealtime(),1800)){
             listener.status(shop,"Собрано "+searchPool.size()+
                 " кандидатов · просматриваем выдачу");
             scrollSearchPage();
