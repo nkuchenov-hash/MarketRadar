@@ -504,7 +504,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
     @Override public void done(){
         runOnUiThread(()->{
             searchButton.setText("Найти предложения");
-            progress.setText("Готово");
+            progress.setText(engine.wasTimeLimited()?"Готово · показаны найденные предложения":"Готово");
             for(Shop shop:Shop.ALL)refreshShop(shop);
             if(offers.isEmpty())marketProgress.setText("Подходящие товары не найдены");
             updateSummary();
