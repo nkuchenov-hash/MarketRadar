@@ -261,6 +261,7 @@ final class ScanEngine {
         },1500);
     }
     private void failPage(String message) {
+        if(message.contains("не ответила"))timeLimitReached=true;
         token++;
         if(details) {
             listener.status(shop,message+" · проверено карточек: "+checkedMarket);
