@@ -7,6 +7,7 @@ import android.view.ViewGroup;
 import android.webkit.CookieManager;
 import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -146,6 +147,10 @@ final class ParallelScanCoordinator {
         Worker worker=byBrowser.get(view);
         if(worker!=null&&isCurrent(worker))worker.scan.onPageError(url);
     }
+    void onHttpError(WebView view,String url,int statusCode){
+        Worker worker=byBrowser.get(view);
+        if(worker!=null&&isCurrent(worker))worker.scan.onHttpError(url,statusCode);
+    }
     void stop(){
         generation++;
         running=false;
@@ -200,6 +205,12 @@ final class ParallelScanCoordinator {
                         WebResourceRequest request,WebResourceError error){
                     if(request.isForMainFrame()&&isCurrent(worker))
                         worker.scan.onPageError(request.getUrl().toString());
+                }
+                @Override public void onReceivedHttpError(WebView browser,
+                        WebResourceRequest request,WebResourceResponse response){
+                    if(request.isForMainFrame()&&isCurrent(worker))
+                        worker.scan.onHttpError(request.getUrl().toString(),
+                            response.getStatusCode());
                 }
                 @Override public boolean shouldOverrideUrlLoading(WebView browser,
                         WebResourceRequest request){
