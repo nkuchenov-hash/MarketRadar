@@ -327,10 +327,11 @@ final class ScanEngine {
                 retryCount<2){
             int attempt=++retryCount;
             String destination=details?expectedUrl:shop.searchUrl(query);
-            token++;
+            final int retryToken=++token;
             listener.status(shop,"Повторяем недоступную страницу: "+attempt+"/2");
             handler.postDelayed(()->{
-                if(running)load(destination);
+                if(running&&token==retryToken&&shop.allowed(destination))
+                    load(destination);
             },300L*attempt);
             return;
         }
