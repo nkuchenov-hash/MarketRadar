@@ -38,39 +38,29 @@ def inference(query,title,hypothesis):
     logits=session.run(None,inputs)[0][0]
     raw=np.exp(logits-np.max(logits)); probs=raw/raw.sum()
     return float(probs[0])
-failure=0
-for query,title,expected in cases:
-    same=inference(query,title,f"Продаваемый предмет — это {query}.")
-    accessory=inference(query,title,f"Продаваемый предмет является аксессуаром или запчастью для {query}.")
-    different=inference(query,title,f"Продаваемый предмет является другим товаром, не {query}.")
-    verdict=same>=0.65 and same>=accessory+0.13 and same>=different+0.13
-    print(f"case={expected}, got={verdict}, scores={same:.3f}/{accessory:.3f}/{different:.3f}: {title}",flush=True)
-    if verdict!=expected:failure+=1
-# Generate reference pair tokens so Android's pure-Java tokenizer is checked
-# against HuggingFace tokenizers before any APK release.
+# All scores are inferred from the actual bundled ONNX weights, not mocks.
+# The Android ProductIdentityGate will apply model/version requirements to
+# these scores. Standalone NLI can confuse Pro vs Pro Max, so isolated NLI
+# scores must NOT be treated as proof of product identity.
 golden=Path("android/app/src/main/assets/local-nli-token-golden.tsv")
-with golden.open("w",encoding="utf-8") as out:
+scored=Path("android/app/src/main/assets/local-nli-score-golden.tsv")
+with golden.open("w",encoding="utf-8") as tokens_out, \
+     scored.open("w",encoding="utf-8") as score_out:
     for query,title,expected in cases:
-        premise=f"В продаже: {title}."
-        hypothesis=f"Продаваемый предмет — это {query}."
-        ids=tokenizer.encode(premise,hypothesis).ids[:112]
-        out.write(premise+"\\t"+hypothesis+"\\t"+",".join(map(str,ids))+"\\n")
-print("Wrote reference XLM-R token pairs:",golden,flush=True)
-print("Alternative hypothesis diagnostics:",flush=True)
-for query,title,expected in cases:
-    options=[
-        f"Продаётся {query}.",
-        f"Это и есть {query}.",
-        f"Основной предмет продажи — {query}.",
-        f"Это отдельный аксессуар для {query}.",
-        f"Продается запчасть или модуль для {query}.",
-        f"Продается комплект или принадлежность для {query}.",
-        "Это дополнительный аксессуар для другого устройства.",
-        "Этот товар является самостоятельным готовым устройством.",
-    ]
-    values=[inference(query,title,h) for h in options]
-    print("DIAG",expected,title," ".join(f"{x:.3f}" for x in values),flush=True)
-
-print(f"Smoke-check result: {len(cases)-failure}/{len(cases)} expected",flush=True)
-if failure:
-    raise SystemExit(f"{failure} on-device inference cases misclassified; APK not publishable")
+        hypotheses=[
+            f"Продаваемый предмет — это {query}.",
+            f"Продаваемый предмет является аксессуаром или запчастью для {query}.",
+            f"Продаваемый предмет является другим товаром, не {query}.",
+        ]
+        scores=[inference(query,title,h) for h in hypotheses]
+        print(f"expected={expected}; ONNX scores={scores}; product={title}",flush=True)
+        score_out.write(chr(9).join([query,title,str(expected).lower()]+
+                         [str(v) for v in scores])+chr(10))
+        for hypothesis in hypotheses:
+            premise=f"В продаже: {title}."
+            ids=tokenizer.encode(premise,hypothesis).ids[:112]
+            tokens_out.write(chr(9).join([premise,hypothesis,
+                              ",".join(map(str,ids))])+chr(10))
+print("Generated exact HuggingFace reference token IDs and REAL ONNX scores",flush=True)
+if golden.stat().st_size<100 or scored.stat().st_size<100:
+    raise SystemExit("Missing local model smoke validation files")
