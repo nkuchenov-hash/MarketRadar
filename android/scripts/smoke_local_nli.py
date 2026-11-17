@@ -46,6 +46,16 @@ for query,title,expected in cases:
     verdict=same>=0.65 and same>=accessory+0.13 and same>=different+0.13
     print(f"case={expected}, got={verdict}, scores={same:.3f}/{accessory:.3f}/{different:.3f}: {title}",flush=True)
     if verdict!=expected:failure+=1
+# Generate reference pair tokens so Android's pure-Java tokenizer is checked
+# against HuggingFace tokenizers before any APK release.
+golden=Path("android/app/src/main/assets/local-nli-token-golden.tsv")
+with golden.open("w",encoding="utf-8") as out:
+    for query,title,expected in cases:
+        premise=f"В продаже: {title}."
+        hypothesis=f"Продаваемый предмет — это {query}."
+        ids=tokenizer.encode(premise,hypothesis).ids[:112]
+        out.write(premise+"\\t"+hypothesis+"\\t"+",".join(map(str,ids))+"\\n")
+print("Wrote reference XLM-R token pairs:",golden,flush=True)
 print(f"Smoke-check result: {len(cases)-failure}/{len(cases)} expected",flush=True)
 if failure:
     raise SystemExit(f"{failure} on-device inference cases misclassified; APK not publishable")
