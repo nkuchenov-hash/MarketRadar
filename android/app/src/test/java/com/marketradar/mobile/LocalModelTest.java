@@ -12,6 +12,22 @@ import java.io.FileReader;
  * the same XLM-R token ids as the canonical HuggingFace tokenizer.
  */
 public final class LocalModelTest {
+    @Test public void identicalTitlesMustNotDependOnProbabilisticAi(){
+        assertTrue(ProductIdentityGate.literalMatch(
+            "Яндекс Станция Мини 3 Про",
+            "Яндекс станция MINI 3 PRO"));
+        assertTrue(ProductIdentityGate.literalMatch(
+            "Яндекс Станция Мини 3 Про", "Яндекс-Станция Мини 3 Про"));
+        assertFalse(ProductIdentityGate.literalMatch(
+            "Яндекс Станция Мини 3 Про",
+            "Чехол для Яндекс Станции Мини 3 Про"));
+        assertFalse(ProductIdentityGate.literalMatch(
+            "Яндекс Станция Мини 3 Про",
+            "Яндекс Станция Мини 3"));
+        assertFalse(ProductIdentityGate.literalMatch(
+            "Яндекс Станция Мини 3 Про",
+            "Яндекс Станция Мини 3 Про Макс"));
+    }
     @Test public void javaSentencePieceMatchesReferencePairs() throws Exception {
         File assets=new File("src/main/assets");
         File vocab=new File(assets,"model-vocab.bin");
