@@ -1,8 +1,9 @@
 package com.marketradar.mobile;
 
 /**
- * Final product identity decision: BOTH structural model identity and the
- * local on-device natural language inference must agree.
+ * Literal normalized title matches do not need AI approval.
+ * Other candidates require BOTH structural model identity and the
+ * local on-device natural language inference to agree.
  *
  * Structured matching is a fast conservative guard for model numbers and
  * variants; NLI identifies the semantic relation between an offer title and
@@ -10,6 +11,12 @@ package com.marketradar.mobile;
  */
 final class ProductIdentityGate {
     private ProductIdentityGate(){}
+
+    static boolean literalMatch(String query,String title){
+        String wanted=ScanEngine.norm(query);
+        return !wanted.isBlank()&&wanted.equals(ScanEngine.norm(title))&&
+            ScanEngine.exact(query,title);
+    }
 
     static boolean confirms(String query,String title,
             float entailSame,float entailAccessory,float entailDifferent) {
