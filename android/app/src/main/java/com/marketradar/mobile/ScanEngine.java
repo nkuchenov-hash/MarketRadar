@@ -36,84 +36,112 @@ final class ScanEngine {
         final int listingPrice;
         Candidate(String url,int listingPrice){this.url=url;this.listingPrice=listingPrice;}
     }
-    private static final String SNAPSHOT = """
+    // Search and product details use DISTINCT, minimal DOM extraction paths.
+    // A previous universal scraper walked thousands of links and returned
+    // 42,000 characters of page text for EVERY opened product page.
+    private static final String SEARCH_SNAPSHOT = """
         (() => {
           try {
-            const body = document.body;
-            const visible = e => {
-              const r = e.getBoundingClientRect();
-              return r.width > 0 && r.height > 0;
+            const body=document.body;
+            const links=[];
+            const pricePattern=/[0-9][0-9\\s\\u00a0\\u202f]*\\s*(?:₽|руб)/i;
+            const productPath=/(?:\\/product\\/|\\/product--|\\/catalog\\/\\d+\\/detail|\\/card\\/|\\/offer\\/)/i;
+            const visible=e=>{
+              const r=e.getBoundingClientRect();
+              return r.width>0&&r.height>0;
             };
-            const links = [];
-            const pricePattern = /[0-9][0-9\\s\\u00a0\\u202f]*\\s*(?:₽|руб)/i;
-            // Find the SMALLEST self-contained product tile with a price.
-            // [data-widget] often encloses the whole result grid and would
-            // incorrectly attach a neighbour's discounted price to this link.
-            const tileText = a => {
-              let parent=a;
-              for(let level=0;level<8 && parent && parent!==body;level++,parent=parent.parentElement){
-                const value=(parent.innerText||'').trim();
-                if(value.length>20 && value.length<=650 && pricePattern.test(value) &&
-                  (parent.querySelector('img') || parent.querySelector('picture')))return value;
+            const tileText=a=>{
+              let node=a;
+              for(let level=0;level<7&&node&&node!==body;level++,node=node.parentElement){
+                const text=(node.innerText||'').trim();
+                if(text.length>12&&text.length<=700&&pricePattern.test(text)&&
+                   (node.querySelector('img')||node.querySelector('picture')))
+                  return text;
               }
               return '';
             };
-            for (const a of [...document.querySelectorAll('a[href]')].slice(0, 3500)) {
-              if (!visible(a)) continue;
+            for(const a of document.querySelectorAll('a[href]')){
+              if(links.length>=1600)break;
+              if(!visible(a))continue;
+              let url;
+              try{url=new URL(a.href)}catch(e){continue;}
+              if(url.protocol!=='https:'||!productPath.test(url.pathname))continue;
               const img=a.querySelector('img');
-              const title=(a.getAttribute('title') || a.innerText || img?.alt ||
-                    a.getAttribute('aria-label') || '').trim().slice(0,260);
+              const title=(a.getAttribute('title')||a.innerText||img?.alt||
+                           a.getAttribute('aria-label')||'').trim().slice(0,300);
               const context=tileText(a);
-              links.push({
-                url:a.href,
-                title,
-                context:context.slice(0,650)
-              });
+              links.push({url:url.href,title,context:context.slice(0,700)});
             }
+            return JSON.stringify({
+              url:location.href,
+              title:document.title,
+              text:(body?.innerText||'').slice(0,1800),
+              links
+            });
+          }catch(e){
+            return JSON.stringify({error:'Не удалось прочитать выдачу'});
+          }
+        })()
+        """;
+
+    private static final String DETAIL_SNAPSHOT = """
+        (() => {
+          try {
+            const body=document.body;
             const structuredPrices=[];
-            const put=(v,c,n,source)=>{
-              const amount=Number(String(v??'').replace(/\\s/g,'').replace(',','.'));
+            const put=(value,currency,name,source)=>{
+              const amount=Number(String(value??'').replace(/\\s/g,'').replace(',','.'));
               if(Number.isFinite(amount)&&amount>=100&&amount<=50000000)
-                structuredPrices.push({amount,currency:String(c||''),productName:String(n||''),source});
+                structuredPrices.push({
+                  amount,currency:String(currency||''),
+                  productName:String(name||''),source
+                });
             };
-            const scanOffer=(o,n)=>{
-              if(!o)return;
-              if(Array.isArray(o)){o.forEach(v=>scanOffer(v,n));return;}
-              if(typeof o!=='object')return;
-              if(o.price!=null)put(o.price,o.priceCurrency||'RUB',n,'schema.org/Offer');
-              const specs=Array.isArray(o.priceSpecification)?o.priceSpecification:[o.priceSpecification];
-              for(const p of specs)if(p&&p.price!=null)
-                put(p.price,p.priceCurrency||o.priceCurrency||'RUB',n,'schema.org/PriceSpecification');
+            const scanOffer=(offer,name)=>{
+              if(!offer)return;
+              if(Array.isArray(offer)){offer.forEach(v=>scanOffer(v,name));return;}
+              if(typeof offer!=='object')return;
+              if(offer.price!=null)put(offer.price,offer.priceCurrency||'RUB',
+                                      name,'schema.org/Offer');
+              const specifications=Array.isArray(offer.priceSpecification)?
+                offer.priceSpecification:[offer.priceSpecification];
+              for(const item of specifications){
+                if(item&&item.price!=null)
+                  put(item.price,item.priceCurrency||offer.priceCurrency||'RUB',
+                      name,'schema.org/PriceSpecification');
+              }
             };
-            const visit=(o,depth)=>{
-              if(!o||depth>5)return;
-              if(Array.isArray(o)){o.forEach(v=>visit(v,depth+1));return;}
-              if(typeof o!=='object')return;
-              const types=Array.isArray(o['@type'])?o['@type']:[o['@type']];
+            const visit=(node,depth)=>{
+              if(!node||depth>5)return;
+              if(Array.isArray(node)){node.forEach(v=>visit(v,depth+1));return;}
+              if(typeof node!=='object')return;
+              const types=Array.isArray(node['@type'])?node['@type']:[node['@type']];
               if(types.some(t=>String(t||'').toLowerCase().split('/').pop()==='product'))
-                scanOffer(o.offers,o.name||'');
-              if(o['@graph'])visit(o['@graph'],depth+1);
+                scanOffer(node.offers,node.name||'');
+              if(node['@graph'])visit(node['@graph'],depth+1);
             };
-            for(const script of [...document.querySelectorAll('script[type="application/ld+json"]')].slice(0,25)){
+            for(const script of document.querySelectorAll('script[type="application/ld+json"]')){
               try{visit(JSON.parse(script.textContent),0)}catch(e){}
             }
-            const meta=sel=>document.querySelector(sel)?.getAttribute('content')||'';
+            const meta=selector=>document.querySelector(selector)?.getAttribute('content')||'';
             const price=meta('meta[property="product:price:amount"]')||
                         meta('meta[itemprop="price"]')||
                         meta('meta[property="og:price:amount"]');
             const currency=meta('meta[property="product:price:currency"]')||
                            meta('meta[itemprop="priceCurrency"]')||
                            meta('meta[property="og:price:currency"]');
-            if(price&&currency)put(price,currency,document.querySelector('h1')?.innerText||'','product-price-meta');
+            if(price&&currency)
+              put(price,currency,document.querySelector('h1')?.innerText||'',
+                  'product-price-meta');
             return JSON.stringify({
-              url: location.href, title: document.title,
-              heading: document.querySelector('h1')?.innerText || '',
-              text: (body?.innerText || '').slice(0, 42000),
-              links: links.slice(0, 2000),
+              url:location.href,
+              title:document.title,
+              heading:document.querySelector('h1')?.innerText||'',
+              text:(body?.innerText||'').slice(0,1800),
               structuredPrices
             });
-          } catch (err) {
-            return JSON.stringify({error:'Не удалось прочитать страницу'});
+          }catch(e){
+            return JSON.stringify({error:'Не удалось прочитать карточку товара'});
           }
         })()
         """;
@@ -210,7 +238,7 @@ final class ScanEngine {
         handler.postDelayed(() -> {
             if(running&&request==token) {
                 int sample=token;
-                browser.evaluateJavascript(SNAPSHOT, value -> {
+                browser.evaluateJavascript(details?DETAIL_SNAPSHOT:SEARCH_SNAPSHOT, value -> {
                     if(!running||sample!=token)return;
                     try {
                         Object decoded = new JSONTokener(value).nextValue();
@@ -221,7 +249,7 @@ final class ScanEngine {
                     }
                 });
             }
-        },1050);
+        },160);
     }
     void onPageError(String url) {
         if(!running||!shop.allowed(url))return;
@@ -293,7 +321,7 @@ final class ScanEngine {
             "window.scrollBy(0, Math.max(window.innerHeight * 1.35, 850));",
             ignored -> handler.postDelayed(()->{
                 if(!running||request!=token||details)return;
-                browser.evaluateJavascript(SNAPSHOT,value->{
+                browser.evaluateJavascript(SEARCH_SNAPSHOT,value->{
                     if(!running||request!=token||details)return;
                     try{
                         Object decoded=new JSONTokener(value).nextValue();
