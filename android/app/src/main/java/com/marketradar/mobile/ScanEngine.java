@@ -358,6 +358,17 @@ final class ScanEngine {
             }
         },160);
     }
+    void onHttpError(String url,int statusCode){
+        if(!running||shop==null||!shop.allowed(url))return;
+        if(statusCode==401||statusCode==403||statusCode==429){
+            coverageIncomplete=true;
+            token++;
+            listener.status(shop,"Магазин ограничил доступ (HTTP "+statusCode+")");
+            nextMarket();
+        }else if(statusCode>=500){
+            failPage("Сервер магазина ответил HTTP "+statusCode);
+        }
+    }
     void onPageError(String url) {
         if(!running||!shop.allowed(url))return;
         int request=token;
