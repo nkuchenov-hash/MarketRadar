@@ -327,6 +327,18 @@ final class ScanEngine {
     void onPageFinished(String url) {
         if(!running)return;
         noteProgress();
+        // A valid sign-in redirect is a session failure, not an empty
+        // catalogue and not a generic WebView timeout.
+        if(shop!=null&&shop.isLoginUrl(url)){
+            coverageIncomplete=true;
+            token++;
+            listener.session(shop,new SessionProbe.Verdict(
+                SessionProbe.State.SIGN_IN_REQUIRED,
+                "Поиск переадресован на страницу входа"));
+            listener.status(shop,"Необходим повторный вход в аккаунт магазина");
+            nextMarket();
+            return;
+        }
         // Ignore completion callbacks from the previous marketplace. Both
         // search and product pages share one WebView, so a prior host can
         // finish after the next shop has already started loading.
@@ -411,6 +423,15 @@ final class ScanEngine {
         if(!running)return;
         if(data.has("error")){failPage("Не удалось прочитать страницу");return;}
         String url=data.optString("url","");
+        if(shop.isLoginUrl(url)){
+            coverageIncomplete=true;
+            token++;
+            listener.session(shop,new SessionProbe.Verdict(
+                SessionProbe.State.SIGN_IN_REQUIRED,
+                "Вместо выдачи открылась авторизация"));
+            listener.status(shop,"Необходим повторный вход в аккаунт магазина");
+            nextMarket();return;
+        }
         String text=data.optString("text","");
         String title=data.optString("title","");
         String body=(title+" "+text).toLowerCase(Locale.ROOT);
