@@ -84,10 +84,10 @@ jobs:
             --ks /tmp/market-signing/marketradar-release.jks \
             --ks-key-alias marketradar-v2 --ks-pass env:MR_SIGNING_PASS \
             --key-pass env:MR_SIGNING_PASS \
-            --out dist/MarketRadar-Android-0.4.0.apk \
+            --out dist/MarketRadar-Android-0.5.0.apk \
             android/app/build/outputs/apk/release/app-release-unsigned.apk
           "$signer" verify --verbose --print-certs \
-            dist/MarketRadar-Android-0.4.0.apk > /tmp/signature.txt
+            dist/MarketRadar-Android-0.5.0.apk > /tmp/signature.txt
           current="$(grep -i 'sha-256 digest' /tmp/signature.txt | head -1 | sed -E 's/.*digest:[[:space:]]*//' | tr '[:upper:]' '[:lower:]' | tr -dc '0-9a-f')"
           expected="$(keytool -exportcert \
             -keystore /tmp/market-signing/marketradar-release.jks \
@@ -96,18 +96,18 @@ jobs:
           [[ -n "$current" && "$current" == "$expected" ]] || {
             echo "::error::Signing fingerprint does not match persistent backup."; exit 1;
           }
-          "$aapt" dump badging dist/MarketRadar-Android-0.4.0.apk > /tmp/badging.txt
-          grep -Fq "package: name='com.marketradar.mobile.next' versionCode='4' versionName='0.4.0'" /tmp/badging.txt
-          if gh release view marketradar-android-0.2.0 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release download marketradar-android-0.2.0 \
+          "$aapt" dump badging dist/MarketRadar-Android-0.5.0.apk > /tmp/badging.txt
+          grep -Fq "package: name='com.marketradar.mobile.next' versionCode='5' versionName='0.5.0'" /tmp/badging.txt
+          if gh release view marketradar-android-0.4.0 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release download marketradar-android-0.4.0 \
               --repo "$GITHUB_REPOSITORY" \
-              --pattern 'MarketRadar-Android-0.2.0.apk' --dir /tmp/market-prev
-            original="$( "$signer" verify --print-certs /tmp/market-prev/MarketRadar-Android-0.2.0.apk | grep -i 'certificate sha-256 digest' | head -1 | sed -E 's/.*digest:[[:space:]]*//' | tr '[:upper:]' '[:lower:]' | tr -dc '0-9a-f' )"
+              --pattern 'MarketRadar-Android-0.4.0.apk' --dir /tmp/market-prev
+            original="$( "$signer" verify --print-certs /tmp/market-prev/MarketRadar-Android-0.4.0.apk | grep -i 'certificate sha-256 digest' | head -1 | sed -E 's/.*digest:[[:space:]]*//' | tr '[:upper:]' '[:lower:]' | tr -dc '0-9a-f' )"
             [[ -n "$original" && "$original" == "$current" ]] || {
               echo "::error::Published v2 signing certificate mismatch"; exit 1;
             }
           fi
-          (cd dist && sha256sum MarketRadar-Android-0.4.0.apk > SHA256SUMS.txt)
+          (cd dist && sha256sum MarketRadar-Android-0.5.0.apk > SHA256SUMS.txt)
 
       - name: Publish isolated stable-signed MarketRadar v2 APK
         shell: bash
@@ -115,30 +115,29 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          tag=marketradar-android-0.4.0
+          tag=marketradar-android-0.5.0
           cat > /tmp/notes.md <<'EOF'
-          # MarketRadar Android 0.4.0 — signed test build
+          # MarketRadar Android 0.5.0 — signed test build
           Package com.marketradar.mobile.next, same persistent v2 signing certificate.
-          Version code 3 upgrades installed v0.2.0 in place WITHOUT deleting its
-          WebView sessions or saved settings. Android 0.1.0 is a separate package.
+          Version code 5 upgrades installed v0.4.0 and other v0.2+ APKs
+          in place WITHOUT deleting WebView sessions or saved settings.
 
-          Updates: scan multiple scroll positions of marketplace search results,
-          including lazy-loaded rows below the fold. Associate listing prices
-          with their own individual tile rather than a shared grid container.
-          Rank exact-model candidates by detected prices across snapshots,
-          recheck final product pages and preserve original account sessions.
+          Updates: reject accessories such as "climate module for Mini 3 Pro"
+          even if the title contains the searched model. Faster default
+          limited verification, shorter waits, collapsible search settings,
+          compact list results and clear marketplace price comparisons.
           Buyer-specific checkout totals and availability are not verified.
           EOF
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release edit "$tag" --repo "$GITHUB_REPOSITORY" \
-              --title "MarketRadar Android 0.4.0 — stable-signing preview" \
+              --title "MarketRadar Android 0.5.0 — stable-signing preview" \
               --notes-file /tmp/notes.md --prerelease
             gh release upload "$tag" --repo "$GITHUB_REPOSITORY" \
-              dist/MarketRadar-Android-0.4.0.apk dist/SHA256SUMS.txt --clobber
+              dist/MarketRadar-Android-0.5.0.apk dist/SHA256SUMS.txt --clobber
           else
             gh release create "$tag" --repo "$GITHUB_REPOSITORY" \
-              dist/MarketRadar-Android-0.4.0.apk dist/SHA256SUMS.txt \
-              --title "MarketRadar Android 0.4.0 — stable-signing preview" \
+              dist/MarketRadar-Android-0.5.0.apk dist/SHA256SUMS.txt \
+              --title "MarketRadar Android 0.5.0 — stable-signing preview" \
               --notes-file /tmp/notes.md --prerelease
           fi
           gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets \
