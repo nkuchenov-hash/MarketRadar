@@ -202,7 +202,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         navButton=button("Магазины",false);
         navButton.setTextSize(12);
         add(top,navButton,92,42);
-        gap(top,6);
+        add(top,new View(this),6,1);
         settingsNavButton=button("Настройки",false);
         settingsNavButton.setTextSize(12);
         add(top,settingsNavButton,98,42);
