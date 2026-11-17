@@ -109,6 +109,9 @@ final class ParallelScanCoordinator {
     boolean wasTimeLimited(){return wasTimeLimited;}
     boolean coverageIncomplete(){return coverageIncomplete;}
     void start(String query,int maxCards,List<Shop> markets){
+        start(query,maxCards,markets,DeliveryPolicy.standard());
+    }
+    void start(String query,int maxCards,List<Shop> markets,DeliveryPolicy delivery){
         stop();
         if(markets==null||markets.isEmpty()){
             listener.done();
@@ -120,7 +123,7 @@ final class ParallelScanCoordinator {
         workersInSearch=markets.size();
         wasTimeLimited=false;
         coverageIncomplete=false;
-        frontier.reset();
+        frontier.configure(delivery);
         ensureWorkers(markets.size());
         // Launch all shop searches without waiting for another store to finish.
         for(int index=0;index<markets.size();index++){
