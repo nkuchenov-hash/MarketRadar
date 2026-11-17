@@ -222,6 +222,13 @@ final class ScanEngine {
     private int hydrationRetries=0;
     private int detailHydrationRetries=0;
     private int retryCount=0;
+    private long lastProgressAtMs=0;
+    private long lastObservedScrollY=-1;
+    private long lastObservedScrollHeight=-1;
+    private int lastObservedPoolCount=-1;
+    private int stalledScrollChecks=0;
+    private boolean awaitingAi=false;
+    private int lastDetailCount=0;
 
     ScanEngine(WebView browser, Handler handler, Listener listener) {
         this.browser=browser;this.handler=handler;this.listener=listener;
@@ -239,6 +246,29 @@ final class ScanEngine {
     }
     static boolean atPageEnd(long y,long height,long viewport){
         return height>0&&viewport>0&&y+viewport>=height-75;
+    }
+    static boolean exceededIdle(long lastProgress,long now,long idleLimit){
+        return now-lastProgress>=idleLimit;
+    }
+    static boolean scrollAdvanced(long y,long previousY,long height,long previousHeight,
+                                  int poolSize,int previousPoolSize){
+        return y!=previousY||height!=previousHeight||poolSize!=previousPoolSize;
+    }
+    private void noteProgress(){
+        lastProgressAtMs=android.os.SystemClock.elapsedRealtime();
+    }
+    private void monitorIdle(int request){
+        // This watchdog is NOT a scan duration cap. It resets whenever
+        // the page actually advances, even if the crawl takes many minutes.
+        handler.postDelayed(()->{
+            if(!running||request!=token)return;
+            if(!awaitingAi&&exceededIdle(lastProgressAtMs,
+                    android.os.SystemClock.elapsedRealtime(),18000)){
+                failPage("Нет прогресса загрузки или прокрутки");
+                return;
+            }
+            monitorIdle(request);
+        },4500);
     }
     void start(String q) { start(q,8,Shop.ALL); }
     void start(String q,int limit) { start(q,limit,Shop.ALL); }
@@ -276,18 +306,22 @@ final class ScanEngine {
         hydrationRetries=0;
         detailHydrationRetries=0;
         retryCount=0;
+        awaitingAi=false;
+        lastObservedScrollY=-1;lastObservedScrollHeight=-1;
+        lastObservedPoolCount=-1;stalledScrollChecks=0;lastDetailCount=0;
         listener.status(shop,"Ищем точную модель…");
         load(currentSearchUrl);
     }
     private void load(String url) {
         int request=++token;
+        awaitingAi=false;
+        noteProgress();
         browser.loadUrl(url);
-        handler.postDelayed(() -> {
-            if(running&&request==token)failPage("Страница не ответила");
-        },18000);
+        monitorIdle(request);
     }
     void onPageFinished(String url) {
         if(!running)return;
+        noteProgress();
         // Ignore completion callbacks from the previous marketplace. Both
         // search and product pages share one WebView, so a prior host can
         // finish after the next shop has already started loading.
@@ -347,7 +381,7 @@ final class ScanEngine {
             return;
         }
         coverageIncomplete=true;
-        if(message.contains("не ответила"))timeLimitReached=true;
+        if(message.contains("Нет прогресса"))timeLimitReached=true;
         token++;
         if(details) {
             listener.status(shop,message+" · проверено карточек: "+checkedMarket);
@@ -377,7 +411,10 @@ final class ScanEngine {
             listener.status(shop,"Магазин ограничил доступ");
             nextMarket();return;
         }
-        if(details)readDetail(data,url);
+        if(details){
+            noteProgress();
+            readDetail(data,url);
+        }
         else readSearch(data);
     }
     private void readSearch(JSONObject data) {
@@ -423,6 +460,25 @@ final class ScanEngine {
         long height=data.optLong("scrollHeight",0);
         long viewport=data.optLong("viewportHeight",0);
         boolean bottom=atPageEnd(y,height,viewport);
+        boolean advanced=scrollAdvanced(y,lastObservedScrollY,height,
+            lastObservedScrollHeight,searchPool.size(),lastObservedPoolCount);
+        if(advanced){
+            noteProgress();
+            stalledScrollChecks=0;
+        }else if(!bottom){
+            stalledScrollChecks++;
+        }
+        lastObservedScrollY=y;
+        lastObservedScrollHeight=height;
+        lastObservedPoolCount=searchPool.size();
+        if(stalledScrollChecks>=4){
+            // A blocked/non-window scroll container cannot be treated
+            // as complete even if the WebView keeps returning valid JS.
+            coverageIncomplete=true;
+            listener.status(shop,"Выдачу не удалось прокрутить полностью");
+            finishListingCollection();
+            return;
+        }
         // Reset "show more" retries whenever fresh results actually appear:
         // there is no fixed cap on how many successful load-more pages we open.
         if(height>lastHeight||searchPool.size()>lastPoolSize)loadMoreAttempts=0;
@@ -482,21 +538,27 @@ final class ScanEngine {
             coverageIncomplete=true;
             listener.status(shop,"Не удалось загрузить оставшиеся предложения");
         }
+        finishListingCollection();
+    }
+
+    private void finishListingCollection(){
+        if(details)return;
         candidates.clear();
         candidates.addAll(rankCandidates(searchPool.values(),Integer.MAX_VALUE));
         searchSampling=false;
         if(candidates.isEmpty()){
             listener.status(shop,coverageIncomplete?
-                "Выдача проверена не полностью":
+                "Доступная выдача не была полностью загружена":
                 "Подходящих ссылок нет в доступной выдаче");
-            nextMarket();return;
+            nextMarket();
+            return;
         }
         details=true;
-        listener.status(shop,"Выдача просмотрена · проверяем все "+
-            candidates.size()+" найденных карточек");
+        listener.status(shop,(coverageIncomplete?
+            "Доступная выдача неполна; ":"Доступная выдача просмотрена; ")+
+            "проверяем "+candidates.size()+" кандидатов");
         nextCandidate();
     }
-
     static boolean isNextSearchPage(Shop shop,String next,Set<String> visited){
         if(shop==null||next==null||next.isBlank()||visited.contains(next)||
            !shop.allowed(next)||shop.productLink(next))return false;
@@ -659,8 +721,11 @@ final class ScanEngine {
                 final int request=token;
                 final String candidateUrl=expectedUrl;
                 listener.status(shop,"Проверяем найденный товар локальным ИИ…");
+                awaitingAi=true;
                 listener.assess(proposal,verdict->handler.post(()->{
                     if(!running||request!=token||!candidateUrl.equals(expectedUrl))return;
+                    awaitingAi=false;
+                    noteProgress();
                     if(verdict==null){
                         coverageIncomplete=true;
                         listener.status(shop,"Локальный ИИ не подтвердил проверку");
