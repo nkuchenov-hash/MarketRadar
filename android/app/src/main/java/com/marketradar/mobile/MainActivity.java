@@ -290,6 +290,14 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
             add(marketPage,card,-1,-2);
             gap(marketPage,11);
         }
+        Button report=button("Отчёт о последнем поиске",false);
+        add(marketPage,report,-1,44);
+        report.setOnClickListener(v->new AlertDialog.Builder(this)
+            .setTitle("Что произошло при поиске")
+            .setMessage(prefs.getString("last_search_diagnostics",
+                "Поисков пока не было"))
+            .setPositiveButton("Закрыть",null).show());
+        gap(marketPage,15);
         Button clear=button("Сбросить все входы на этом телефоне",false);
         add(marketPage,clear,-1,46);
         clear.setOnClickListener(v->confirmClear());
@@ -501,6 +509,36 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         resultsHeading.setVisibility(offers.isEmpty()?View.GONE:View.VISIBLE);
         count.setVisibility(View.GONE);
     }
+    // Kept off the main search screen. Explicit per-shop evidence helps
+    // diagnose access blocks and early timeouts without leaking cookies.
+    private void saveSearchReport(List<ScanEngine.Offer> provisional,String reason){
+        StringBuilder report=new StringBuilder();
+        report.append(java.text.DateFormat.getDateTimeInstance().format(new java.util.Date()));
+        report.append("\nЗапрос: ").append(prefs.getString("last_query",""));
+        report.append("\n").append(reason);
+        report.append("\nВремя браузера ограничено: ")
+              .append(engine.wasTimeLimited()?"да":"нет").append("\n");
+        for(Shop shop:lastSelectedMarkets){
+            report.append("\n").append(shop.name).append(": ");
+            report.append(marketStates.containsKey(shop.id)?
+                marketStates.get(shop.id):"магазин не проверялся");
+            int candidates=0,confirmed=0;
+            for(ScanEngine.Offer o:provisional)
+                if(o.shop.id.equals(shop.id))candidates++;
+            for(ScanEngine.Offer o:offers)
+                if(o.shop.id.equals(shop.id))confirmed++;
+            report.append("\n  Найденных кандидатов: ").append(candidates);
+            report.append("; подтверждено локальной моделью: ").append(confirmed);
+            for(ScanEngine.Offer o:offers){
+                if(o.shop.id.equals(shop.id)){
+                    report.append("\n  ").append(o.price>0?rubles(o.price):"Цена неизвестна");
+                    report.append(" — ").append(o.note);
+                }
+            }
+            report.append("\n");
+        }
+        prefs.edit().putString("last_search_diagnostics",report.toString()).apply();
+    }
     private void renderResults(){
         offers.sort(Comparator.comparingInt(o->o.price==0?Integer.MAX_VALUE:o.price));
         results.removeAllViews();
@@ -545,6 +583,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
             if(provisional.isEmpty()){
                 summaryPanel.setVisibility(View.VISIBLE);
                 updateSummary();
+                saveSearchReport(provisional,"Нет кандидатов для локальной проверки");
                 progress.setText(engine.wasTimeLimited()?
                     "Поиск неполный: часть страниц не проверена":
                     "Подтверждённые предложения не найдены");
@@ -565,15 +604,18 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
                     summaryPanel.setVisibility(View.VISIBLE);
                     marketProgress.setText("Не удалось проверить товары на устройстве");
                     progress.setText(error);
+                    saveSearchReport(provisional,error);
                     return;
                 }
                 offers.addAll(approved);
                 if(offers.isEmpty()){
                     summaryPanel.setVisibility(View.VISIBLE);
                     updateSummary();
+                    saveSearchReport(provisional,"Локальный ИИ не подтвердил совпадения");
                     progress.setText("Проверка совпадения не подтвердила найденные товары");
                 }else{
                     renderResults();
+                    saveSearchReport(provisional,"Проверка товаров завершена");
                     progress.setText(engine.wasTimeLimited()?
                         "Поиск неполный: показаны только найденные предложения":
                         "Модели проверены на устройстве");
