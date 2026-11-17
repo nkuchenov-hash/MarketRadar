@@ -388,8 +388,13 @@ final class ScanEngine {
         // Update the optimistic global target AS SOON AS another search
         // viewport yields a cheaper exact-model listing. This does not
         // discard fallback candidates before AI checks the cheapest one.
+        int oldTarget=frontier.observedCeiling();
         for(Candidate candidate:searchPool.values())
             frontier.observe(candidate.listingPrice);
+        int newTarget=frontier.observedCeiling();
+        if(newTarget>0 && (oldTarget==0||newTarget<oldTarget))
+            listener.status(shop,"Новый предварительный минимум: "+newTarget+
+                " ₽ · ищем ещё дешевле");
         // Marketplaces are SPAs. A page may finish loading before product
         // cards are rendered; poll only when the relevant DOM is still empty.
         if(searchPool.isEmpty() && hydrationRetries<5){
