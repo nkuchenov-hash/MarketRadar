@@ -224,7 +224,7 @@ public class CoreTest {
         assertTrue(Shop.byId("ym")
             .searchUrl("Яндекс Станция Мини 3 Про").contains("&how=aprice"));
         assertTrue(Shop.byId("ozon")
-            .searchUrl("Яндекс Станция Мини 3 Про").contains("/search/?text="));
+            .searchUrl("Яндекс Станция Мини 3 Про").contains("&sorting=price"));
     }
 
     @Test public void exhaustiveSearchDoesNotDiscardOffersAfterFortyCards() throws Exception {
