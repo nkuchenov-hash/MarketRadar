@@ -165,7 +165,12 @@ final class ParallelScanCoordinator {
             // Same full-screen viewport as the main WebView is critical for
             // JavaScript-rendered lazy-loaded marketplace search grids.
             // The main app's opaque pane covers these extra WebViews.
-            root.addView(view,0,new FrameLayout.LayoutParams(
+            // Put each worker above the browser used for login, but still
+            // behind the opaque main application pane. This keeps a real
+            // full-screen viewport while avoiding a worker being occluded by
+            // another WebView at the Android compositor level.
+            int layer=Math.max(0,root.indexOfChild(primaryBrowser)+1);
+            root.addView(view,layer,new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT));
             Worker worker=new Worker(view);
