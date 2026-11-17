@@ -29,23 +29,32 @@ final class ScanEngine {
     }
     static final class Offer {
         final Shop shop;
-        final String url, title, note, deliveryHint;
+        final String url, title, note, deliveryHint, priceCondition;
         final int price;
         Offer(Shop shop,String url,String title,int price,String note) {
-            this(shop,url,title,price,note,"");
+            this(shop,url,title,price,note,"","");
         }
         Offer(Shop shop,String url,String title,int price,String note,String deliveryHint) {
+            this(shop,url,title,price,note,deliveryHint,"");
+        }
+        Offer(Shop shop,String url,String title,int price,String note,
+              String deliveryHint,String priceCondition) {
             this.shop=shop;this.url=url;this.title=title;this.price=price;
             this.note=note;this.deliveryHint=deliveryHint;
+            this.priceCondition=priceCondition==null?"":priceCondition;
         }
     }
     static final class Candidate {
-        final String url,deliveryHint;
+        final String url,deliveryHint,priceCondition;
         final int listingPrice;
-        Candidate(String url,int listingPrice){this(url,listingPrice,"");}
+        Candidate(String url,int listingPrice){this(url,listingPrice,"","");}
         Candidate(String url,int listingPrice,String deliveryHint){
+            this(url,listingPrice,deliveryHint,"");
+        }
+        Candidate(String url,int listingPrice,String deliveryHint,String priceCondition){
             this.url=url;this.listingPrice=listingPrice;
             this.deliveryHint=deliveryHint==null?"":deliveryHint;
+            this.priceCondition=priceCondition==null?"":priceCondition;
         }
     }
     // Search and product details use DISTINCT, minimal DOM extraction paths.
@@ -85,8 +94,10 @@ final class ScanEngine {
               const context=tileText(a);
               const imageAlt=(img?.alt||a.querySelector('picture img')?.alt||'')
                   .trim().slice(0,300);
+              const priceCondition=/(?:с\\s+wb\\s+кошельком|wb\\s+кошелек|wb\\s+wallet)/i
+                  .test(context)?'с WB Кошельком':'';
               links.push({url:url.href,title,context:context.slice(0,650),
-                          imageAlt});
+                          imageAlt,priceCondition});
             }
             return JSON.stringify({
               url:location.href,
@@ -668,7 +679,8 @@ final class ScanEngine {
     static void mergeSearchSnapshot(Map<String,Candidate> pool,JSONArray links,
             Shop shop,String query){
         for(Candidate candidate:selectCandidates(links,shop,query,Integer.MAX_VALUE)){
-            String key=candidate.url+"\u0001"+candidate.deliveryHint;
+            String key=candidate.url+"\u0001"+candidate.deliveryHint+
+                "\u0001"+candidate.priceCondition;
             Candidate old=pool.get(key);
             if(old==null || (candidate.listingPrice>0 &&
                 (old.listingPrice<=0 || candidate.listingPrice<old.listingPrice)))
@@ -706,11 +718,13 @@ final class ScanEngine {
             String clean=cleanUrl(url);
             int listingPrice=readCardPrice(context);
             String delivery=readDeliveryHint(context);
-            String key=clean+"\u0001"+delivery;
+            String priceCondition=priceConditionForCard(
+                context,item.optString("priceCondition",""),shop);
+            String key=clean+"\u0001"+delivery+"\u0001"+priceCondition;
             Candidate previous=unique.get(key);
             if(previous==null || (listingPrice>0 && (previous.listingPrice==0 ||
                listingPrice<previous.listingPrice))){
-                unique.put(key,new Candidate(clean,listingPrice,delivery));
+                unique.put(key,new Candidate(clean,listingPrice,delivery,priceCondition));
             }
         }
         return rankCandidates(unique.values(),maxCards);
@@ -793,7 +807,9 @@ final class ScanEngine {
                 else
                     note="Модель совпадает · цена не найдена";
                 String delivery=candidates.get(cardIndex-1).deliveryHint;
-                Offer proposal=new Offer(shop,cleanUrl(url),title,price,note,delivery);
+                String priceCondition=candidates.get(cardIndex-1).priceCondition;
+                Offer proposal=new Offer(shop,cleanUrl(url),title,price,note,
+                    delivery,priceCondition);
                 final int request=token;
                 final String candidateUrl=expectedUrl;
                 listener.status(shop,"Проверяем найденный товар локальным ИИ…");
@@ -817,6 +833,13 @@ final class ScanEngine {
         }
         listener.status(shop,"Карточек проверено: "+checkedMarket+" / "+candidates.size());
         nextCandidate();
+    }
+    static String priceConditionForCard(String context,String supplied,Shop shop){
+        if(shop==null||!shop.id.equals("wb"))return "";
+        String both=(context==null?"":context)+" "+(supplied==null?"":supplied);
+        return java.util.regex.Pattern.compile(
+            "(?iu)(?:с\\s*wb\\s*кошельком|wb\\s*кошелек|wb\\s*wallet)")
+            .matcher(both).find()?"с WB Кошельком":"";
     }
     static String readDeliveryHint(String context){
         if(context==null||context.isBlank())return "";
