@@ -64,6 +64,9 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
     private TextView progress, count, loginCaption;
     private SharedPreferences prefs;
     private boolean loginMode=false;
+    private boolean aiChecking=false;
+    private int aiGeneration=0;
+    private EditText aiServerInput;
     private Shop currentShop;
     private ScanEngine.Offer inspectedOffer;
 
@@ -287,6 +290,33 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
             add(marketPage,card,-1,-2);
             gap(marketPage,11);
         }
+        gap(marketPage,15);
+        add(marketPage,text("Сервер ИИ",16,TEXT,true),-1,28);
+        add(marketPage,text("Используется для проверки, что найден именно нужный товар. Нужен работающий сервер MarketRadar с настроенной ИИ-моделью.",12,MUTED,false),-1,-2);
+        gap(marketPage,8);
+        aiServerInput=new EditText(this);
+        aiServerInput.setSingleLine(true);
+        aiServerInput.setTextSize(13);
+        aiServerInput.setTextColor(TEXT);
+        aiServerInput.setHintTextColor(MUTED);
+        aiServerInput.setBackground(bg(SURFACE,13,BORDER));
+        aiServerInput.setPadding(dp(12),0,dp(12),0);
+        aiServerInput.setHint("https://server.example");
+        aiServerInput.setText(prefs.getString("ai_server","https://marketradar-online.onrender.com"));
+        add(marketPage,aiServerInput,-1,49);
+        gap(marketPage,6);
+        Button saveServer=button("Сохранить сервер",false);
+        add(marketPage,saveServer,-1,42);
+        saveServer.setOnClickListener(v->{
+            String address=aiServerInput.getText().toString().trim();
+            if(AiVerifier.endpoint(address)==null){
+                aiServerInput.setError("Укажите HTTPS-адрес сервера");
+                return;
+            }
+            prefs.edit().putString("ai_server",address).apply();
+            android.widget.Toast.makeText(this,"Адрес сервера сохранён",android.widget.Toast.LENGTH_SHORT).show();
+        });
+        gap(marketPage,18);
         Button clear=button("Сбросить все входы на этом телефоне",false);
         add(marketPage,clear,-1,46);
         clear.setOnClickListener(v->confirmClear());
@@ -410,7 +440,17 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
             }).show();
     }
     private void beginSearch(){
-        if(engine.isRunning()){engine.stop();searchButton.setText("Найти предложения");progress.setText("Поиск остановлен.");return;}
+        if(engine.isRunning()||aiChecking){
+            aiGeneration++;
+            aiChecking=false;
+            engine.stop();
+            offers.clear();
+            results.removeAllViews();
+            summaryPanel.setVisibility(View.GONE);
+            searchButton.setText("Найти лучшую цену");
+            progress.setText("Поиск остановлен");
+            return;
+        }
         String q=queryInput.getText().toString().trim();
         if(q.length()<3){queryInput.setError("Введите название или модель");return;}
         prefs.edit().putString("last_query",q).apply();
@@ -424,6 +464,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
                 .setPositiveButton("ОК",null).show();
             return;
         }
+        ++aiGeneration;
         lastSelectedMarkets=chosen;
         setAccountsVisible(false);
         offers.clear();results.removeAllViews();marketStates.clear();
@@ -447,8 +488,8 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         runOnUiThread(()->{
             boolean exists=false;
             for(ScanEngine.Offer prior:offers)if(prior.url.equals(o.url)){exists=true;break;}
+            // Provisional scan results must never appear as verified offers.
             if(!exists)offers.add(o);
-            renderResults();
         });
     }
     private String rubles(int amount){
@@ -503,11 +544,47 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
     }
     @Override public void done(){
         runOnUiThread(()->{
-            searchButton.setText("Найти предложения");
-            progress.setText(engine.wasTimeLimited()?"Готово · показаны найденные предложения":"Готово");
             for(Shop shop:Shop.ALL)refreshShop(shop);
-            if(offers.isEmpty())marketProgress.setText("Подходящие товары не найдены");
-            updateSummary();
+            List<ScanEngine.Offer> provisional=new ArrayList<>(offers);
+            offers.clear();
+            results.removeAllViews();
+            bestPrice.setText("—");
+            resultsHeading.setVisibility(View.GONE);
+            if(provisional.isEmpty()){
+                summaryPanel.setVisibility(View.VISIBLE);
+                marketProgress.setText("Подходящие товары не найдены");
+                progress.setText("Поиск завершён");
+                searchButton.setText("Найти лучшую цену");
+                return;
+            }
+            aiChecking=true;
+            searchButton.setText("Остановить");
+            progress.setText("ИИ проверяет товары…");
+            marketProgress.setText("Проверяем совпадение моделей…");
+            final int active=aiGeneration;
+            String server=prefs.getString("ai_server",
+                "https://marketradar-online.onrender.com");
+            String query=queryInput.getText().toString().trim();
+            AiVerifier.verify(server,query,provisional,ui,(approved,error)->{
+                if(active!=aiGeneration||isFinishing()||isDestroyed())return;
+                aiChecking=false;
+                searchButton.setText("Найти лучшую цену");
+                if(error!=null){
+                    summaryPanel.setVisibility(View.VISIBLE);
+                    marketProgress.setText("ИИ недоступен. Цены не подтверждены.");
+                    progress.setText(error);
+                    return;
+                }
+                offers.addAll(approved);
+                if(offers.isEmpty()){
+                    summaryPanel.setVisibility(View.VISIBLE);
+                    marketProgress.setText("ИИ не подтвердил совпадение товаров");
+                    progress.setText("Проверьте запрос");
+                }else{
+                    renderResults();
+                    progress.setText("Найдены товары с проверкой ИИ");
+                }
+            });
         });
     }
     @Override public void onBackPressed(){
@@ -524,6 +601,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         }else super.onBackPressed();
     }
     @Override protected void onDestroy(){
+        aiGeneration++;
         if(engine!=null)engine.stop();
         browser.destroy();
         super.onDestroy();
