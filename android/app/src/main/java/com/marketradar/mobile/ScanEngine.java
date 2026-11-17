@@ -198,6 +198,7 @@ final class ScanEngine {
     private boolean details=false;
     private int maxCards=8, checkedMarket=0;
     private String expectedUrl="";
+    private String currentSearchUrl="";
     private List<Shop> activeMarkets=Shop.ALL;
     // Search-result grids virtualize offscreen items. Collect several viewport
     // snapshots before applying the candidate limit; otherwise an exact,
@@ -261,12 +262,13 @@ final class ScanEngine {
         searchSampling=false;searchPool.clear();detailCache.clear();
         stableBottom=0;lastPoolSize=-1;lastHeight=-1;
         loadMoreAttempts=0;visitedSearchPages.clear();
-        visitedSearchPages.add(shop.searchUrl(query));
+        currentSearchUrl=shop.searchUrl(query);
+        visitedSearchPages.add(currentSearchUrl);
         hydrationRetries=0;
         detailHydrationRetries=0;
         retryCount=0;
         listener.status(shop,"Ищем точную модель…");
-        load(shop.searchUrl(query));
+        load(currentSearchUrl);
     }
     private void load(String url) {
         int request=++token;
@@ -326,7 +328,7 @@ final class ScanEngine {
         if((message.contains("не ответила")||message.contains("Ошибка загрузки")) &&
                 retryCount<2){
             int attempt=++retryCount;
-            String destination=details?expectedUrl:shop.searchUrl(query);
+            String destination=details?expectedUrl:currentSearchUrl;
             final int retryToken=++token;
             listener.status(shop,"Повторяем недоступную страницу: "+attempt+"/2");
             handler.postDelayed(()->{
@@ -427,8 +429,13 @@ final class ScanEngine {
             hydrationRetries=0;searchSampling=false;
             retryCount=0;
             listener.status(shop,"Следующая страница · кандидатов "+searchPool.size());
+            currentSearchUrl=next;
             load(next);
             return;
+        }
+        if(!next.isBlank()&&!isNextSearchPage(shop,next,visitedSearchPages)){
+            coverageIncomplete=true;
+            listener.status(shop,"Следующая страница недоступна или повторяется");
         }
         if(data.optBoolean("loadMore",false)){
             if(loadMoreAttempts++<2){
