@@ -70,42 +70,69 @@ final class LocalModelVerifier {
         return instance;
     }
 
-    private float entailment(String premise,String hypothesis) throws Exception {
-        int[] tokens=tokenizer.encodePair(premise,hypothesis,112);
-        long[] ids=new long[tokens.length], mask=new long[tokens.length];
-        for(int i=0;i<tokens.length;i++){ids[i]=tokens[i];mask[i]=1;}
+    /**
+     * Verify all three competing semantic hypotheses in ONE ONNX inference
+     * with a batch of 3 padded input sequences. The previous code executed
+     * the same model separately three times per product, multiplying CPU and
+     * latency by approximately three.
+     */
+    private float[] identityEvidence(String query,String title) throws Exception {
+        String premise="В продаже: "+title+".";
+        String[] hypotheses={
+            "Продаваемый предмет — это "+query+".",
+            "Продаваемый предмет является аксессуаром или запчастью для "+query+".",
+            "Продаваемый предмет является другим товаром, не "+query+"."
+        };
+        int[][] sequences=new int[hypotheses.length][];
+        int length=0;
+        for(int i=0;i<hypotheses.length;i++){
+            sequences[i]=tokenizer.encodePair(premise,hypotheses[i],112);
+            length=Math.max(length,sequences[i].length);
+        }
+        long[] ids=new long[hypotheses.length*length];
+        long[] mask=new long[ids.length];
+        java.util.Arrays.fill(ids,1L); // XLM-R pad token ID
+        for(int i=0;i<hypotheses.length;i++){
+            for(int j=0;j<sequences[i].length;j++){
+                ids[i*length+j]=sequences[i][j];
+                mask[i*length+j]=1L;
+            }
+        }
         try(OnnxTensor input=OnnxTensor.createTensor(environment,
-                java.nio.LongBuffer.wrap(ids),new long[]{1,ids.length});
+                java.nio.LongBuffer.wrap(ids),new long[]{hypotheses.length,length});
             OnnxTensor attention=OnnxTensor.createTensor(environment,
-                java.nio.LongBuffer.wrap(mask),new long[]{1,mask.length})){
+                java.nio.LongBuffer.wrap(mask),new long[]{hypotheses.length,length})){
             Map<String,OnnxTensor> tensors=new HashMap<>();
             tensors.put("input_ids",input);
             tensors.put("attention_mask",attention);
             try(OrtSession.Result results=session.run(tensors)){
-                Object logits=results.get(0).getValue();
-                if(!(logits instanceof float[][]))throw new IllegalStateException("Wrong NLI model output");
-                float[] values=((float[][])logits)[0];
-                if(values.length!=3)throw new IllegalStateException("Wrong NLI labels");
-                double max=Math.max(values[0],Math.max(values[1],values[2]));
-                double a=Math.exp(values[0]-max);
-                double b=Math.exp(values[1]-max);
-                double c=Math.exp(values[2]-max);
-                return (float)(a/(a+b+c));
+                Object raw=results.get(0).getValue();
+                if(!(raw instanceof float[][]))
+                    throw new IllegalStateException("Unexpected model output");
+                float[][] scores=(float[][])raw;
+                if(scores.length!=hypotheses.length)
+                    throw new IllegalStateException("Wrong ONNX batch size");
+                float[] evidence=new float[hypotheses.length];
+                for(int i=0;i<scores.length;i++){
+                    float[] values=scores[i];
+                    if(values.length!=3)
+                        throw new IllegalStateException("Wrong NLI label count");
+                    double max=Math.max(values[0],Math.max(values[1],values[2]));
+                    double a=Math.exp(values[0]-max);
+                    double b=Math.exp(values[1]-max);
+                    double c=Math.exp(values[2]-max);
+                    evidence[i]=(float)(a/(a+b+c));
+                }
+                return evidence;
             }
         }
     }
 
     boolean identical(String query,String title) throws Exception {
-        // Contrast distinct hypotheses: semantic relation, rather than
-        // presence of "Mini 3 Pro" substrings in unrelated merchandise.
-        String premise="В продаже: "+title+".";
-        float same=entailment(premise,
-            "Продаваемый предмет — это "+query+".");
-        float accessory=entailment(premise,
-            "Продаваемый предмет является аксессуаром или запчастью для "+query+".");
-        float different=entailment(premise,
-            "Продаваемый предмет является другим товаром, не "+query+".");
-        return ProductIdentityGate.confirms(query,title,same,accessory,different);
+        // Skip expensive NLI when the model/edition clearly differs.
+        if(!ScanEngine.exact(query,title))return false;
+        float[] scores=identityEvidence(query,title);
+        return ProductIdentityGate.confirms(query,title,scores[0],scores[1],scores[2]);
     }
 
     static void verify(Context context,String query,List<ScanEngine.Offer> offers,
@@ -114,9 +141,17 @@ final class LocalModelVerifier {
             try{
                 LocalModelVerifier verifier=get(context);
                 ArrayList<ScanEngine.Offer> selected=new ArrayList<>();
+                Map<String,Boolean> cache=new HashMap<>();
                 for(ScanEngine.Offer offer:offers){
                     if(Thread.currentThread().isInterrupted())break;
-                    if(verifier.identical(query,offer.title))selected.add(offer);
+                    if(offer.price<=0)continue;
+                    String normalized=ScanEngine.norm(offer.title);
+                    Boolean confirmed=cache.get(normalized);
+                    if(confirmed==null){
+                        confirmed=verifier.identical(query,offer.title);
+                        cache.put(normalized,confirmed);
+                    }
+                    if(confirmed)selected.add(offer);
                 }
                 ui.post(()->callback.verified(selected,null));
             }catch(Exception error){
