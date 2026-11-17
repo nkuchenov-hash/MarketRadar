@@ -20,6 +20,7 @@ import java.util.regex.Pattern;
 final class ScanEngine {
     interface Listener {
         void status(Shop shop, String text);
+        void session(Shop shop,SessionProbe.Verdict evidence);
         void offer(Offer offer);
         // Called before a candidate can change the price ceiling.
         // null indicates local-AI failure, not an identity mismatch.
@@ -228,6 +229,7 @@ final class ScanEngine {
     private int lastObservedPoolCount=-1;
     private int stalledScrollChecks=0;
     private boolean awaitingAi=false;
+    private boolean sessionProbeRequested=false;
     private int lastDetailCount=0;
     private long lastSearchGrowthMs=0;
 
@@ -308,6 +310,7 @@ final class ScanEngine {
         detailHydrationRetries=0;
         retryCount=0;
         awaitingAi=false;
+        sessionProbeRequested=false;
         lastObservedScrollY=-1;lastObservedScrollHeight=-1;
         lastObservedPoolCount=-1;stalledScrollChecks=0;lastDetailCount=0;
         lastSearchGrowthMs=android.os.SystemClock.elapsedRealtime();
@@ -413,7 +416,14 @@ final class ScanEngine {
         String body=(title+" "+text).toLowerCase(Locale.ROOT);
         if(!shop.allowed(url)){
             coverageIncomplete=true;
-            listener.status(shop,"Переадресация: возможно, требуется вход в магазин");
+            if(shop.isLoginUrl(url)){
+                listener.session(shop,new SessionProbe.Verdict(
+                    SessionProbe.State.SIGN_IN_REQUIRED,
+                    "Поиск перенаправлен на форму авторизации"));
+                listener.status(shop,"Требуется повторно войти в аккаунт магазина");
+            }else{
+                listener.status(shop,"Неожиданная переадресация сайта");
+            }
             nextMarket();return;
         }
         if(body.contains("подозрительная активность")||
@@ -431,6 +441,25 @@ final class ScanEngine {
         else readSearch(data);
     }
     private void readSearch(JSONObject data) {
+        // Probe session in the EXACT WebView used by this marketplace's
+        // search. A cookie from an earlier sign-in screen is not evidence.
+        if(!sessionProbeRequested){
+            sessionProbeRequested=true;
+            final int requestedToken=token;
+            final Shop expectedShop=shop;
+            browser.evaluateJavascript(SessionProbe.SCRIPT,value->{
+                if(!running||requestedToken!=token||shop!=expectedShop)return;
+                try{
+                    JSONObject evidence=new JSONObject(
+                        String.valueOf(new JSONTokener(value).nextValue()));
+                    listener.session(expectedShop,
+                        SessionProbe.evaluate(expectedShop,evidence));
+                }catch(Exception ignored){
+                    listener.session(expectedShop,new SessionProbe.Verdict(
+                        SessionProbe.State.UNKNOWN,"Не удалось проверить вход"));
+                }
+            });
+        }
         // Combine all scroll snapshots, not only the initial screen and not
         // only the first ten DOM links. Each candidate still needs its own
         // product page verification before it can become a visible offer.
