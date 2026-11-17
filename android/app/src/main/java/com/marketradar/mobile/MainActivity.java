@@ -19,6 +19,7 @@ import android.webkit.CookieManager;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -155,6 +156,12 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
             @Override public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error){
                 if(request.isForMainFrame()&&!loginMode&&engine!=null)
                     engine.onPageError(view,request.getUrl().toString());
+            }
+            @Override public void onReceivedHttpError(WebView view,
+                    WebResourceRequest request,WebResourceResponse response){
+                if(request.isForMainFrame()&&!loginMode&&engine!=null)
+                    engine.onHttpError(view,request.getUrl().toString(),
+                        response.getStatusCode());
             }
             @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request){
                 // Never load intent://, file:// or other non-HTTPS URLs in our authenticated browser.
@@ -598,6 +605,9 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
                 else if(detail.contains("ограничил доступ")||
                         detail.contains("Переадресация"))
                     states.append("доступ ограничен");
+                else if(detail.contains("прокрутить полностью")||
+                        detail.contains("Нет прогресса"))
+                    states.append("выдача не загрузилась полностью");
                 else if(detail.contains("отложено дорогих"))
                     states.append("отсеяны более дорогие предложения");
                 else states.append("нет подтверждённых предложений");
