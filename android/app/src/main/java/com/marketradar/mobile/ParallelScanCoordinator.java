@@ -63,6 +63,9 @@ final class ParallelScanCoordinator {
                 listener.status(market,text);
             }
         }
+        @Override public void session(Shop market,SessionProbe.Verdict verdict){
+            if(isCurrent(this))listener.session(market,verdict);
+        }
         @Override public void offer(ScanEngine.Offer offer){
             if(isCurrent(this))listener.offer(offer);
         }
