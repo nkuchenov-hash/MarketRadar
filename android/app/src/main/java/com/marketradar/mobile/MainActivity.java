@@ -230,12 +230,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         }
         add(filterPanel,marketsRow,-1,-2);
         gap(filterPanel,8);
-        depthButton=button("Режим: быстрый",false);
-        add(filterPanel,depthButton,-1,42);
-        depthButton.setOnClickListener(v->{
-            fastSearch=!fastSearch;
-            depthButton.setText(fastSearch?"Режим: быстрый":"Режим: подробный");
-        });
+        add(filterPanel,text("Проверяем все доступные предложения каждой площадки",12,MUTED,false),-1,-2);
         add(page,filterPanel,-1,-2);
         settingsButton.setOnClickListener(v->{
             filtersVisible=!filtersVisible;
@@ -462,7 +457,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         count.setVisibility(View.GONE);
         searchButton.setText("Остановить");
         progress.setText("Поиск…");
-        engine.start(q,fastSearch?12:32,chosen);
+        engine.start(q,Integer.MAX_VALUE,chosen);
     }
     @Override public void status(Shop shop,String state){
         runOnUiThread(()->{
@@ -475,7 +470,8 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         runOnUiThread(()->{
             boolean exists=false;
             for(ScanEngine.Offer prior:pendingOffers)
-                if(prior.url.equals(o.url)){exists=true;break;}
+                if(prior.url.equals(o.url)&&prior.deliveryHint.equals(o.deliveryHint)
+                    &&prior.price==o.price){exists=true;break;}
             // The summary and cards read ONLY from verified "offers".
             if(!exists)pendingOffers.add(o);
         });
@@ -564,6 +560,11 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
             title.setMaxLines(3);
             title.setEllipsize(android.text.TextUtils.TruncateAt.END);
             add(card,title,-1,-2);
+            if(!o.deliveryHint.isBlank()){
+                gap(card,5);
+                add(card,text("Доставка из выдачи: "+o.deliveryHint+
+                    " · уточнить в магазине",12,MUTED,false),-1,-2);
+            }
             gap(card,5);
             String origin=o.note.startsWith("Цена из выдачи")?
                 "Цена из поиска · без проверки корзины":
