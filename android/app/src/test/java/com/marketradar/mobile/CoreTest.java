@@ -226,4 +226,61 @@ public class CoreTest {
         assertTrue(Shop.byId("ozon")
             .searchUrl("Яндекс Станция Мини 3 Про").contains("/search/?text="));
     }
+
+    @Test public void exhaustiveSearchDoesNotDiscardOffersAfterFortyCards() throws Exception {
+        String query="Яндекс Станция Мини 3 Про";
+        JSONArray links=new JSONArray();
+        for(int index=0;index<95;index++){
+            links.put(new org.json.JSONObject()
+                .put("url","https://www.ozon.ru/product/model-"+(2000000+index)+"/")
+                .put("title","Умная колонка Яндекс Станция Мини 3 Про")
+                .put("context","Умная колонка Яндекс Станция Мини 3 Про\\n"+
+                    (14000-index)+" ₽"));
+        }
+        java.util.Map<String,ScanEngine.Candidate> pool=new java.util.LinkedHashMap<>();
+        ScanEngine.mergeSearchSnapshot(pool,links,Shop.byId("ozon"),query);
+        assertEquals(95,pool.size());
+        assertEquals(95,ScanEngine.rankCandidates(pool.values(),Integer.MAX_VALUE).size());
+        assertEquals(13906,ScanEngine.rankCandidates(pool.values(),Integer.MAX_VALUE)
+            .get(0).listingPrice);
+    }
+    @Test public void deliveryAlternativesOnOneProductAreNotCollapsed() throws Exception {
+        String query="Яндекс Станция Мини 3 Про";
+        String link="https://www.ozon.ru/product/station-pro-234567890/";
+        JSONArray listing=new JSONArray()
+            .put(new org.json.JSONObject()
+                .put("url",link)
+                .put("title","Умная колонка Яндекс Станция Мини 3 Про")
+                .put("context","Умная колонка Яндекс Станция Мини 3 Про\\n"+
+                    "11 542 ₽\\nДоставка завтра"))
+            .put(new org.json.JSONObject()
+                .put("url",link)
+                .put("title","Умная колонка Яндекс Станция Мини 3 Про")
+                .put("context","Умная колонка Яндекс Станция Мини 3 Про\\n"+
+                    "11 899 ₽\\nДоставка 23 ноября"));
+        java.util.Map<String,ScanEngine.Candidate> pool=new java.util.LinkedHashMap<>();
+        ScanEngine.mergeSearchSnapshot(pool,listing,Shop.byId("ozon"),query);
+        assertEquals(2,pool.size());
+        java.util.ArrayList<ScanEngine.Candidate> ranked=
+            ScanEngine.rankCandidates(pool.values(),Integer.MAX_VALUE);
+        assertEquals(11542,ranked.get(0).listingPrice);
+        assertEquals("завтра",ranked.get(0).deliveryHint);
+        assertEquals("23 ноября",ranked.get(1).deliveryHint);
+    }
+    @Test public void listingEndAndPaginationAreCheckedByStateNotArbitraryPassCount() {
+        assertFalse(ScanEngine.atPageEnd(100,10000,900));
+        assertTrue(ScanEngine.atPageEnd(9100,10000,900));
+        assertFalse(ScanEngine.settledAtBottom(false,10000,10000,20,20));
+        assertFalse(ScanEngine.settledAtBottom(true,10001,10000,20,20));
+        assertTrue(ScanEngine.settledAtBottom(true,10000,10000,20,20));
+        java.util.Set<String> visited=new java.util.HashSet<>();
+        String first="https://www.ozon.ru/search/?text=mini";
+        String second="https://www.ozon.ru/search/?text=mini&page=2";
+        visited.add(first);
+        assertTrue(ScanEngine.isNextSearchPage(Shop.byId("ozon"),second,visited));
+        visited.add(second);
+        assertFalse(ScanEngine.isNextSearchPage(Shop.byId("ozon"),second,visited));
+        assertFalse(ScanEngine.isNextSearchPage(Shop.byId("ozon"),
+            "https://example.com/search/?text=mini",visited));
+    }
 }
