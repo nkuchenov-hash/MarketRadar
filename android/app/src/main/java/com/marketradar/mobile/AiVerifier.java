@@ -85,8 +85,16 @@ final class AiVerifier {
                 if(connection.getResponseCode()!=200)
                     throw new IllegalStateException("AI service unavailable");
                 byte[] response;
-                try(InputStream stream=connection.getInputStream()){
-                    response=stream.readNBytes(64_000);
+                try(InputStream stream=connection.getInputStream();
+                    java.io.ByteArrayOutputStream out=new java.io.ByteArrayOutputStream()){
+                    byte[] buffer=new byte[4096];
+                    int n;
+                    while((n=stream.read(buffer))!=-1){
+                        if(out.size()+n>64_000)
+                            throw new IllegalStateException("AI response too large");
+                        out.write(buffer,0,n);
+                    }
+                    response=out.toByteArray();
                 }
                 JSONObject parsed=new JSONObject(new String(response,StandardCharsets.UTF_8));
                 if(!parsed.optBoolean("verified",false))
