@@ -51,8 +51,9 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
     private LinearLayout mainPane, loginBar, results;
     private ScrollView searchScroll, accountsScroll;
     private Button navButton, depthButton;
-    private boolean accountsVisible=false, fastSearch=false;
-    private TextView bestPrice, priceSummary, marketProgress;
+    private boolean accountsVisible=false, fastSearch=true, filtersVisible=false;
+    private TextView bestPrice, priceSummary, marketProgress, resultsHeading;
+    private LinearLayout summaryPanel, filterPanel;
     private final Map<String,String> marketStates=new HashMap<>();
     private final Map<String,CheckBox> marketChoices=new HashMap<>();
     private List<Shop> lastSelectedMarkets=Shop.ALL;
@@ -183,81 +184,85 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         LinearLayout marketPage=linear(LinearLayout.VERTICAL);
         marketPage.setPadding(dp(18),dp(24),dp(18),dp(50));
         accountsScroll.addView(marketPage);
-        add(page,text("СРАВНЕНИЕ ЦЕН",11,ACCENT,true),-1,19);
-        gap(page,4);
-        add(page,text("Найти лучшую цену",27,TEXT,true),-1,43);
-        gap(page,3);
-        add(page,text("Точная модель на Ozon, Wildberries и Яндекс Маркете.",13,MUTED,false),-1,-2);
-        gap(page,16);
+        add(page,text("Сравнить цены",27,TEXT,true),-1,48);
+        gap(page,12);
 
         queryInput=new EditText(this);
         queryInput.setSingleLine(true);
         queryInput.setTextSize(16);queryInput.setTextColor(TEXT);queryInput.setHintTextColor(MUTED);
         queryInput.setBackground(bg(SURFACE,13,BORDER));
         queryInput.setPadding(dp(15),0,dp(15),0);
-        queryInput.setHint("Точная модель товара");
+        queryInput.setHint("Название или точная модель");
         queryInput.setText(prefs.getString("last_query","Яндекс Станция Мини 3 Про"));
         add(page,queryInput,-1,58);
-        gap(page,15);
-        LinearLayout criteria=panel();
-        add(criteria,text("КРИТЕРИИ ПОИСКА",11,ACCENT,true),-1,20);
-        add(criteria,text("Совпадение: точная модель и артикул",13,TEXT,true),-1,-2);
-        gap(criteria,5);
-        add(criteria,text("МАРКЕТПЛЕЙСЫ",11,MUTED,true),-1,19);
+        gap(page,12);
+
+        searchButton=button("Найти лучшую цену",true);
+        add(page,searchButton,-1,54);
+        searchButton.setOnClickListener(v->beginSearch());
+        gap(page,9);
+
+        Button settingsButton=button("Параметры поиска",false);
+        add(page,settingsButton,-1,42);
+        gap(page,9);
+        filterPanel=panel();
+        filterPanel.setVisibility(View.GONE);
+        add(filterPanel,text("Выбрать магазины",14,TEXT,true),-1,24);
+        gap(filterPanel,5);
         LinearLayout marketsRow=linear(LinearLayout.HORIZONTAL);
         for(Shop shop:Shop.ALL){
             CheckBox cb=new CheckBox(this);
-            cb.setText(shop.id.equals("ozon")?"Ozon":shop.id.equals("wb")?"WB":"Я.Маркет");
-            cb.setTextSize(12);
-            cb.setTextColor(TEXT);
+            cb.setText(shop.id.equals("ozon")?"Ozon":shop.id.equals("wb")?"WB":"Маркет");
+            cb.setTextSize(12);cb.setTextColor(TEXT);
             cb.setButtonTintList(ColorStateList.valueOf(ACCENT));
             cb.setChecked(prefs.getBoolean("scan_"+shop.id,true));
             cb.setOnCheckedChangeListener((b,checked)->
                 prefs.edit().putBoolean("scan_"+shop.id,checked).apply());
             marketChoices.put(shop.id,cb);
-            marketsRow.addView(cb,new LinearLayout.LayoutParams(0,dp(39),1));
+            marketsRow.addView(cb,new LinearLayout.LayoutParams(0,dp(42),1));
         }
-        add(criteria,marketsRow,-1,-2);
-        gap(criteria,10);
-        depthButton=button("Глубокий · до 10 карточек на магазин",false);
-        add(criteria,depthButton,-1,44);
+        add(filterPanel,marketsRow,-1,-2);
+        gap(filterPanel,8);
+        depthButton=button("Режим: быстрый",false);
+        add(filterPanel,depthButton,-1,42);
         depthButton.setOnClickListener(v->{
             fastSearch=!fastSearch;
-            depthButton.setText(fastSearch?"Быстрый · до 3 карточек на магазин":
-                "Глубокий · до 10 карточек на магазин");
+            depthButton.setText(fastSearch?"Режим: быстрый":"Режим: подробный");
         });
-        add(page,criteria,-1,-2);
-        gap(page,14);
-        searchButton=button("Найти предложения",true);
-        add(page,searchButton,-1,54);
-        searchButton.setOnClickListener(v->beginSearch());
-        gap(page,10);
-        progress=text("Поиск пока не запущен.",13,MUTED,false);
+        add(page,filterPanel,-1,-2);
+        settingsButton.setOnClickListener(v->{
+            filtersVisible=!filtersVisible;
+            filterPanel.setVisibility(filtersVisible?View.VISIBLE:View.GONE);
+            settingsButton.setText(filtersVisible?"Скрыть параметры":"Параметры поиска");
+        });
+        gap(page,9);
+        progress=text("",13,MUTED,false);
         add(page,progress,-1,-2);
-        gap(page,18);
 
-        add(page,text("РЕЗУЛЬТАТЫ ПОИСКА",12,ACCENT,true),-1,22);
-        gap(page,6);
-        count=text("Результаты появятся здесь",13,MUTED,false);
-        add(page,count,-1,-2);
-        gap(page,11);
-        LinearLayout summary=panel();
-        add(summary,text("ИТОГ ПОИСКА",11,ACCENT,true),-1,19);
-        gap(summary,4);
-        bestPrice=text("—",29,TEXT,true);
-        add(summary,bestPrice,-1,39);
-        priceSummary=text("Минимальная цена по данным товара",12,MUTED,false);
-        add(summary,priceSummary,-1,-2);
-        gap(summary,11);
-        marketProgress=text("Статусы магазинов появятся после поиска.",12,MUTED,false);
-        add(summary,marketProgress,-1,-2);
-        add(page,summary,-1,-2);
         gap(page,16);
-        add(page,text("НАЙДЕННЫЕ КАРТОЧКИ",11,ACCENT,true),-1,22);
+        summaryPanel=panel();
+        summaryPanel.setVisibility(View.GONE);
+        add(summaryPanel,text("Лучшая найденная цена",14,MUTED,true),-1,22);
+        gap(summaryPanel,4);
+        bestPrice=text("—",31,TEXT,true);
+        add(summaryPanel,bestPrice,-1,47);
+        priceSummary=text("",12,MUTED,false);
+        priceSummary.setVisibility(View.GONE);
+        gap(summaryPanel,8);
+        marketProgress=text("",14,TEXT,false);
+        add(summaryPanel,marketProgress,-1,-2);
+        add(page,summaryPanel,-1,-2);
+        gap(page,12);
+
+        resultsHeading=text("Предложения",19,TEXT,true);
+        resultsHeading.setVisibility(View.GONE);
+        add(page,resultsHeading,-1,28);
+        count=text("",12,MUTED,false);
+        count.setVisibility(View.GONE);
+        add(page,count,-1,-2);
         gap(page,8);
         results=linear(LinearLayout.VERTICAL);add(page,results,-1,-2);
-        gap(page,18);
-        add(page,text("Тестовая версия. Цены, прочитанные со страницы, могут быть старыми или зависеть от карты. Итоговую сумму проверяйте в корзине. При сворачивании телефона поиск может остановиться.",12,MUTED,false),-1,-2);
+        gap(page,12);
 
         add(marketPage,text("МОИ МАРКЕТПЛЕЙСЫ",11,ACCENT,true),-1,22);
         add(marketPage,text("Подключения и сессии магазинов",24,TEXT,true),-1,-2);
@@ -422,18 +427,19 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         lastSelectedMarkets=chosen;
         setAccountsVisible(false);
         offers.clear();results.removeAllViews();marketStates.clear();
+        summaryPanel.setVisibility(View.VISIBLE);
+        resultsHeading.setVisibility(View.GONE);
         bestPrice.setText("—");
-        priceSummary.setText("Идёт проверка цен в данных товаров");
-        marketProgress.setText("Начинаем проверку "+chosen.size()+" магазинов…");
-        count.setText("Проверенных карточек: 0");
-        searchButton.setText("Остановить поиск");
-        progress.setText("Поиск на выбранных площадках…");
-        engine.start(q,fastSearch?3:10,chosen);
+        marketProgress.setText("Ищем предложения…");
+        count.setVisibility(View.GONE);
+        searchButton.setText("Остановить");
+        progress.setText("Поиск…");
+        engine.start(q,fastSearch?3:8,chosen);
     }
     @Override public void status(Shop shop,String state){
         runOnUiThread(()->{
-            progress.setText(shop.name+": "+state);
-            marketStates.put(shop.id,shop.name+": "+state);
+            progress.setText("Поиск: "+shop.name+"…");
+            marketStates.put(shop.id,state);
             updateSummary();
         });
     }
@@ -445,75 +451,62 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
             renderResults();
         });
     }
+    private String rubles(int amount){
+        return NumberFormat.getNumberInstance(new Locale("ru","RU")).format(amount)+" ₽";
+    }
     private void updateSummary(){
-        int priced=0,best=Integer.MAX_VALUE;
+        ScanEngine.Offer bestOffer=null;
         for(ScanEngine.Offer o:offers){
-            if(o.price>0){priced++;best=Math.min(best,o.price);}
+            if(o.price>0&&(bestOffer==null||o.price<bestOffer.price))bestOffer=o;
         }
-        bestPrice.setText(priced>0?
-            NumberFormat.getNumberInstance(new Locale("ru","RU")).format(best)+" ₽":"—");
-        boolean includesListingPrice=false;
-        for(ScanEngine.Offer o:offers)
-            if(o.price>0&&o.note.startsWith("Цена из выдачи"))includesListingPrice=true;
-        priceSummary.setText(priced>0?
-            (includesListingPrice?
-                "Минимум среди цен в выдаче и данных товара · итог в корзине не проверен":
-                "Минимальная цена из данных товара · условия оплаты не подтверждены"):
-            "Нет цены, надёжно связанной с товаром");
-        count.setText("Карточек по запросу: "+offers.size()+" · найденных цен: "+priced);
+        bestPrice.setText(bestOffer==null?"—":rubles(bestOffer.price));
         StringBuilder states=new StringBuilder();
-        for(Shop market:lastSelectedMarkets){
-            if(states.length()>0)states.append("\n");
-            int shopMin=Integer.MAX_VALUE;
+        for(Shop shop:lastSelectedMarkets){
+            int marketMin=Integer.MAX_VALUE;
             for(ScanEngine.Offer o:offers)
-                if(o.shop.id.equals(market.id)&&o.price>0)shopMin=Math.min(shopMin,o.price);
-            states.append(market.name).append(": ");
-            if(shopMin!=Integer.MAX_VALUE) {
-                boolean fromListing=false;
-                for(ScanEngine.Offer o:offers)
-                    if(o.shop.id.equals(market.id)&&o.price==shopMin&&
-                       o.note.startsWith("Цена из выдачи"))fromListing=true;
-                states.append(NumberFormat.getNumberInstance(new Locale("ru","RU")).format(shopMin))
-                    .append(fromListing?" ₽ · из выдачи, проверьте корзину":
-                        " ₽ · условия не подтверждены");
-            }
-            else states.append("цена не подтверждена");
-            if(!marketStates.containsKey(market.id))states.append(" · ожидает проверки");
-            else if(shopMin==Integer.MAX_VALUE)
-                states.append(" · ").append(marketStates.get(market.id).replace(market.name+": ",""));
+                if(o.shop.id.equals(shop.id)&&o.price>0)
+                    marketMin=Math.min(marketMin,o.price);
+            if(states.length()>0)states.append("\n");
+            states.append(shop.name).append("   ");
+            if(marketMin<Integer.MAX_VALUE)states.append(rubles(marketMin));
+            else states.append(marketStates.containsKey(shop.id)?"—":"…");
         }
         marketProgress.setText(states.toString());
+        resultsHeading.setVisibility(offers.isEmpty()?View.GONE:View.VISIBLE);
+        count.setVisibility(View.GONE);
     }
     private void renderResults(){
-        results.removeAllViews();
         offers.sort(Comparator.comparingInt(o->o.price==0?Integer.MAX_VALUE:o.price));
+        results.removeAllViews();
         updateSummary();
         for(ScanEngine.Offer o:offers){
             LinearLayout card=panel();
-            add(card,text(o.shop.name,12,ACCENT,true),-1,22);
-            gap(card,2);
-            add(card,text(o.title,15,TEXT,true),-1,-2);
-            gap(card,12);
-            String amount=o.price>0?
-                NumberFormat.getNumberInstance(new Locale("ru","RU")).format(o.price)+" ₽":
-                "Цена не подтверждена";
-            add(card,text(amount,o.price>0?24:18,TEXT,true),-1,-2);
-            gap(card,6);
-            add(card,text(o.note,12,MUTED,false),-1,-2);
-            gap(card,12);
-            Button inspect=button("Проверить в магазине",false);
-            add(card,inspect,-1,44);
+            LinearLayout heading=linear(LinearLayout.HORIZONTAL);
+            heading.setGravity(Gravity.CENTER_VERTICAL);
+            TextView shopName=text(o.shop.name,13,ACCENT,true);
+            heading.addView(shopName,new LinearLayout.LayoutParams(0,dp(32),1));
+            TextView price=text(o.price>0?rubles(o.price):"Цена неизвестна",21,TEXT,true);
+            add(heading,price,-2,37);
+            add(card,heading,-1,-2);
+            gap(card,4);
+            TextView title=text(o.title,14,TEXT,false);
+            title.setMaxLines(3);
+            title.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            add(card,title,-1,-2);
+            gap(card,11);
+            Button inspect=button("Открыть товар",false);
+            add(card,inspect,-1,42);
             inspect.setOnClickListener(v->inspectOffer(o));
             add(results,card,-1,-2);
-            gap(results,12);
+            gap(results,9);
         }
     }
     @Override public void done(){
         runOnUiThread(()->{
             searchButton.setText("Найти предложения");
-            progress.setText("Поиск завершён. Охват рынка не гарантирован.");
+            progress.setText("Готово");
             for(Shop shop:Shop.ALL)refreshShop(shop);
-            if(offers.isEmpty())count.setText("Карточки не подтверждены: проверьте статусы магазинов.");
+            if(offers.isEmpty())marketProgress.setText("Подходящие товары не найдены");
             updateSummary();
         });
     }
