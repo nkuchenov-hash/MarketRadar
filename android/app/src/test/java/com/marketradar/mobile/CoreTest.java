@@ -218,4 +218,12 @@ public class CoreTest {
         assertEquals(1,result.size());
         assertEquals(11542,result.get(0).listingPrice);
     }
+    @Test public void realSearchSortingPrioritizesCheapProductCandidates() {
+        assertTrue(Shop.byId("wb")
+            .searchUrl("Яндекс Станция Мини 3 Про").contains("&sort=priceup"));
+        assertTrue(Shop.byId("ym")
+            .searchUrl("Яндекс Станция Мини 3 Про").contains("&how=aprice"));
+        assertTrue(Shop.byId("ozon")
+            .searchUrl("Яндекс Станция Мини 3 Про").contains("/search/?text="));
+    }
 }
