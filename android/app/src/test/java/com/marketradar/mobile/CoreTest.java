@@ -75,6 +75,15 @@ public class CoreTest {
         assertFalse(policy.timely("22 ноября"));
     }
 
+    @Test public void unverifiedMarketplaceSortingMustNotPruneMoreExpensiveCards(){
+        assertFalse(ScanEngine.canPrunePriceCandidate(Shop.byId("wb"),false));
+        assertFalse(ScanEngine.canPrunePriceCandidate(Shop.byId("ym"),false));
+        assertTrue(ScanEngine.canPrunePriceCandidate(Shop.byId("wb"),true));
+        assertTrue(ScanEngine.canPrunePriceCandidate(Shop.byId("ym"),true));
+        // Keep Ozon's previously working early-pruning strategy for now.
+        assertTrue(ScanEngine.canPrunePriceCandidate(Shop.byId("ozon"),false));
+    }
+
     @Test public void genericNumericModelMustMatch() {
         assertTrue(ScanEngine.exact("Samsung Galaxy A56 256 ГБ","Смартфон Samsung Galaxy A56, 256 ГБ"));
         assertFalse(ScanEngine.exact("Samsung Galaxy A56 256 ГБ","Смартфон Samsung Galaxy A55, 256 ГБ"));
