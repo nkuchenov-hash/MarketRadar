@@ -770,6 +770,8 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         renderResults();
         searchButton.setText("Найти лучшую цену");
         updateDeadlineButton();
+        if(!snapshot.interrupted&&!offers.isEmpty())
+            progress.setVisibility(View.GONE);
         if(snapshot.interrupted&&SearchSessionStore.canAutoResume(snapshot)){
             // Android may reclaim the Activity/WebViews when the user switches apps.
             // Restart only the scan workers, not the UI or the saved offers.
@@ -960,16 +962,16 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         return best==Integer.MAX_VALUE?0:best;
     }
     private boolean qualifies(ScanEngine.Offer o,int timelyBest){
-        return deliveryPolicy.eligible(o.price,o.deliveryHint,timelyBest);
+        return o.price>0&&deliveryPolicy.timely(o.deliveryHint);
     }
     private void updateSummary(){
         int timelyBest=bestTimelyPrice();
-        ScanEngine.Offer bestEligible=null, bestOther=null;
+        ScanEngine.Offer bestEligible=null;
         for(ScanEngine.Offer o:offers){
             if(o.price<=0)continue;
             if(qualifies(o,timelyBest)){
                 if(bestEligible==null||o.price<bestEligible.price)bestEligible=o;
-            }else if(bestOther==null||o.price<bestOther.price)bestOther=o;
+            }
         }
         String cutoff=OfferPresentation.deadline(deliveryPolicy)
             .replace("Доставка до ","до ");
@@ -1118,20 +1120,33 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
             deliveryPolicy,sortByDelivery,timelyBest));
         results.removeAllViews();
         updateSummary();
+        // Only keep lower-priced alternatives in the secondary group.
+        // Unshown offers remain in the saved session and can be re-evaluated
+        // whenever delivery settings or the discovered best price change.
+        ArrayList<ScanEngine.Offer> visible=new ArrayList<>();
         int eligibleCount=0;
-        for(ScanEngine.Offer o:offers)
-            if(OfferPresentation.priority(deliveryPolicy,o,timelyBest)==0)
-                eligibleCount++;
-        resultsHeading.setText("Подходят по сроку · "+eligibleCount);
-        boolean otherHeadingAdded=false;
+        int alternatives=0;
         for(ScanEngine.Offer o:offers){
+            if(OfferPresentation.priority(deliveryPolicy,o,timelyBest)==0){
+                visible.add(o);
+                eligibleCount++;
+            }else if(OfferPresentation.showAlternative(deliveryPolicy,o,timelyBest)
+                     &&alternatives<3){
+                visible.add(o);
+                alternatives++;
+            }
+        }
+        resultsHeading.setText(eligibleCount>0?
+            "В срок · "+eligibleCount:"Предложения · "+visible.size());
+        boolean otherHeadingAdded=false;
+        for(ScanEngine.Offer o:visible){
             boolean secondary=OfferPresentation.priority(deliveryPolicy,o,timelyBest)!=0;
-            if(secondary&&!otherHeadingAdded){
+            if(secondary&&!otherHeadingAdded&&eligibleCount>0){
                 otherHeadingAdded=true;
-                gap(results,7);
-                add(results,text("Другие предложения · "+(offers.size()-eligibleCount),
+                gap(results,11);
+                add(results,text("Дешевле, но позже · "+alternatives,
                     16,MUTED,true),-1,-2);
-                gap(results,9);
+                gap(results,12);
             }
             LinearLayout card=panel();
             if(secondary)card.setPadding(dp(13),dp(12),dp(13),dp(12));
@@ -1199,7 +1214,9 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         pendingOffers.clear();
         aiGeneration++;
         resumeAttempts=0;
-        progress.setText("Повторный поиск: "+missing.size()+" площадки");
+        progress.setText("Ищем предложения на недостающих площадках…");
+        progress.setVisibility(View.VISIBLE);
+        showScreen(SCREEN_SEARCH);
         searchButton.setText("Остановить");
         // Keep the previously confirmed WB/Yandex/Ozon cards. Only repeat
         // sites for which the current search yielded no verified products.
