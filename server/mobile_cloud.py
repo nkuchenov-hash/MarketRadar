@@ -134,11 +134,10 @@ async def run_market(job: dict, shop_id: str):
                 break
             batch = []
             for candidate in candidates[pos:pos+4]:
-                amount = int(candidate.get("price") or 0)
-                if amount > 0 and best > 0 and amount >= best:
-                    # We have an independently verified cheaper product.
-                    # More expensive listing candidates remain in the ledger.
-                    continue
+                # Do not prune by the absolute minimum: a more expensive
+                # offer can be the cheapest one deliverable within the user's
+                # deadline. Listing prices can also differ from product pages.
+                # Check candidates in ascending order until the explicit cap.
                 if state["checked"] + len(batch) >= max_checked:
                     cutoff_due_to_limit = True
                     break
