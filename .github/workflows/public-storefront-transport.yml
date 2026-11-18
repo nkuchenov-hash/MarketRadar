@@ -31,6 +31,7 @@ jobs:
             "wb-site-internal":"https://www.wildberries.ru/__internal/search/exactmatch/ru/common/v18/search?"+base,
             "wb-site-u-internal":"https://www.wildberries.ru/__internal/u-search/exactmatch/ru/common/v18/search?"+base,
             "yandex-search":"https://market.yandex.ru/search?text="+q+"&how=aprice",
+            "yandex-page-2":"https://market.yandex.ru/search?text="+q+"&how=aprice&page=2",
             "ozon-search":"https://www.ozon.ru/search/?text="+q+"&sorting=price",
           }
           results={}
@@ -43,7 +44,7 @@ jobs:
             result={"url_host":urllib.parse.urlparse(url).hostname}
             try:
               with urllib.request.urlopen(req,timeout=14) as response:
-                payload=response.read(8500000 if key=='yandex-search' else 1000000)
+                payload=response.read(8500000 if key.startswith('yandex-') else 1000000)
                 result["status"]=response.status
                 result["content_type"]=response.headers.get("Content-Type","")
                 result["bytes"]=len(payload)
@@ -55,7 +56,7 @@ jobs:
                   result["top_level_keys"]=list(data.keys())[:12]
                 else:
                   result["page_title_present"]=b"<title" in payload.lower()
-                  if key=="yandex-search":
+                  if key.startswith("yandex-"):
                     lowered=payload.lower()
                     result["prefix"]=payload[:600].decode("utf-8","replace")
                     result["contains_product_path"]=lowered.count(b"/product")
@@ -98,7 +99,7 @@ jobs:
                     result["candidate_links"]=[urllib.parse.urlparse(
                       urllib.parse.urljoin("https://market.yandex.ru",item)).path
                       for item in candidates[:10]]
-                    if candidates:
+                    if candidates and key=="yandex-search":
                       card=urllib.parse.urljoin("https://market.yandex.ru",candidates[0].split("?")[0])
                       try:
                         with urllib.request.urlopen(urllib.request.Request(card,headers={
