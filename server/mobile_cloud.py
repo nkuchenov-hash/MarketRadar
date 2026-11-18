@@ -193,7 +193,7 @@ async def run_market(job: dict, shop_id: str):
                     "image_url":image[:900],
                     "delivery":str(candidate.get("delivery_hint",""))[:100],
                     "verified_detail":not listing_only,
-                    "condition":"",
+                    "condition":str(candidate.get("price_condition",""))[:100],
                     "note":(
                         "Цена из выдачи; страница товара не открылась"
                         if listing_only else
