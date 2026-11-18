@@ -32,8 +32,10 @@ public class MarketplaceRecoveryTest {
         assertEquals(12166,candidates.get(0).listingPrice);
     }
     @Test public void missingStoreReasonNeverPretendsToHaveCheckedItsPrices() {
-        assertEquals("сайт ограничил доступ",
+        assertEquals("ответ сервера HTTP 403",
             StoreResultMessage.summarize("Ozon: Магазин ограничил доступ (HTTP 403)"));
+        assertEquals("требуется проверка сайта",
+            StoreResultMessage.summarize("Магазин показал страницу проверки доступа"));
         assertEquals("сайт перенаправил поиск",
             StoreResultMessage.summarize("Магазин перенаправил поиск на другой адрес"));
         assertEquals("выдача не загрузилась",
@@ -42,6 +44,20 @@ public class MarketplaceRecoveryTest {
             StoreResultMessage.summarize("Нет подходящих карточек"));
         assertEquals("предложения не получены",StoreResultMessage.summarize(null));
     }
+    @Test public void incidentalCaptchaMentionDoesNotMeanYandexBlocked(){
+        assertFalse(ScanEngine.explicitAccessChallenge(
+            "Яндекс Маркет — каталог",
+            "Яндекс Станция Мини 3 Про, купить. captcha is a widget.",
+            10));
+        assertFalse(ScanEngine.explicitAccessChallenge(
+            "Яндекс Маркет — каталог",
+            "Обычная выдача с отметкой captcha в коде",0));
+        assertTrue(ScanEngine.explicitAccessChallenge(
+            "Проверка доступа","Вы не робот. Пройдите проверку",0));
+        assertTrue(ScanEngine.explicitAccessChallenge(
+            "403","Access denied",0));
+    }
+
     @Test public void marketplaceUrlsHaveOrdinarySearchFallbacks() {
         String query="Яндекс Станция Мини 3 Про";
         for(String market:new String[]{"ozon","ym"}){
