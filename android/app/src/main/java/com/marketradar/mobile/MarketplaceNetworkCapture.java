@@ -21,7 +21,8 @@ final class MarketplaceNetworkCapture {
           window.__marketRadarNetworkResponses = 0;
           const isSearchResponse = url => {
             const value = String(url || '');
-            return value.includes('wildberries.ru/') &&
+            return (value.includes('wildberries.ru/') ||
+                    value.includes('.wb.ru/')) &&
                    value.includes('/exactmatch/') && value.includes('/search');
           };
           const capture = json => {
