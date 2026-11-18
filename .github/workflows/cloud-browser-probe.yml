@@ -1,13 +1,19 @@
-name: Cloud marketplace live probe (public pages only)
+name: Cloud Chromium real storefront search (public)
 on:
   push:
     branches: [main]
-    paths: ['.github/workflows/cloud-browser-probe.yml']
+    paths:
+      - 'server/cloud_browser.py'
+      - 'server/agent.py'
+      - '.github/workflows/cloud-browser-probe.yml'
   workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  group: chromium-probe-main
+  cancel-in-progress: true
 jobs:
-  probe:
+  live-browser-probe:
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
@@ -15,112 +21,64 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Install isolated browser (no marketplace credentials)
+      - name: Install real Chromium
         run: |
           python -m pip install 'playwright>=1.50,<2'
           python -m playwright install --with-deps chromium
-      - name: Run real browser scan on sample product
-        shell: bash
+          python -m compileall -q server
+      - name: Browser search with price ordering and captured network responses
         env:
           CLOUD_BROWSER_ENABLED: "true"
+          CLOUD_SEARCH_SCROLLS: "17"
         run: |
           python - <<'PY'
-          import asyncio, json, re
-          from urllib.parse import quote
+          import asyncio, json
           from pathlib import Path
-          from server.cloud_browser import CloudBrowser
+          from urllib.parse import quote
+          from server.cloud_browser import CloudBrowser, sorted_search_url, network_products
 
           async def main():
               q = "Яндекс Станция Мини 3 Про"
               urls = {
-                "Yandex Market": "https://market.yandex.ru/search?text=" + quote(q),
-                "Ozon": "https://www.ozon.ru/search/?text=" + quote(q),
-                "Wildberries": "https://www.wildberries.ru/catalog/0/search.aspx?search=" + quote(q) + "&sort=priceup",
+                  "Яндекс Маркет": "https://market.yandex.ru/search?text=" + quote(q),
+                  "Wildberries": "https://www.wildberries.ru/catalog/0/search.aspx?search=" + quote(q),
+                  "Ozon": "https://www.ozon.ru/search/?text=" + quote(q),
               }
               findings = {}
               browser = CloudBrowser()
               await browser.start()
               try:
-                  for name, url in urls.items():
-                      snap = await browser.snapshot(url)
-                      links = [item for item in snap.get("links", []) if
-                               ("мини" in item.get("title", "").lower() or "mini" in item.get("title", "").lower())
-                               and "3" in item.get("title", "")]
-                      findings[name] = {
-                        "state": snap.get("state"),
-                        "url": snap.get("url"),
-                        "page_title": snap.get("title"),
-                        "link_count": len(snap.get("links", [])),
-                        "candidate_count": len(links),
-                        "price_fragment_count": len(snap.get("price_fragments", [])),
-                        "sample_product_titles": [x.get("title","")[:160] for x in links[:5]],
-                        "sample_price_fragments": snap.get("price_fragments", [])[:8],
-                        "sorted_price_request": name == "Wildberries",
-                        "price_mentions_10772": "10 772" in snap.get("text", ""),
-                        "price_mentions_10893": "10 893" in snap.get("text", ""),
-                        "diagnostic": snap.get("diagnostic","")
+                  for market,url in urls.items():
+                      result = await browser.snapshot(url)
+                      links = result.get("links", [])
+                      examples = [{
+                          "price": x.get("price"),
+                          "title": x.get("title"),
+                          "url": x.get("url"),
+                          "source": x.get("source")
+                      } for x in links[:12]]
+                      findings[market] = {
+                          "state":result.get("state"),"requested_url":sorted_search_url(url),
+                          "final_url":result.get("url"),"page_title":result.get("title"),
+                          "total_products":len(links),"coverage_complete":result.get("coverage_complete"),
+                          "audit":result.get("audit",{}),
+                          "diagnostic":result.get("diagnostic",""),
+                          "sample":examples,
+                          "body_start":result.get("text","")[:350],
                       }
-                      print(name, json.dumps(findings[name],ensure_ascii=False))
+                      print(market, json.dumps(findings[market],ensure_ascii=False))
               finally:
                   await browser.close()
-              Path("cloud-probe-result.json").write_text(json.dumps(findings,ensure_ascii=False,indent=2),encoding="utf-8")
-              wb=findings.get("Wildberries",{})
-              if wb.get("state")!="ok" or wb.get("candidate_count",0)==0:
-                  raise RuntimeError("LIVE SEARCH NOT VERIFIED: Wildberries returned no product candidates")
-          asyncio.run(main())
-          PY
-      - name: Diagnose browser hydration and search results on Wildberries
-        if: always()
-        shell: bash
-        run: |
-          python - <<'PY'
-          import asyncio, json
-          from urllib.parse import quote
-          from playwright.async_api import async_playwright
-          from pathlib import Path
-          async def main():
-              url="https://www.wildberries.ru/catalog/0/search.aspx?search="+quote("Яндекс Станция Мини 3 Про")+"&sort=priceup"
-              diagnostics={}
-              async with async_playwright() as p:
-                  browser=await p.chromium.launch(headless=True)
-                  for mode in ("desktop","mobile"):
-                      context=await browser.new_context(
-                          viewport={"width":1280,"height":900} if mode=="desktop" else {"width":393,"height":852},
-                          is_mobile=(mode=="mobile"),has_touch=(mode=="mobile"),locale="ru-RU")
-                      page=await context.new_page()
-                      result=[]
-                      try:
-                          response=await page.goto(url,wait_until="domcontentloaded",timeout=22000)
-                          for seconds in (2,6,12):
-                              await page.wait_for_timeout((seconds-(result[-1]["seconds"] if result else 0))*1000)
-                              snap=await page.evaluate("""() => ({
-                                  title:document.title,url:location.href,
-                                  readyState:document.readyState,
-                                  bodyLength:document.body?.innerText?.length||0,
-                                  bodyStart:(document.body?.innerText||'').slice(0,1000),
-                                  anchors:document.querySelectorAll('a[href]').length,
-                                  products:[...document.querySelectorAll('a[href]')].filter(a=>/catalog\\/\\d+\\/detail|\\/product\\//.test(a.href)).length,
-                                  prices:(document.body?.innerText||'').match(/\\d[\\d \\u00a0]{2,}\\s*₽/g)?.slice(0,10)||[],
-                                  scrollY:window.scrollY,
-                                  scrollHeight:document.documentElement.scrollHeight
-                              })""")
-                              snap["seconds"]=seconds
-                              result.append(snap)
-                              await page.evaluate("window.scrollBy(0,900)")
-                      except Exception as e:
-                          result.append({"exception":type(e).__name__,"detail":str(e)[:250]})
-                      diagnostics[mode]={"http":response.status if 'response' in locals() and response else None,"states":result}
-                      await context.close()
-                  await browser.close()
-              Path("cloud-probe-diagnostics.json").write_text(json.dumps(diagnostics,ensure_ascii=False,indent=2),encoding="utf-8")
-              print("WB_BROWSER_DIAGNOSTICS",json.dumps(diagnostics,ensure_ascii=False))
+              Path("live-storefront-search.json").write_text(
+                  json.dumps(findings,ensure_ascii=False,indent=2), encoding="utf-8")
+              ym=findings["Яндекс Маркет"]
+              if ym["state"]!="ok" or ym["total_products"]<1:
+                  raise RuntimeError("Yandex Market live Chromium search returned no verifiable product records")
           asyncio.run(main())
           PY
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: cloud-browser-probe-public
-          path: |
-            cloud-probe-result.json
-            cloud-probe-diagnostics.json
+          name: cloud-chromium-live-search
+          path: live-storefront-search.json
           retention-days: 7
