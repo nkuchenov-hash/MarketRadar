@@ -14,7 +14,7 @@ test "$(curl -sS -o /dev/null -w '%{http_code}' --max-time 12 "$BASE/")" = "404"
 test "$(curl -sS -o /dev/null -w '%{http_code}' --max-time 12 "$BASE/api/mobile/browser/jobs/missing")" = "401" ||
     { echo "Private Android API is not protected" >&2; exit 1; }
 echo "Public admin: CLOSED. Android API: KEY REQUIRED."
-if [[ "\${1:-}" == "--live" ]]; then
+if [[ "${1:-}" == "--live" ]]; then
   echo "Submitting a real Yandex marketplace search ..."
   payload='{"query":"Яндекс Станция Мини 3 Про","shops":["ym"]}'
   reply="$(curl -fsS --max-time 15 -X POST "$BASE/api/mobile/browser/start" \
