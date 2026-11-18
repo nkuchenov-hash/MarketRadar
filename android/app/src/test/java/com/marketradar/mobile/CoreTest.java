@@ -507,4 +507,20 @@ public class CoreTest {
         assertEquals(19640,ScanEngine.compareCardAndListingPrice(
             19640,10772,""));
     }
+
+    @Test public void accessoryContextCannotOverrideAccessoryHeadline() {
+        String query="Яндекс Станция Мини 3 Про";
+        assertFalse(CandidateDiscovery.shouldInspect(query,
+            "Кейс для Яндекс Станции Мини 3 Про",
+            "Кейс для Яндекс Станции Мини 3 Про 2 000 ₽",
+            "Яндекс Станция Мини 3 Про"));
+        assertFalse(CandidateDiscovery.shouldInspect(query,
+            "Блок питания для Яндекс Станции Мини 3 Про",
+            "Яндекс Станция Мини 3 Про 1 400 ₽",
+            ""));
+        assertTrue(CandidateDiscovery.shouldInspect(query,
+            "Умная колонка Яндекс Станция Мини 3 Про",
+            "Умная колонка Яндекс Станция Мини 3 Про 10 772 ₽",
+            ""));
+    }
 }
