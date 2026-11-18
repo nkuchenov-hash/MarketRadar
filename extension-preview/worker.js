@@ -160,7 +160,7 @@ function searchQueries(query){
 async function scan(query,market){
  if(!MARKET[market])return {state:'error',offers:[],diagnostic:'Неизвестная площадка'};
  const result={state:'ok',offers:[],diagnostic:''};
- const deadline=Date.now()+90000;
+ const deadline=Date.now()+180000;
  const candidateByURL=new Map();let inaccessible=0,searchPages=0;
  for(const q of searchQueries(query)){
   if(Date.now()>deadline-18000)break;
@@ -183,7 +183,6 @@ async function scan(query,market){
     if(listingPrice!==null&&(prev.listingPrice===null||listingPrice<prev.listingPrice))prev.listingPrice=listingPrice;
    }
   }
-  if(candidateByURL.size>=15)break;
  }
  if(searchPages===0)return {state:'blocked',offers:[],diagnostic:'Магазин не открыл поисковую выдачу. Проверьте сайт в обычной вкладке.'};
  // Listing cards can expose a payable price before their product page opens.
@@ -192,7 +191,7 @@ async function scan(query,market){
  const candidates=[...candidateByURL.values()].sort((a,b)=>{
   const ap=a.listingPrice??Infinity,bp=b.listingPrice??Infinity;
   return ap-bp||b.score-a.score;
- }).slice(0,25);
+ }).slice(0,50);
  if(!candidates.length)return {state:'no_matches',offers:[],diagnostic:'Не обнаружены карточки точной модели в просмотренных результатах. Полнота поиска не подтверждена.'};
  let blockedCount=0,readCount=0,wrongModel=0;
  for(const c of candidates){
