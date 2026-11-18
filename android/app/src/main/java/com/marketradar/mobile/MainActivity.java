@@ -170,6 +170,8 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         s.setMediaPlaybackRequiresUserGesture(true);
         s.setSavePassword(false);
         browser.setWebContentsDebuggingEnabled(false);
+        // Capture existing first-party WB result JSON before site's JS loads.
+        MarketplaceNetworkCapture.install(browser);
         CookieManager.getInstance().setAcceptCookie(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(browser,true);
         browser.setWebChromeClient(new WebChromeClient());
