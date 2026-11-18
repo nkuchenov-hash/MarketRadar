@@ -85,6 +85,25 @@ jobs:
                     result["candidate_links"]=[urllib.parse.urlparse(
                       urllib.parse.urljoin("https://market.yandex.ru",item)).path
                       for item in candidates[:10]]
+                    if candidates:
+                      card=urllib.parse.urljoin("https://market.yandex.ru",candidates[0].split("?")[0])
+                      try:
+                        with urllib.request.urlopen(urllib.request.Request(card,headers={
+                          "Accept":"text/html",
+                          "User-Agent":"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/131.0.0.0 Safari/537.36",
+                          "Accept-Language":"ru-RU,ru;q=0.9"}),timeout=12) as detail:
+                          content_detail=detail.read(4000000).decode("utf-8","replace")
+                          result["card_probe"]={
+                            "http":detail.status,"bytes":len(content_detail),
+                            "has_price":content_detail.count("₽"),
+                            "has_og_title":bool(re.search(r'property=["\\x27]og:title',content_detail)),
+                            "has_schema_product":'schema.org/Product' in content_detail,
+                            "has_sold_model":"Мини 3 Про" in content_detail}
+                      except urllib.error.HTTPError as ex:
+                        result["card_probe"]={"http":ex.code}
+                      except Exception as ex:
+                        result["card_probe"]={"error":type(ex).__name__}
+
                     result["product_anchor_samples"]=[]
                     for idx,link in enumerate(candidates[:3]):
                       stem=urllib.parse.urlparse(link).path.split("/")[-1]
