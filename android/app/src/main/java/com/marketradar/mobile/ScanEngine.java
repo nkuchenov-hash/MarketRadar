@@ -80,7 +80,7 @@ final class ScanEngine {
               for(let level=0;level<9&&node&&node!==body;level++,node=node.parentElement){
                 const text=(node.innerText||node.textContent||'').trim();
                 const productLinks=node.querySelectorAll('a[href*="/catalog/"],a[href*="/product/"]').length;
-                if(text.length>=8&&text.length<=1600&&pricePattern.test(text)&&productLinks<=4)
+                if(text.length>=8&&text.length<=1600&&pricePattern.test(text)&&productLinks<=1)
                   return text.slice(0,1300);
               }
               return (a.parentElement?.innerText||a.innerText||'').trim().slice(0,1300);
