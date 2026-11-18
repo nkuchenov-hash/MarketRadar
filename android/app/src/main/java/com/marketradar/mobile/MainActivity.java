@@ -797,7 +797,11 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         updateDeadlineButton();
         if(!snapshot.interrupted&&!offers.isEmpty())
             progress.setVisibility(View.GONE);
-        if(snapshot.interrupted&&SearchSessionStore.canAutoResume(snapshot)){
+        // A server-side cloud job survives repeated Android Activity deaths.
+        // Recovery must not inherit the two-attempt limit intended for WebViews.
+        boolean cloudJobPending=!prefs.getString("cloud_pending_job_id","").isBlank();
+        if(snapshot.interrupted&&(cloudJobPending||
+                SearchSessionStore.canAutoResume(snapshot))){
             // Android may reclaim the Activity/WebViews when the user switches apps.
             // Restart only the scan workers, not the UI or the saved offers.
             resumeAttempts++;
