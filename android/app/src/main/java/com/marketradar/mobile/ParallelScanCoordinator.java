@@ -192,6 +192,7 @@ final class ParallelScanCoordinator {
             settings.setSupportMultipleWindows(false);
             settings.setMediaPlaybackRequiresUserGesture(true);
             CookieManager.getInstance().setAcceptThirdPartyCookies(view,true);
+            MarketplaceNetworkCapture.install(view);
             // Same full-screen viewport as the main WebView is critical for
             // JavaScript-rendered lazy-loaded marketplace search grids.
             // The main app's opaque pane covers these extra WebViews.
