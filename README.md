@@ -1,5 +1,15 @@
 # MarketRadar
 
+## Российский VPS — подготовлен пакет развёртывания
+
+[Инструкция на русском: запуск в один шаг, HTTPS, бесплатный временный адрес и проверка поиска](deploy/README_RU.md).
+
+Готовы `deploy/compose.vps.yml`, `deploy/bootstrap.sh`, `deploy/verify.sh`,
+`deploy/backup.sh` и `deploy/update.sh`. Секретный код доступа создаётся
+непосредственно на VPS, не хранится в GitHub и передаётся Android через
+настройки версии 0.37.0. **На текущий момент это подготовка к размещению,
+а не оплаченный и работающий сервер.**
+
 MarketRadar compares exact product models across Ozon, Wildberries, and Yandex Market. It is an **in-development browser-search test**, not a commercially validated price-comparison service.
 
 ## Android cloud Chromium search (v0.35.0)
