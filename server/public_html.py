@@ -8,7 +8,9 @@ complete search.
 from __future__ import annotations
 
 from html.parser import HTMLParser
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse, unquote
+import json
+from datetime import date
 from .core import market_of, is_product_link, canonical
 import re
 
@@ -117,6 +119,114 @@ def _image(node: _Node, origin: str) -> str:
     return ""
 
 
+def _is_product_title(text: str) -> bool:
+    text = re.sub(r"\s+", " ",text or "").strip()
+    if len(text) < 9 or len(text) > 250 or "₽" in text:
+        return False
+    if re.match(r"^(?:цена|пэй|оригинал|скидка|доставка|отзывы|в корзину|"
+                r"в рассрочку|реклама|купить|карта)\b", text,re.I):
+        return False
+    return bool(re.search(r"[A-Za-zА-Яа-яЁё]",text))
+
+
+_TRANSLITERATION = {
+    "yandeks":"Яндекс", "stantsiya":"Станция", "mini":"Мини",
+    "pro":"Про", "umnaya":"Умная", "kolonka":"колонка",
+    "yndx":"YNDX", "s":"с", "alisoy":"Алисой", "zigbee":"Zigbee",
+    "chernyy":"чёрный", "seryy":"серый", "siniy":"синий",
+    "zelenyy":"зелёный", "black":"black", "grey":"grey"
+}
+
+
+def _title_from_slug(url: str) -> str:
+    path = urlparse(url).path.split("/")
+    if len(path) < 3:
+        return ""
+    slug = unquote(path[2])
+    return " ".join(_TRANSLITERATION.get(word,word)
+                    for word in re.split(r"-+", slug) if word)[:240]
+
+
+def _snippet(anchor: _Node) -> _Node | None:
+    node=anchor
+    for _ in range(23):
+        if not node or node.parent is None:
+            break
+        if node.attrs.get("data-baobab-name") == "productSnippet":
+            return node
+        node=node.parent
+    return None
+
+
+def _best_title(anchor: _Node, card: _Node, url: str) -> str:
+    snippet = _snippet(anchor)
+    bases = [b for b in (snippet,card) if b is not None]
+    for root in bases:
+        nodes=[root]
+        titles=[]
+        scanned=0
+        while nodes and scanned < 2500:
+            node=nodes.pop()
+            scanned+=1
+            token=(node.attrs.get("data-auto") or "").lower()
+            name=(node.attrs.get("aria-label") or node.attrs.get("title") or "")
+            if ("title" in token or token in ("snippet-name","product-name") or
+                node.tag in ("h2","h3","h4")):
+                title=_text(node,250)
+                if _is_product_title(title):
+                    titles.append((0 if "title" in token else 1,len(title),title))
+            if node.tag == "img" and _is_product_title(node.attrs.get("alt","")):
+                titles.append((2,len(node.attrs["alt"]),node.attrs["alt"]))
+            if node.tag == "a" and _is_product_title(name):
+                titles.append((3,len(name),name))
+            nodes.extend(reversed(node.children))
+        if titles:
+            titles.sort(key=lambda x:(x[0],-x[1]))
+            return titles[0][2].strip()[:240]
+    original=(anchor.attrs.get("aria-label") or anchor.attrs.get("title")
+              or _text(anchor,240))
+    if _is_product_title(original):
+        return original.strip()[:240]
+    # Last resort: Yandex's product slug carries an actual model and SKU,
+    # unlike a pricing-label link such as "Цена с картой Яндекс Пэй".
+    return _title_from_slug(url)
+
+
+_MONTHS = ("января","февраля","марта","апреля","мая","июня",
+           "июля","августа","сентября","октября","ноября","декабря")
+
+
+def _delivery_from_snippet(anchor: _Node) -> str:
+    snippet=_snippet(anchor)
+    if snippet is None:
+        return ""
+    for key in ("data-zone-data","data-zone-params"):
+        serialized=snippet.attrs.get(key)
+        if not serialized:
+            continue
+        try:
+            data=json.loads(serialized)
+        except (ValueError,TypeError):
+            continue
+        queue=[data]
+        days=[]
+        while queue:
+            obj=queue.pop()
+            if isinstance(obj,list):
+                queue.extend(obj[:120])
+            elif isinstance(obj,dict):
+                for k,v in obj.items():
+                    if k == "dateFrom" and isinstance(v,str):
+                        try: days.append(date.fromisoformat(v[:10]))
+                        except ValueError: pass
+                    if isinstance(v,(dict,list)):
+                        queue.append(v)
+        if days:
+            earliest=min(days)
+            return f"{earliest.day} {_MONTHS[earliest.month-1]}"
+    return ""
+
+
 def fetch_public_search_html(url: str) -> dict:
     """Normal public HTTPS transport, used if Chromium is denied.
 
@@ -202,29 +312,18 @@ def extract_public_html(html: str, origin: str) -> dict:
             if node.parent is None:
                 break
             node = node.parent
-        a_text = _text(anchor, 240).strip()
-        title = (anchor.attrs.get("aria-label") or
-                 anchor.attrs.get("title") or
-                 a_text or "")
-        if not title:
-            todo = [card]
-            while todo:
-                child = todo.pop()
-                if child.tag == "img" and child.attrs.get("alt"):
-                    title = child.attrs["alt"]
-                    break
-                todo.extend(reversed(child.children))
-        if not title and context:
-            title = context[:130]
+        title = _best_title(anchor, card, url)
         date = DATE.search(context)
+        delivery = _delivery_from_snippet(anchor) or (
+            date.group(0) if date else "")
         price = min(raw_prices) if raw_prices else 0
         if price:
             priced += 1
         proposal = {
             "url":url, "title":title.strip()[:240],
             "price":price, "context":context[:1100],
-            "delivery_hint":date.group(0) if date else "",
-            "image_url":_image(card,origin),
+            "delivery_hint":delivery,
+            "image_url":_image(_snippet(anchor) or card,origin),
             "source":"public_ssr"
         }
         previous = by_url.get(url)
