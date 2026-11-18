@@ -68,9 +68,11 @@ final class DynamicPriceFrontier {
     }
 
     synchronized boolean deferHigher(int listingPrice,String deliveryHint){
-        if(!policy.potentiallyEligible(deliveryHint))return true;
+        // Late offers must still be checked for the unconditional absolute minimum.
+        if(!policy.potentiallyEligible(deliveryHint))return false;
         if(listingPrice<=0||confirmed==Integer.MAX_VALUE)return false;
         int days=policy.days(deliveryHint);
+        if(days>policy.maxDays)return false;
         if(days<0)return listingPrice>confirmed; // price ceiling still applies
         if(days<=policy.maxDays)return listingPrice>confirmed;
         // The optional long-delivery rule is an EXCEPTION and only applies
@@ -86,9 +88,11 @@ final class DynamicPriceFrontier {
         int shopBest=confirmedPerShop.getOrDefault(shop.id,Integer.MAX_VALUE);
         // There is NO safe confirmed price baseline for this marketplace yet.
         if(shopBest==Integer.MAX_VALUE)return false;
-        if(!policy.potentiallyEligible(deliveryHint))return true;
+        // Late offers must still be checked for the unconditional absolute minimum.
+        if(!policy.potentiallyEligible(deliveryHint))return false;
         int days=policy.days(deliveryHint);
         if(listingPrice<=0)return false;
+        if(days>policy.maxDays)return false;
         if(days<0)return listingPrice>shopBest;
         if(days<=policy.maxDays)return listingPrice>shopBest;
         if(policy.allowSlowDiscount)
