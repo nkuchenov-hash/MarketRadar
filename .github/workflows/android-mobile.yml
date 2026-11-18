@@ -109,10 +109,10 @@ jobs:
             --ks /tmp/market-signing/marketradar-release.jks \
             --ks-key-alias marketradar-v2 --ks-pass env:MR_SIGNING_PASS \
             --key-pass env:MR_SIGNING_PASS \
-            --out dist/MarketRadar-Android-0.27.0.apk \
+            --out dist/MarketRadar-Android-0.28.0.apk \
             android/app/build/outputs/apk/release/app-release-unsigned.apk
           "$signer" verify --verbose --print-certs \
-            dist/MarketRadar-Android-0.27.0.apk > /tmp/signature.txt
+            dist/MarketRadar-Android-0.28.0.apk > /tmp/signature.txt
           current="$(grep -i 'sha-256 digest' /tmp/signature.txt | head -1 | sed -E 's/.*digest:[[:space:]]*//' | tr '[:upper:]' '[:lower:]' | tr -dc '0-9a-f')"
           expected="$(keytool -exportcert \
             -keystore /tmp/market-signing/marketradar-release.jks \
@@ -121,8 +121,8 @@ jobs:
           [[ -n "$current" && "$current" == "$expected" ]] || {
             echo "::error::Signing fingerprint does not match persistent backup."; exit 1;
           }
-          "$aapt" dump badging dist/MarketRadar-Android-0.27.0.apk > /tmp/badging.txt
-          grep -Fq "package: name='com.marketradar.mobile.next' versionCode='27' versionName='0.27.0'" /tmp/badging.txt
+          "$aapt" dump badging dist/MarketRadar-Android-0.28.0.apk > /tmp/badging.txt
+          grep -Fq "package: name='com.marketradar.mobile.next' versionCode='28' versionName='0.28.0'" /tmp/badging.txt
           if gh release view marketradar-android-0.4.0 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release download marketradar-android-0.4.0 \
               --repo "$GITHUB_REPOSITORY" \
@@ -132,7 +132,7 @@ jobs:
               echo "::error::Published v2 signing certificate mismatch"; exit 1;
             }
           fi
-          (cd dist && sha256sum MarketRadar-Android-0.27.0.apk > SHA256SUMS.txt)
+          (cd dist && sha256sum MarketRadar-Android-0.28.0.apk > SHA256SUMS.txt)
 
       - name: Publish isolated stable-signed MarketRadar v2 APK
         shell: bash
@@ -140,34 +140,40 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          tag=marketradar-android-0.27.0
+          tag=marketradar-android-0.28.0
           cat > /tmp/notes.md <<'EOF'
-          # MarketRadar Android 0.27.0 — search by ascending price
-          Search opens the stores' native ascending-price URLs and ranks
-          candidate product cards by the actual visible offer price.
-          A new PriceOrderProbe independently observes unique priced tiles
-          over multiple scroll snapshots, flags a later price drop, and
-          distinguishes a requested sort from a demonstrated ascending order.
-          The scan no longer mistakes a URL sort parameter for proof of
-          completeness or stops only because it found one matching product.
-          Full-catalogue exploration remains bounded, with incomplete status
-          when the marketplace hides further results or fails to scroll.
-          Tests cover each marketplace sort URL, scrolled price evidence,
-          a lower-priced item found later in WB, and Yandex Pro vs non-Pro.
-          Marketplace search availability and on-device sorting remain
-          dependent on each website; verification on the user's Android
-          device is still required. This is an in-place signed upgrade.
+          # MarketRadar Android 0.28.0 — reliable price scanning diagnostics
+          WB/Yandex candidate pruning is no longer based only on an assumed
+          native price sort. The scan must observe stable ascending price
+          order in marketplace product tiles before price-based pruning.
+          Ozon's previously working pruning logic remains unchanged.
+          Actual stage counters are now recorded per marketplace: found
+          listing candidates, opened detail pages, rejected model titles,
+          missing price, local AI rejections, confirmed offers, and price
+          pruning. The previous "0 candidates" misleading diagnostic field
+          is renamed to "passed to local verification"; separate stage data
+          is visible in the completed text report.
+          WB/Yandex scans that fully expand the listing are no longer marked
+          incomplete solely because an early result was shown. Actual site
+          access restrictions, incomplete scrolling and explicit scan limits
+          still flag incomplete coverage.
+          Regression tests check that unconfirmed price sorting cannot prune
+          WB/Yandex offers, and distinguish Mini 3 Pro from Mini 3.
+          Real-world shopping prices and delivery dates differ by account,
+          pickup location, payment method and native app vs WebView sessions.
+          The update never claims native app prices are verified.
+          In-place update from 0.27.0; same Android package and signing key.
           EOF
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release edit "$tag" --repo "$GITHUB_REPOSITORY" \
-              --title "MarketRadar Android 0.27.0 — stable-signing preview" \
+              --title "MarketRadar Android 0.28.0 — stable-signing preview" \
               --notes-file /tmp/notes.md --prerelease
             gh release upload "$tag" --repo "$GITHUB_REPOSITORY" \
-              dist/MarketRadar-Android-0.27.0.apk dist/SHA256SUMS.txt --clobber
+              dist/MarketRadar-Android-0.28.0.apk dist/SHA256SUMS.txt --clobber
           else
             gh release create "$tag" --repo "$GITHUB_REPOSITORY" \
-              dist/MarketRadar-Android-0.27.0.apk dist/SHA256SUMS.txt \
-              --title "MarketRadar Android 0.27.0 — stable-signing preview" \
+              dist/MarketRadar-Android-0.28.0.apk dist/SHA256SUMS.txt \
+              --title "MarketRadar Android 0.28.0 — stable-signing preview" \
               --notes-file /tmp/notes.md --prerelease
           fi
           gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets \
