@@ -73,7 +73,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
     private boolean accountsVisible=false;
     private TextView bestPrice, priceSummary, marketProgress, resultsHeading, bestPriceLabel;
     private LinearLayout summaryPanel, filterPanel, sortRow;
-    private Button sortPriceButton, sortDeliveryButton;
+    private Button sortToggleButton;
     private TextView deadlineLabel, alternativeSummary, marketNotice;
     private Button retryMissingButton;
     private TextView deadlinePreview;
@@ -321,35 +321,18 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         gap(page,12);
 
         resultsHeading=text("Предложения",19,TEXT,true);
-        resultsHeading.setVisibility(View.GONE);
-        add(page,resultsHeading,-1,28);
-        gap(page,7);
         sortRow=linear(LinearLayout.HORIZONTAL);
         sortRow.setGravity(Gravity.CENTER_VERTICAL);
-        TextView sortLabel=text("Сортировать:",13,MUTED,false);
-        sortRow.addView(sortLabel,new LinearLayout.LayoutParams(0,dp(40),1));
-        sortPriceButton=button("Цена ↑",!sortByDelivery);
-        sortPriceButton.setTextSize(12);
-        sortPriceButton.setContentDescription("По возрастанию цены");
-        add(sortRow,sortPriceButton,82,40);
-        add(sortRow,new View(this),6,1);
-        sortDeliveryButton=button("Доставка ↑",sortByDelivery);
-        sortDeliveryButton.setTextSize(12);
-        sortDeliveryButton.setContentDescription("Сначала ближайшая дата доставки");
-        add(sortRow,sortDeliveryButton,113,40);
-        sortPriceButton.setOnClickListener(v->setSortByDelivery(false));
-        sortDeliveryButton.setOnClickListener(v->setSortByDelivery(true));
+        sortRow.addView(resultsHeading,new LinearLayout.LayoutParams(0,dp(40),1));
+        sortToggleButton=button("",false);
+        sortToggleButton.setTextSize(12);
+        sortToggleButton.setMinWidth(0);
+        sortToggleButton.setMinimumWidth(0);
+        add(sortRow,sortToggleButton,113,38);
+        sortToggleButton.setOnClickListener(v->setSortByDelivery(!sortByDelivery));
         sortRow.setVisibility(View.GONE);
         add(page,sortRow,-1,-2);
         updateSortButtons();
-        marketNotice=text("",12,MUTED,false);
-        marketNotice.setVisibility(View.GONE);
-        add(page,marketNotice,-1,-2);
-        retryMissingButton=button("Повторить недостающие площадки",false);
-        retryMissingButton.setTextSize(12);
-        retryMissingButton.setVisibility(View.GONE);
-        add(page,retryMissingButton,-1,38);
-        retryMissingButton.setOnClickListener(v->retryMissingMarkets());
         count=text("",12,MUTED,false);
         count.setVisibility(View.GONE);
         add(page,count,-1,-2);
@@ -489,6 +472,17 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
             add(marketPage,card,-1,-2);
             gap(marketPage,11);
         }
+        // Marketplace diagnostics and retry controls belong in "Магазины",
+        // not between the price comparison and the product list.
+        marketNotice=text("",13,MUTED,false);
+        marketNotice.setVisibility(View.GONE);
+        add(marketPage,marketNotice,-1,-2);
+        retryMissingButton=button("Повторить поиск по недостающим",false);
+        retryMissingButton.setTextSize(12);
+        retryMissingButton.setVisibility(View.GONE);
+        add(marketPage,retryMissingButton,-1,42);
+        retryMissingButton.setOnClickListener(v->retryMissingMarkets());
+        gap(marketPage,12);
         Button report=button("Отчёт о последнем поиске",false);
         add(marketPage,report,-1,44);
         report.setOnClickListener(v->new AlertDialog.Builder(this)
@@ -865,6 +859,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         searchButton.setText("Остановить");
         marketNotice.setVisibility(View.GONE);
         retryMissingButton.setVisibility(View.GONE);
+        progress.setVisibility(View.VISIBLE);
         progress.setText("Поиск…");
         saveCurrentSearch(true);
         startSearchProtection();
@@ -875,8 +870,10 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
             marketStates.put(shop.id,state);
             // A late WebView status callback must not make a completed
             // search look as though Ozon (or another store) is still running.
-            if(engine!=null&&engine.isRunning())
-                progress.setText("Поиск: "+shop.name+"…");
+            if(engine!=null&&engine.isRunning()){
+                progress.setVisibility(View.VISIBLE);
+                progress.setText("Идёт поиск предложений…");
+            }
             updateSummary();
         });
     }
@@ -945,15 +942,11 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         renderResults(); // Sorting changes displayed cards; it never starts a new search.
     }
     private void updateSortButtons(){
-        if(sortPriceButton==null||sortDeliveryButton==null)return;
-        sortPriceButton.setBackground(bg(sortByDelivery?SURFACE:ACCENT,13,
-            sortByDelivery?BORDER:0));
-        sortPriceButton.setTextColor(sortByDelivery?ACCENT:
-            (themePalette.dark?0xFF091A33:Color.WHITE));
-        sortDeliveryButton.setBackground(bg(sortByDelivery?ACCENT:SURFACE,13,
-            sortByDelivery?0:BORDER));
-        sortDeliveryButton.setTextColor(sortByDelivery?
-            (themePalette.dark?0xFF091A33:Color.WHITE):ACCENT);
+        if(sortToggleButton==null)return;
+        sortToggleButton.setText(sortByDelivery?"Доставка ↑  ▾":"Цена ↑  ▾");
+        sortToggleButton.setContentDescription(sortByDelivery?
+            "Сортировка по ближайшей доставке. Нажмите для сортировки по цене":
+            "Сортировка по минимальной цене. Нажмите для сортировки по доставке");
     }
     private String rubles(int amount){
         return NumberFormat.getNumberInstance(new Locale("ru","RU")).format(amount)+" ₽";
@@ -998,15 +991,9 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
             priceSummary.setText(bestEligible.shop.name+" · "+delivery+wallet+exception);
             priceSummary.setVisibility(View.VISIBLE);
         }
-        if(bestOther!=null){
-            String tag=deliveryPolicy.days(bestOther.deliveryHint)<0?
-                "Без даты доставки":"Вне срока";
-            alternativeSummary.setText(tag+": "+rubles(bestOther.price)+
-                " · "+bestOther.shop.name+" · "+
-                OfferPresentation.deliveryDate(deliveryPolicy,bestOther.deliveryHint));
-            alternativeSummary.setVisibility(View.VISIBLE);
-        }else alternativeSummary.setVisibility(View.GONE);
-        resultsHeading.setVisibility(offers.isEmpty()?View.GONE:View.VISIBLE);
+        // Alternative prices appear only in the product section, not repeated
+        // as another technical status inside the main price summary.
+        alternativeSummary.setVisibility(View.GONE);
         if(sortRow!=null)
             sortRow.setVisibility(offers.isEmpty()?View.GONE:View.VISIBLE);
         count.setVisibility(View.GONE);
@@ -1187,7 +1174,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
             add(results,card,-1,-2);
             gap(results,secondary?6:9);
         }
-        resultsHeading.setVisibility(offers.isEmpty()?View.GONE:View.VISIBLE);
+        sortRow.setVisibility(offers.isEmpty()?View.GONE:View.VISIBLE);
     }
     private ArrayList<Shop> unresolvedMarkets(){
         ArrayList<Shop> missing=new ArrayList<>();
@@ -1258,6 +1245,9 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
                     "Предварительные цены найдены · корзина и персональные скидки не проверены");
             }
             saveCurrentSearch(false);
+            // Completed searches show results immediately, without a second
+            // paragraph of scanner status between the header and products.
+            if(!offers.isEmpty())progress.setVisibility(View.GONE);
             stopSearchProtection();
         });
     }
