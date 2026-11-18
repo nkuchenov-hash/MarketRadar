@@ -14,10 +14,6 @@ final class CandidateDiscovery {
 
     static boolean shouldInspect(String query,String title,
                                  String context,String imageAlt){
-        if(ScanEngine.exact(query,title) ||
-           ScanEngine.exact(query,imageAlt) ||
-           ScanEngine.exact(query,context))return true;
-
         String q=ScanEngine.norm(query);
         String evidence=ScanEngine.norm(title+" "+imageAlt+" "+context);
         String mainTitle=ScanEngine.norm(title);
@@ -38,6 +34,11 @@ final class CandidateDiscovery {
            mainTitle.startsWith("адаптер для")||
            mainTitle.startsWith("блок питания для")||
            mainTitle.startsWith("кабель для"))return false;
+        // A product-name match in an accessory's description or image ALT
+        // does not turn the accessory itself into the requested speaker.
+        if(ScanEngine.exact(query,title) ||
+           ScanEngine.exact(query,imageAlt) ||
+           ScanEngine.exact(query,context))return true;
         // An explicit full non-Pro model isn't a truncated Pro listing.
         // An abbreviated "Умная колонка Станция Мини" still qualifies,
         // and an image ALT bearing "Про" was accepted above.
