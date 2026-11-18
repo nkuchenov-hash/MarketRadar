@@ -50,7 +50,7 @@ public class DeliveryPolicyTest {
         assertTrue(policy.eligible(9000,"25 ноября",11316));
         assertTrue(f.deferHigher(10772,"25 ноября"));
         assertFalse(f.deferHigher(9000,"25 ноября"));
-        assertFalse(f.deferHigher(12000,"")); // date unknown: do not prune
+        assertTrue(f.deferHigher(12000,"")); // known timely offer is cheaper
     }
 
     @Test public void activeScrollDoesNotCountAsIdlePageTimeout(){
