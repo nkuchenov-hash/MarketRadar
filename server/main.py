@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr, Field
 from . import storage as db
 from .security import hash_password,verify_password,opaque_token,digest,valid_until
-from . import agent, cloud_browser
+from . import agent, cloud_browser, mobile_cloud
 from .core import host_allowed, market_of, now
 
 ROOT=Path(__file__).resolve().parent.parent
@@ -63,6 +63,39 @@ class BatchSearch(BaseModel):
     depth:str='deep'
     mode:str='cloud'
     consent:bool
+
+class MobileBrowserSearch(BaseModel):
+    query:str=Field(min_length=3,max_length=180)
+    shops:list[str]=Field(min_length=1,max_length=3)
+
+@app.post('/api/mobile/browser/start',status_code=202)
+async def mobile_browser_start(request:Request,data:MobileBrowserSearch):
+    """Launch a real public Chromium search without exposing shop credentials."""
+    limit(request,'mobile-browser-minute',2,60)
+    limit(request,'mobile-browser-day',12,86400)
+    ready,reason=cloud_browser.available()
+    if not ready:
+        raise HTTPException(503,reason)
+    if any(shop not in mobile_cloud.SHOP_IDS for shop in data.shops):
+        raise HTTPException(422,'Неизвестный магазин')
+    try:
+        return mobile_cloud.start_job(data.query.strip(),data.shops)
+    except (RuntimeError,ValueError) as exc:
+        raise HTTPException(429,str(exc))
+
+@app.get('/api/mobile/browser/jobs/{job_id}')
+async def mobile_browser_result(request:Request,job_id:str):
+    limit(request,'mobile-browser-poll',100,60)
+    result=mobile_cloud.job_status(job_id)
+    if result is None:raise HTTPException(404,'Поиск не найден')
+    return result
+
+@app.delete('/api/mobile/browser/jobs/{job_id}')
+async def mobile_browser_stop(request:Request,job_id:str):
+    limit(request,'mobile-browser-cancel',10,60)
+    if not mobile_cloud.cancel_job(job_id):
+        raise HTTPException(404,'Поиск не найден')
+    return {'stopped':True}
 
 class BrowserResult(BaseModel):
     task_id:str=Field(min_length=20,max_length=40)
