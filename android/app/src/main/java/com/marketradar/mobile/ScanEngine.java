@@ -414,6 +414,7 @@ final class ScanEngine {
     private static final int MAX_EXPANDED_LISTING_SNAPSHOTS=400;
     private final Set<String> inspectedCandidateKeys=new HashSet<>();
     private boolean plainSearchFallbackAttempted=false;
+    private int redirectRecoveryAttempts=0;
 
     ScanEngine(WebView browser, Handler handler, Listener listener) {
         this.browser=browser;this.handler=handler;this.listener=listener;
@@ -553,6 +554,7 @@ final class ScanEngine {
         redirectedMarket=0;listingCandidatesMarket=0;firstRejectionMarket="";
         stoppedForFastCheck=false;fullPassFallback=false;
         plainSearchFallbackAttempted=false;
+        redirectRecoveryAttempts=0;
         listener.status(shop,"Ищем точную модель…");
         load(currentSearchUrl);
     }
@@ -565,6 +567,9 @@ final class ScanEngine {
     }
     void onPageFinished(String url) {
         if(!running)return;
+        // Newly created Android WebViews emit an about:blank completion.
+        // The page is NOT a marketplace redirect. Never snapshot it.
+        if(Shop.isTransientDocument(url))return;
         noteProgress();
         // A valid sign-in redirect is a session failure, not an empty
         // catalogue and not a generic WebView timeout.
@@ -582,15 +587,19 @@ final class ScanEngine {
         // search and product pages share one WebView, so a prior host can
         // finish after the next shop has already started loading.
         if(!details && !shop.allowed(url)){
-            // Unexpected search redirects must be recorded, not ignored until
-            // the watchdog fires and the user gets no result or explanation.
+            // Ignore an old WebView callback if the CURRENT page has already
+            // reached this marketplace. Check the actual destination after
+            // navigation settles, not the first callback in the sequence.
+            if(shop.allowed(browser.getUrl()))return;
             final int redirectedToken=token;
             handler.postDelayed(()->{
-                if(running&&redirectedToken==token&&!details&&
-                   !shop.allowed(browser.getUrl())&&
-                   !shop.isLoginUrl(browser.getUrl()))
-                    failPage("Магазин перенаправил поиск на другой адрес");
-            },900);
+                if(!running||redirectedToken!=token||details)return;
+                String current=browser.getUrl();
+                if(Shop.isTransientDocument(current)||shop.allowed(current)||
+                   shop.isLoginUrl(current))return;
+                failPage("Поиск перенаправлен на "+
+                    Shop.safeHost(current)+" · пробуем восстановить");
+            },1400);
             return;
         }
         // A stale completion callback from a previous card must not be
@@ -661,6 +670,18 @@ final class ScanEngine {
         }
         if(!details&&searchPool.isEmpty()&&tryPlainSearchFallback(message))
             return;
+        if(!details&&searchPool.isEmpty()&&
+           (message.contains("перенаправлен")||
+            message.contains("переадресация"))&&redirectRecoveryAttempts++<1){
+            listener.status(shop,"Повторяем поиск после перенаправления · "+
+                Shop.safeHost(browser.getUrl()));
+            final int request=++token;
+            handler.postDelayed(()->{
+                if(running&&request==token&&!details)
+                    load(currentSearchUrl);
+            },750);
+            return;
+        }
         coverageIncomplete=true;
         if(message.contains("Нет прогресса"))timeLimitReached=true;
         token++;
@@ -689,21 +710,20 @@ final class ScanEngine {
         String title=data.optString("title","");
         String body=(title+" "+text).toLowerCase(Locale.ROOT);
         if(!shop.allowed(url)){
-            coverageIncomplete=true;
-            if(shop.isLoginUrl(url)){
-                listener.session(shop,new SessionProbe.Verdict(
-                    SessionProbe.State.SIGN_IN_REQUIRED,
-                    "Поиск перенаправлен на форму авторизации"));
-                listener.status(shop,"Требуется повторно войти в аккаунт магазина");
-            }else{
-                // The price-sorted URL can redirect to a generic landing page.
-                // Attempt the site's own ordinary search URL once before
-                // declaring this marketplace unavailable.
-                if(tryPlainSearchFallback("Неожиданная переадресация сайта"))
-                    return;
-                listener.status(shop,"Неожиданная переадресация сайта");
-            }
-            nextMarket();return;
+            // A snapshot may belong to the WebView's initial blank page or
+            // an old navigation. It must not finish this marketplace.
+            if(Shop.isTransientDocument(url)||shop.allowed(browser.getUrl()))
+                return;
+            final int request=token;
+            handler.postDelayed(()->{
+                if(!running||request!=token)return;
+                String current=browser.getUrl();
+                if(Shop.isTransientDocument(current)||shop.allowed(current)||
+                   shop.isLoginUrl(current))return;
+                failPage("Неожиданная переадресация на "+
+                    Shop.safeHost(current));
+            },1200);
+            return;
         }
         if(!details && browserCheckPage(title,body)){
             // WB often initially returns only "Проверяем браузер"; its
@@ -954,7 +974,8 @@ final class ScanEngine {
     private boolean tryPlainSearchFallback(String reason){
         if(running&&!details&&searchPool.isEmpty()&&
            !plainSearchFallbackAttempted&&shop!=null&&
-           (shop.id.equals("ozon")||shop.id.equals("ym"))){
+           (shop.id.equals("ozon")||shop.id.equals("ym")||
+            shop.id.equals("wb"))){
             String plain=shop.plainSearchUrl(query);
             if(plain.equals(currentSearchUrl))return false;
             plainSearchFallbackAttempted=true;
