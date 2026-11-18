@@ -16,7 +16,7 @@ done
 docker compose version >/dev/null 2>&1 || fail "Docker Compose V2 is required. Select the Beget Docker image or install the Compose plugin."
 docker info >/dev/null 2>&1 || fail "Docker daemon is not running."
 
-DOMAIN="\${1:-auto}"
+DOMAIN="${1:-auto}"
 if [[ "$DOMAIN" == "auto" ]]; then
     notice "Detecting server public IPv4 for a free temporary DNS name."
     IP="$(curl -fsS4 --connect-timeout 5 --max-time 12 https://api.ipify.org)" ||
@@ -25,13 +25,13 @@ if [[ "$DOMAIN" == "auto" ]]; then
         fail "Unexpected server IP address."
     fi
     IFS='.' read -r -a octets <<< "$IP"
-    for part in "\${octets[@]}"; do
+    for part in "${octets[@]}"; do
         ((10#$part <= 255)) || fail "Invalid IPv4 address."
     done
-    DOMAIN="\${IP//./-}.sslip.io"
-    notice "Temporary hostname: \${DOMAIN}"
+    DOMAIN="${IP//./-}.sslip.io"
+    notice "Temporary hostname: ${DOMAIN}"
 else
-    DOMAIN="\${DOMAIN,,}"
+    DOMAIN="${DOMAIN,,}"
     [[ "$DOMAIN" =~ ^[a-z0-9]([a-z0-9-]*\.)+[a-z]{2,}$ ]] ||
         fail "Supply a public DNS hostname (example: mr.example.ru) or omit it to use free sslip.io DNS."
 fi
@@ -51,13 +51,13 @@ if [[ -f .env.production ]]; then
     set -a
     source .env.production
     set +a
-    DOMAIN="\${MARKETRADAR_DOMAIN:-$DOMAIN}"
+    DOMAIN="${MARKETRADAR_DOMAIN:-$DOMAIN}"
 else
     ACCESS_KEY="$(openssl rand -hex 32)"
     cat > .env.production <<EOF
 # Private VPS configuration: do not commit or send this file.
-MARKETRADAR_DOMAIN=\${DOMAIN}
-MARKETRADAR_MOBILE_ACCESS_KEY=\${ACCESS_KEY}
+MARKETRADAR_DOMAIN=${DOMAIN}
+MARKETRADAR_MOBILE_ACCESS_KEY=${ACCESS_KEY}
 CLOUD_BROWSER_ENABLED=true
 CLOUD_BROWSER_PARALLEL=1
 CLOUD_SEARCH_SCROLLS=20
