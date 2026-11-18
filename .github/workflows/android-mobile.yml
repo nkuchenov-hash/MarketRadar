@@ -142,24 +142,17 @@ jobs:
           set -euo pipefail
           tag=marketradar-android-0.25.0
           cat > /tmp/notes.md <<'EOF'
-          # MarketRadar Android 0.25.0 — uncluttered product results
-          The comparison screen now has only the actual delivery deadline,
-          a best on-time price with its store/date/payment condition,
-          one compact sort toggle and product cards. The running search
-          retains a short progress line, automatically hidden after a
-          successful scan. Missing-store diagnostics and the retry control
-          are available from the separate Stores screen, not mixed into
-          the offer list. The redundant late-price line is removed from
-          the price summary.
-          Primary results always respect the delivery cutoff. Late and
-          unknown-date alternatives are shown only when cheaper than
-          the best timely offer, with at most three small secondary cards.
-          All underlying offers remain in the persisted search session.
-          A normal marketplace page mentioning CAPTCHA in ordinary content
-          is no longer automatically classified as blocked; real login,
-          HTTP and access challenge failures remain separately reported.
-          Real-device verification for Yandex Market access is still pending.
-          Same package id and signing key; in-place upgrade from 0.23.0.
+          # MarketRadar Android 0.25.0 — progress and diagnostics
+          - New status line counts completed marketplaces while search runs.
+          - Watchdog prevents an indefinite wait for an offline AI response.
+          - In Stores or Settings, open the diagnostic report while searching.
+          - Copy or share the full text, without taking long screenshots.
+          - Equivalent same-model, price, delivery and payment tiles collapse.
+          - Search results, account sessions, photo and delivery UI are retained.
+          - Foreground search protections and previous filtering remain in place.
+          - No credentials or cookies are included in the diagnostic report.
+          - Device-specific memory and marketplace access require live testing.
+          - Stable package ID and signing certificate; install over 0.24.0.
           EOF
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release edit "$tag" --repo "$GITHUB_REPOSITORY" \
