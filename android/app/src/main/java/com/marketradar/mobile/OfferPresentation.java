@@ -32,8 +32,18 @@ final class OfferPresentation {
 
     /** Priority is determined by search conditions, not by the absolute cheapest price. */
     static int priority(DeliveryPolicy policy,ScanEngine.Offer offer,int timelyBest){
-        if(policy.eligible(offer.price,offer.deliveryHint,timelyBest))return 0;
+        // Never put an out-of-deadline product in "delivered in time", even
+        // when the user allows a sufficiently cheaper late alternative.
+        if(offer.price>0&&policy.timely(offer.deliveryHint))return 0;
         return policy.days(offer.deliveryHint)>=0?1:2;
+    }
+
+    static boolean showAlternative(DeliveryPolicy policy,ScanEngine.Offer offer,
+                                   int bestTimelyPrice){
+        if(offer.price<=0||policy.timely(offer.deliveryHint))return false;
+        // Only offers actually cheaper than the best on-time price add
+        // decision value. Unknown delivery is never presented as on-time.
+        return bestTimelyPrice<=0||offer.price<bestTimelyPrice;
     }
 
     static Comparator<ScanEngine.Offer> priorityComparator(
