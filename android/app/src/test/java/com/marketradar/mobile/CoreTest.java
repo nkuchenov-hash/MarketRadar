@@ -104,6 +104,25 @@ public class CoreTest {
         assertEquals(0,ScanEngine.readCardPrice("133 ₽ кешбэк\n1 130 ₽ / мес"));
         assertEquals(0,ScanEngine.readCardPrice("Одна страница с товарами\n".repeat(45)));
     }
+    @Test public void yandexPayScreenshotUsesFullPriceNotSixSplitPayments(){
+        String card="Умная колонка Яндекс Станция Мини 3 Про с Алисой\\n"+
+            "11 687 ₽ Пэй\\n6×1 948 ₽ в сплит\\n21 ноября, по клику · ПВЗ";
+        assertEquals(11687,ScanEngine.readCardPrice(card));
+        assertEquals("21 ноября",ScanEngine.readDeliveryHint(card));
+        assertEquals("с Яндекс Пэй",ScanEngine.priceConditionForCard(card,"",
+            Shop.byId("ym")));
+        assertEquals(11687,ScanEngine.compareCardAndListingPrice(
+            12420,ScanEngine.readCardPrice(card),"с Яндекс Пэй"));
+        assertEquals(0,ScanEngine.readCardPrice("6×1 948 ₽ в сплит"));
+        assertEquals(0,ScanEngine.readCardPrice("6 х 1 948 ₽ в рассрочку"));
+    }
+    @Test public void yandexSearchHasBothSortedAndNativeRelevanceUrls(){
+        Shop ym=Shop.byId("ym");
+        String query="Яндекс Станция Мини 3 Про";
+        assertTrue(ym.searchUrl(query).contains("how=aprice"));
+        assertFalse(ym.plainSearchUrl(query).contains("how=aprice"));
+    }
+
     @Test public void mixedWbPriceLinePreservesRealWalletDiscount(){
         String line="Яндекс Станция Мини 3 Про 19 640 ₽ 10 772 ₽ с WB Кошельком; "+
                     "133 ₽ кешбэк; доставка 25 ноября";
