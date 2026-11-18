@@ -972,7 +972,12 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
                 if(bestEligible==null||o.price<bestEligible.price)bestEligible=o;
             }
         }
-        bestPriceLabel.setText("Лучшая цена с доставкой в срок");
+        boolean scanning=engine!=null&&engine.isRunning();
+        boolean incomplete=engine!=null&&engine.coverageIncomplete();
+        bestPriceLabel.setText(scanning?
+            "Лучшая найденная цена · поиск идёт":
+            incomplete?"Лучшая найденная цена · поиск неполный":
+                "Лучшая цена с доставкой в срок");
         if(bestEligible==null){
             bestPrice.setText(offers.isEmpty()?"Ищем…":"Пока не найдено");
             bestPrice.setTextSize(20);
@@ -1329,9 +1334,11 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
                     "Предварительные цены найдены · корзина и персональные скидки не проверены");
             }
             saveCurrentSearch(false);
-            // Completed searches show results immediately, without a second
-            // paragraph of scanner status between the header and products.
-            if(!offers.isEmpty())progress.setVisibility(View.GONE);
+            // Never hide the incomplete-search warning under the product cards:
+            // a confirmed offer is NOT proof that every store was checked.
+            if(!offers.isEmpty()&&!engine.coverageIncomplete())
+                progress.setVisibility(View.GONE);
+            else progress.setVisibility(View.VISIBLE);
             stopSearchProtection();
         });
     }
