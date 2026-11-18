@@ -355,6 +355,21 @@ public class CoreTest {
         assertEquals(0,frontier.confirmedCeiling());
         assertFalse(frontier.deferHigher(14000));
     }
+    @Test public void earlyPriceCheckAcceptsTruncatedExactModelCandidate(){
+        String q="Яндекс Станция Мини 3 Про";
+        assertTrue(ScanEngine.fastPricedCandidate(q,
+            "Умная колонка Станция Мини",
+            "Умная колонка Станция Мини\\n10 772 ₽\\n25 ноября",""));
+        assertTrue(ScanEngine.fastPricedCandidate(q,
+            "Яндекс Станция Мини 3 Про",
+            "Яндекс Станция Мини 3 Про\\n10 893 ₽\\n27 ноября",""));
+        assertFalse(ScanEngine.fastPricedCandidate(q,
+            "Яндекс Станция Мини 3","Яндекс Станция Мини 3\\n10 640 ₽",""));
+        assertFalse(ScanEngine.fastPricedCandidate(q,
+            "Кейс для Яндекс Станции Мини 3 Про",
+            "Кейс\\n2 000 ₽",""));
+    }
+
     @Test public void wildberriesTruncatedNameMustReachFullPageVerification() throws Exception {
         String query="Яндекс Станция Мини 3 Про";
         String url="https://www.wildberries.ru/catalog/123456789/detail.aspx";

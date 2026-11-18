@@ -109,10 +109,10 @@ jobs:
             --ks /tmp/market-signing/marketradar-release.jks \
             --ks-key-alias marketradar-v2 --ks-pass env:MR_SIGNING_PASS \
             --key-pass env:MR_SIGNING_PASS \
-            --out dist/MarketRadar-Android-0.17.0.apk \
+            --out dist/MarketRadar-Android-0.18.0.apk \
             android/app/build/outputs/apk/release/app-release-unsigned.apk
           "$signer" verify --verbose --print-certs \
-            dist/MarketRadar-Android-0.17.0.apk > /tmp/signature.txt
+            dist/MarketRadar-Android-0.18.0.apk > /tmp/signature.txt
           current="$(grep -i 'sha-256 digest' /tmp/signature.txt | head -1 | sed -E 's/.*digest:[[:space:]]*//' | tr '[:upper:]' '[:lower:]' | tr -dc '0-9a-f')"
           expected="$(keytool -exportcert \
             -keystore /tmp/market-signing/marketradar-release.jks \
@@ -121,8 +121,8 @@ jobs:
           [[ -n "$current" && "$current" == "$expected" ]] || {
             echo "::error::Signing fingerprint does not match persistent backup."; exit 1;
           }
-          "$aapt" dump badging dist/MarketRadar-Android-0.17.0.apk > /tmp/badging.txt
-          grep -Fq "package: name='com.marketradar.mobile.next' versionCode='17' versionName='0.17.0'" /tmp/badging.txt
+          "$aapt" dump badging dist/MarketRadar-Android-0.18.0.apk > /tmp/badging.txt
+          grep -Fq "package: name='com.marketradar.mobile.next' versionCode='18' versionName='0.18.0'" /tmp/badging.txt
           if gh release view marketradar-android-0.4.0 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release download marketradar-android-0.4.0 \
               --repo "$GITHUB_REPOSITORY" \
@@ -132,7 +132,7 @@ jobs:
               echo "::error::Published v2 signing certificate mismatch"; exit 1;
             }
           fi
-          (cd dist && sha256sum MarketRadar-Android-0.17.0.apk > SHA256SUMS.txt)
+          (cd dist && sha256sum MarketRadar-Android-0.18.0.apk > SHA256SUMS.txt)
 
       - name: Publish isolated stable-signed MarketRadar v2 APK
         shell: bash
@@ -140,9 +140,16 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          tag=marketradar-android-0.17.0
+          tag=marketradar-android-0.18.0
           cat > /tmp/notes.md <<'EOF'
-          # MarketRadar Android 0.17.0 — signed test build
+          # MarketRadar Android 0.18.0 — signed test build
+          Corrected nested marketplace scrolling: the Android search
+          now identifies the product-list scroll container and scrolls
+          it rather than assuming the browser window always moves.
+          Initial price checks also accept plausible truncated WB titles
+          (full identity still verified against the product page).
+          The browser can still be challenged/blocked and real WB
+          matching prices have not been proven in an Android device run.
           Package com.marketradar.mobile.next, same persistent v2 signing certificate.
           Version code 17 upgrades installed v0.14.0 and other v0.2+ APKs
           in place WITHOUT deleting WebView sessions or saved settings.
@@ -186,14 +193,14 @@ jobs:
           EOF
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release edit "$tag" --repo "$GITHUB_REPOSITORY" \
-              --title "MarketRadar Android 0.17.0 — stable-signing preview" \
+              --title "MarketRadar Android 0.18.0 — stable-signing preview" \
               --notes-file /tmp/notes.md --prerelease
             gh release upload "$tag" --repo "$GITHUB_REPOSITORY" \
-              dist/MarketRadar-Android-0.17.0.apk dist/SHA256SUMS.txt --clobber
+              dist/MarketRadar-Android-0.18.0.apk dist/SHA256SUMS.txt --clobber
           else
             gh release create "$tag" --repo "$GITHUB_REPOSITORY" \
-              dist/MarketRadar-Android-0.17.0.apk dist/SHA256SUMS.txt \
-              --title "MarketRadar Android 0.17.0 — stable-signing preview" \
+              dist/MarketRadar-Android-0.18.0.apk dist/SHA256SUMS.txt \
+              --title "MarketRadar Android 0.18.0 — stable-signing preview" \
               --notes-file /tmp/notes.md --prerelease
           fi
           gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets \

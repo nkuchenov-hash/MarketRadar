@@ -116,6 +116,42 @@ final class ScanEngine {
                 priceCondition:''
               });
             }
+            // Marketplace grids can scroll inside an element instead of window.
+            // Follow the actual product container so lazy-loaded cheaper cards
+            // become visible exactly as they do during a manual scroll.
+            const scrolling=(()=>{
+              const doc=document.scrollingElement||document.documentElement;
+              let target=null;
+              const productAnchors=[...document.querySelectorAll(
+                'a[href*="/catalog/"],a[href*="/product/"],a[href*="/card/"]')].slice(0,70);
+              for(const a of productAnchors){
+                for(let el=a.parentElement;el&&el!==body;el=el.parentElement){
+                  const css=getComputedStyle(el);
+                  if(el.scrollHeight>el.clientHeight+180&&el.clientHeight>250&&
+                     /auto|scroll/.test(css.overflowY)){
+                    target=el;break;
+                  }
+                }
+                if(target)break;
+              }
+              if(!target){
+                for(const el of document.querySelectorAll(
+                  'main,[class*="scroll"],[data-scroll],.product-card-list')){
+                  const css=getComputedStyle(el);
+                  if(el.scrollHeight>el.clientHeight+180&&el.clientHeight>300&&
+                     /auto|scroll/.test(css.overflowY)){target=el;break;}
+                }
+              }
+              const element=target||doc;
+              window.__marketRadarScrollTarget=target;
+              const isDocument=!target;
+              return {
+                y:Math.round(isDocument?(window.scrollY||doc.scrollTop):element.scrollTop),
+                height:Math.round(element.scrollHeight),
+                viewport:Math.round(isDocument?window.innerHeight:element.clientHeight),
+                kind:isDocument?'document':'container'
+              };
+            })();
             return JSON.stringify({
               url:location.href,
               title:document.title,
@@ -124,10 +160,10 @@ final class ScanEngine {
               allAnchors:document.querySelectorAll('a[href]').length,
               text:(body?.innerText||'').slice(0,1800),
               links,
-              scrollY:Math.round(window.scrollY||0),
-              scrollHeight:Math.max(body?.scrollHeight||0,
-                document.documentElement?.scrollHeight||0),
-              viewportHeight:Math.round(window.innerHeight||0),
+              scrollY:scrolling.y,
+              scrollHeight:scrolling.height,
+              viewportHeight:scrolling.viewport,
+              scrollKind:scrolling.kind,
               // Treat an explicit next-page URL as another result page,
               // never as a new marketplace or an unrelated product URL.
               nextPage:(()=>{
@@ -155,6 +191,22 @@ final class ScanEngine {
           }catch(e){
             return JSON.stringify({error:'Не удалось прочитать выдачу'});
           }
+        })()
+        """;
+
+    private static final String SCROLL_SEARCH = """
+        (() => {
+          const el=window.__marketRadarScrollTarget;
+          if(el&&el.isConnected){
+            const before=el.scrollTop;
+            el.scrollBy(0,Math.max(el.clientHeight*0.80,420));
+            return JSON.stringify({kind:'container',before,after:el.scrollTop});
+          }
+          const doc=document.scrollingElement||document.documentElement;
+          const before=window.scrollY||doc.scrollTop;
+          window.scrollBy(0,Math.max(window.innerHeight*0.80,420));
+          return JSON.stringify({kind:'document',before,
+                                 after:window.scrollY||doc.scrollTop});
         })()
         """;
 
@@ -281,6 +333,11 @@ final class ScanEngine {
     int totalCandidates(){return checked;}
     void setPriceFrontier(DynamicPriceFrontier shared){
         if(shared!=null)frontier=shared;
+    }
+    static boolean fastPricedCandidate(String query,String title,
+                                      String context,String alt){
+        return CandidateDiscovery.shouldInspect(query,title,context,alt) &&
+            readCardPrice(context)>0;
     }
     static boolean fastCheckReady(int snapshotCount,int firstMatchSnapshot,
                                   int candidateCount,boolean fullFallback){
@@ -572,7 +629,8 @@ final class ScanEngine {
             " · ссылок: "+data.optInt("allAnchors",0)+
             " · товарных ссылок: "+(visibleLinks==null?0:visibleLinks.length())+
             " · сетевых ответов WB: "+data.optInt("networkResponses",0)+
-            " · сетевых товаров WB: "+data.optInt("networkCandidates",0);
+            " · сетевых товаров WB: "+data.optInt("networkCandidates",0)+
+            " · прокрутка: "+data.optString("scrollKind","не определена");
         mergeSearchSnapshot(searchPool,visibleLinks,shop,query);
         listingSnapshots++;
         if(firstExactSnapshot<0 && visibleLinks!=null){
@@ -582,7 +640,7 @@ final class ScanEngine {
                 String title=tile.optString("title","");
                 String alt=tile.optString("imageAlt","");
                 String context=tile.optString("context","");
-                if((exact(query,title)||exact(query,alt))&&readCardPrice(context)>0){
+                if(fastPricedCandidate(query,title,context,alt)){
                     firstExactSnapshot=listingSnapshots;
                     break;
                 }
@@ -758,7 +816,7 @@ final class ScanEngine {
     private void scrollSearchPage(){
         int request=token;
         browser.evaluateJavascript(
-            "window.scrollBy(0, Math.max(window.innerHeight * 1.35, 850));",
+            SCROLL_SEARCH,
             ignored -> handler.postDelayed(()->{
                 if(!running||request!=token||details)return;
                 browser.evaluateJavascript(SEARCH_SNAPSHOT,value->{
