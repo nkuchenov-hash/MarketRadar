@@ -44,7 +44,7 @@ public class DeliveryPolicyTest {
         f.configure(p);
         assertFalse(f.confirm(10772,"25 ноября"));
         assertEquals(0,f.confirmedCeiling());
-        assertFalse(f.deferHigher(10772,"25 ноября")); // keep late cheapest for absolute price
+        assertTrue(f.deferHigher(10772,"25 ноября")); // excluded without late discount
         assertFalse(f.deferHigher(11542,"Завтра"));
         assertTrue(f.confirm(11316,"20 ноября"));
         assertEquals(11316,f.confirmedCeiling());
@@ -62,9 +62,29 @@ public class DeliveryPolicyTest {
         assertTrue(policy.lateException(9000,"25 ноября",11316));
         assertFalse(policy.eligible(10772,"25 ноября",11316));
         assertTrue(policy.eligible(9000,"25 ноября",11316));
-        assertFalse(f.deferHigher(10772,"25 ноября")); // late offers remain visible
+        assertTrue(f.deferHigher(10772,"25 ноября")); // fails configured 15% threshold
         assertFalse(f.deferHigher(9000,"25 ноября"));
         assertTrue(f.deferHigher(12000,"")); // known timely offer is cheaper
+    }
+
+    @Test public void sameStorePriceFrontierStopsExpensiveHundredsButNotCheaper(){
+        DeliveryPolicy policy=new DeliveryPolicy(3,true,20,LocalDate.of(2026,11,18));
+        DynamicPriceFrontier frontier=new DynamicPriceFrontier();
+        frontier.configure(policy);
+        Shop wb=Shop.byId("wb"),ym=Shop.byId("ym");
+        // No false pruning before we know the store's own minimum.
+        assertFalse(frontier.deferHigher(14000,"20 ноября",wb));
+        assertTrue(frontier.confirm(11479,"20 ноября",wb));
+        assertTrue(frontier.deferHigher(12420,"20 ноября",wb));
+        assertTrue(frontier.deferHigher(11479,"21 ноября",wb));
+        assertFalse(frontier.deferHigher(11000,"21 ноября",wb));
+        // The WB price cannot suppress the first Yandex result.
+        assertFalse(frontier.deferHigher(12420,"21 ноября",ym));
+        assertTrue(frontier.confirm(12420,"21 ноября",ym)==false);
+        assertFalse(frontier.deferHigher(11687,"21 ноября",ym));
+        assertTrue(frontier.deferHigher(10893,"27 ноября",ym));
+        assertFalse(frontier.deferHigher(9000,"27 ноября",ym));
+        assertFalse(frontier.deferHigher(0,"",ym));
     }
 
     @Test public void activeScrollDoesNotCountAsIdlePageTimeout(){
