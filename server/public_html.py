@@ -332,7 +332,8 @@ def fetch_public_search_html(url: str) -> dict:
             "priced_products":len(priced),
             "pages_visited":visited,"pages_failed":failed,
             "pages_recovered_after_retry":recovered,
-            "dom_snapshots":0,"sort_requested":True,
+            "dom_snapshots":0,
+            "sort_requested":dict(parse_qsl(urlparse(url).query)).get("how") == "aprice",
             "coverage_complete":False,
         }
     }
