@@ -10,7 +10,13 @@ fail() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 notice() { printf '\n==> %s\n' "$*"; }
 
 [[ "$(id -u)" == 0 ]] || fail "Run as root or with sudo in the VPS terminal."
-for bin in bash curl git openssl docker; do
+if ! command -v git >/dev/null 2>&1 || ! command -v openssl >/dev/null 2>&1 || ! command -v python3 >/dev/null 2>&1; then
+    command -v apt-get >/dev/null 2>&1 || fail "Ubuntu/Debian package manager required."
+    notice "Installing basic tools for a clean Ubuntu VPS."
+    apt-get update -qq
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq git openssl python3 ca-certificates
+fi
+for bin in bash curl git openssl python3 docker; do
     command -v "$bin" >/dev/null 2>&1 || fail "Missing $bin. Select the Ubuntu VPS image with Docker preinstalled."
 done
 docker compose version >/dev/null 2>&1 || fail "Docker Compose V2 is required. Select the Beget Docker image or install the Compose plugin."
@@ -28,6 +34,9 @@ if [[ "$DOMAIN" == "auto" ]]; then
     for part in "${octets[@]}"; do
         ((10#$part <= 255)) || fail "Invalid IPv4 address."
     done
+    if ! python3 -c 'import sys,ipaddress;assert ipaddress.ip_address(sys.argv[1]).is_global' "$IP"; then
+        fail "Outgoing IP is not a public IPv4. Supply a public DNS hostname."
+    fi
     DOMAIN="${IP//./-}.sslip.io"
     notice "Temporary hostname: ${DOMAIN}"
 else
