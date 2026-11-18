@@ -109,10 +109,10 @@ jobs:
             --ks /tmp/market-signing/marketradar-release.jks \
             --ks-key-alias marketradar-v2 --ks-pass env:MR_SIGNING_PASS \
             --key-pass env:MR_SIGNING_PASS \
-            --out dist/MarketRadar-Android-0.30.0.apk \
+            --out dist/MarketRadar-Android-0.31.0.apk \
             android/app/build/outputs/apk/release/app-release-unsigned.apk
           "$signer" verify --verbose --print-certs \
-            dist/MarketRadar-Android-0.30.0.apk > /tmp/signature.txt
+            dist/MarketRadar-Android-0.31.0.apk > /tmp/signature.txt
           current="$(grep -i 'sha-256 digest' /tmp/signature.txt | head -1 | sed -E 's/.*digest:[[:space:]]*//' | tr '[:upper:]' '[:lower:]' | tr -dc '0-9a-f')"
           expected="$(keytool -exportcert \
             -keystore /tmp/market-signing/marketradar-release.jks \
@@ -121,8 +121,8 @@ jobs:
           [[ -n "$current" && "$current" == "$expected" ]] || {
             echo "::error::Signing fingerprint does not match persistent backup."; exit 1;
           }
-          "$aapt" dump badging dist/MarketRadar-Android-0.30.0.apk > /tmp/badging.txt
-          grep -Fq "package: name='com.marketradar.mobile.next' versionCode='30' versionName='0.30.0'" /tmp/badging.txt
+          "$aapt" dump badging dist/MarketRadar-Android-0.31.0.apk > /tmp/badging.txt
+          grep -Fq "package: name='com.marketradar.mobile.next' versionCode='31' versionName='0.31.0'" /tmp/badging.txt
           if gh release view marketradar-android-0.4.0 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release download marketradar-android-0.4.0 \
               --repo "$GITHUB_REPOSITORY" \
@@ -132,7 +132,7 @@ jobs:
               echo "::error::Published v2 signing certificate mismatch"; exit 1;
             }
           fi
-          (cd dist && sha256sum MarketRadar-Android-0.30.0.apk > SHA256SUMS.txt)
+          (cd dist && sha256sum MarketRadar-Android-0.31.0.apk > SHA256SUMS.txt)
 
       - name: Publish isolated stable-signed MarketRadar v2 APK
         shell: bash
@@ -140,34 +140,37 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          tag=marketradar-android-0.30.0
+          tag=marketradar-android-0.31.0
           cat > /tmp/notes.md <<'EOF'
-          # MarketRadar Android 0.30.0 — Yandex Market price accuracy
-          - Distinguish Yandex /card/ product tiles and their own price and
-            delivery labels instead of reading adjacent card content.
-          - Ignore installment amounts such as "6×1 948 ₽ в сплит":
-            11 687 ₽ is the full product quote, not 1 948 ₽ or a
-            fallback 12 420 ₽ detail price.
-          - Preserve Yandex Pay price conditions in product results.
-          - Collect both price-sorted and full natural Yandex listings
-            instead of assuming the first ranking contains the cheapest.
-          - Recover a plain query if a sorted search hits an access page.
-          - Show the cheapest on-time offer per marketplace by default,
-            with a user-controlled button to reveal other verified offers.
-          - Real checkout and live matching prices must still be checked
-            against marketplace results on the user's device.
-          - In-place update from 0.29.0, same app package and signing key.
+          # MarketRadar Android 0.31.0 — restore scanning on all stores
+          - Fix the 0-second "unexpected redirect" failure that occurs
+            when a new WebView emits about:blank/stale page callbacks.
+          - Use three dedicated concurrent WebViews, separate from the
+            manual marketplace/login browser, so old navigation events
+            cannot cancel searches.
+          - Distinguish initial blank documents from real redirects and
+            retry a native search before marking a marketplace incomplete.
+          - Never leave a WebView search-snapshot latch stuck after a stale
+            callback; resample the actual marketplace page.
+          - Show progress for every store live and keep final per-store
+            status after the scan finishes.
+          - When no offers are found and scanning ended, show
+            "Предложений нет" instead of a false ongoing "Ищем".
+          - This version does not claim live minimum-price verification;
+            the user's Yandex Market 11 687 RUB and Wildberries
+            comparison remain a required acceptance test.
+          - In-place update from 0.30.0. Same signing key and package.
           EOF
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release edit "$tag" --repo "$GITHUB_REPOSITORY" \
-              --title "MarketRadar Android 0.30.0 — stable-signing preview" \
+              --title "MarketRadar Android 0.31.0 — stable-signing preview" \
               --notes-file /tmp/notes.md --prerelease
             gh release upload "$tag" --repo "$GITHUB_REPOSITORY" \
-              dist/MarketRadar-Android-0.30.0.apk dist/SHA256SUMS.txt --clobber
+              dist/MarketRadar-Android-0.31.0.apk dist/SHA256SUMS.txt --clobber
           else
             gh release create "$tag" --repo "$GITHUB_REPOSITORY" \
-              dist/MarketRadar-Android-0.30.0.apk dist/SHA256SUMS.txt \
-              --title "MarketRadar Android 0.30.0 — stable-signing preview" \
+              dist/MarketRadar-Android-0.31.0.apk dist/SHA256SUMS.txt \
+              --title "MarketRadar Android 0.31.0 — stable-signing preview" \
               --notes-file /tmp/notes.md --prerelease
           fi
           gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets \
