@@ -260,19 +260,24 @@ def fetch_public_search_html(url: str) -> dict:
             params.pop("page",None)
         target=urlunparse(parts._replace(query=urlencode(params)))
         request=urllib.request.Request(target,headers=headers)
-        try:
-            with urllib.request.urlopen(request,timeout=18) as response:
-                if response.status != 200 or not host_allowed(response.url):
-                    return {}
-                if "text/html" not in response.headers.get("Content-Type","").lower():
-                    return {}
-                raw=response.read(8_000_001)
-                if len(raw)>8_000_000:
-                    return {}
-                result=extract_public_html(raw.decode("utf-8","replace"),response.url)
-                return result if result["links"] else {}
-        except (OSError,ValueError,UnicodeError):
-            return {}
+        for attempt in range(2):
+            try:
+                with urllib.request.urlopen(request,timeout=18) as response:
+                    if response.status == 200 and host_allowed(response.url):
+                        if "text/html" in response.headers.get("Content-Type","").lower():
+                            raw=response.read(8_000_001)
+                            if len(raw)<=8_000_000:
+                                result=extract_public_html(
+                                    raw.decode("utf-8","replace"),response.url)
+                                if result["links"]:
+                                    result["retried"]=attempt>0
+                                    return result
+            except (OSError,ValueError,UnicodeError):
+                pass
+            if attempt==0:
+                import time
+                time.sleep(0.7)
+        return {}
 
     first=fetch_one(1)
     if not first:
@@ -281,6 +286,7 @@ def fetch_public_search_html(url: str) -> dict:
     raw_seen=first["observed_product_anchors"]
     visited=[1]
     failed=[]
+    recovered=[]
     with ThreadPoolExecutor(max_workers=3) as workers:
         # Fetch bounded batches; stop when an entire batch contributes no
         # new card. Different storefront pages may overlap in results.
@@ -293,6 +299,8 @@ def fetch_public_search_html(url: str) -> dict:
                     failed.append(num)
                     continue
                 visited.append(num)
+                if info.get("retried"):
+                    recovered.append(num)
                 raw_seen+=info["observed_product_anchors"]
                 for item in info["links"]:
                     prior=products.get(item["url"])
@@ -320,6 +328,7 @@ def fetch_public_search_html(url: str) -> dict:
             "raw_seen":raw_seen,"unique_products":len(products),
             "priced_products":len(priced),
             "pages_visited":visited,"pages_failed":failed,
+            "pages_recovered_after_retry":recovered,
             "dom_snapshots":0,"sort_requested":True,
             "coverage_complete":False,
         }
