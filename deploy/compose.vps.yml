@@ -12,8 +12,7 @@ services:
     mem_limit: 3g
     pids_limit: 500
     env_file:
-      - path: ../.env.production
-        required: true
+      - ../.env.production
     environment:
       DB_PATH: /app/data/marketradar.sqlite3
       CLOUD_BROWSER_ENABLED: "true"
