@@ -129,8 +129,13 @@ _DOM_SNAPSHOT = r"""() => {
         const matches = [...context.matchAll(price)];
         const prices = matches.map(m => Number(m[1].replace(/\D/g,'')))
             .filter(n => n >= 100 && n <= 50000000);
+        const img = tile?.querySelector('img') || a.querySelector('img');
+        const imageUrl = img?.currentSrc || img?.getAttribute('src') || '';
+        const date = context.match(/(?:сегодня|завтра|послезавтра|через\s*\d{1,2}\s*дн|\d{1,2}\s*(?:января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря))/i);
         products.push({url:a.href, title, context,
             price:prices.length ? Math.min(...prices) : 0,
+            image_url:/^https:\/\//i.test(imageUrl)?imageUrl:'',
+            delivery_hint:date?date[0]:'',
             source:'dom'});
     }
     const body = (document.body?.innerText || '').slice(0,120000);
@@ -143,7 +148,35 @@ _DOM_SNAPSHOT = r"""() => {
             .test((el.innerText || el.getAttribute('aria-label') || '').trim()))
         .slice(0,5).map(el => ({tag:el.tagName, url:el.href || '',
             label:(el.innerText || '').slice(0,70)}));
-    return {title:document.title || '', body,
+    const h1=(document.querySelector('h1')?.innerText||'').trim().slice(0,300);
+    const primaryImg=document.querySelector('meta[property="og:image"]')?.content||'';
+    let primaryPrice=0;
+    for(const node of document.querySelectorAll(
+        '[itemprop="price"][content],meta[property="product:price:amount"],meta[property="og:price:amount"]')){
+        const n=Number((node.content||'').replace(',', '.'));
+        if(n>=100&&n<=50000000){primaryPrice=primaryPrice?Math.min(primaryPrice,n):n;}
+    }
+    for(const node of document.querySelectorAll('script[type="application/ld+json"]')){
+        try{
+            const input=JSON.parse(node.textContent||'null');
+            const todo=[input];let checked=0;
+            while(todo.length&&checked++<80){
+                const item=todo.pop();
+                if(Array.isArray(item)){todo.push(...item.slice(0,80));continue;}
+                if(!item||typeof item!=='object')continue;
+                if(item.offers)todo.push(item.offers);
+                const type=String(item['@type']||'').toLowerCase();
+                if(type==='offer'||type==='aggregateoffer'){
+                    const n=Number(item.price||item.lowPrice);
+                    if(n>=100&&n<=50000000)
+                        primaryPrice=primaryPrice?Math.min(primaryPrice,n):n;
+                }
+                if(item['@graph'])todo.push(item['@graph']);
+            }
+        }catch(e){}
+    }
+    return {title:document.title || '', heading:h1, primary_price:primaryPrice,
+        primary_image:primaryImg,body,
         products, visible_prices:[...new Set(prices)].sort((a,b)=>a-b).slice(0,100),
         scroll_y:scroll.scrollTop, scroll_height:scroll.scrollHeight,
         viewport:window.innerHeight, controls};
@@ -240,12 +273,18 @@ class CloudBrowser:
             if existing is None:
                 ledger[key] = {"url": key, "title": str(item.get("title",""))[:300],
                                "context": str(item.get("context",""))[:1100],
-                               "price": amount, "source": item.get("source","unknown")}
+                               "price": amount, "source": item.get("source","unknown"),
+                               "image_url": str(item.get("image_url",""))[:900],
+                               "delivery_hint": str(item.get("delivery_hint",""))[:100]}
             else:
                 if len(str(item.get("title",""))) > len(existing["title"]):
                     existing["title"] = str(item["title"])[:300]
                 if len(str(item.get("context",""))) > len(existing["context"]):
                     existing["context"] = str(item["context"])[:1100]
+                if not existing.get("image_url") and item.get("image_url"):
+                    existing["image_url"] = str(item["image_url"])[:900]
+                if not existing.get("delivery_hint") and item.get("delivery_hint"):
+                    existing["delivery_hint"] = str(item["delivery_hint"])[:100]
                 if amount and (not existing["price"] or amount < existing["price"]):
                     existing["price"] = amount
                     existing["source"] = item.get("source", existing["source"])
@@ -387,6 +426,9 @@ class CloudBrowser:
             return {
                 "state": "blocked" if blocked else "ok",
                 "url": page.url, "title": title[:250],
+                "heading": str(last_snapshot.get("heading",""))[:300],
+                "primary_price": _amount(last_snapshot.get("primary_price",0)),
+                "primary_image": str(last_snapshot.get("primary_image",""))[:900],
                 "text": page_text[:60000],
                 "links": links[:6000],
                 "price_fragments": [str(n)+" ₽" for n in sorted(visual_prices)[:70]],
