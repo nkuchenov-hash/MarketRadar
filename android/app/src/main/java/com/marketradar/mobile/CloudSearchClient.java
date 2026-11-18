@@ -39,6 +39,7 @@ final class CloudSearchClient {
     private volatile boolean running=false;
     private volatile String currentJob="";
     private volatile String baseUrl="";
+    private volatile String accessKey="";
     private volatile boolean coverageIncomplete=true;
     private final Map<String,String> statuses=new HashMap<>();
     private final Set<String> received=new HashSet<>();
@@ -74,6 +75,7 @@ final class CloudSearchClient {
         stop();
         final int request=++generation;
         baseUrl=validBase(url);
+        accessKey=prefs.getString("cloud_access_key","").trim();
         if(baseUrl.isEmpty())throw new IllegalArgumentException("Требуется HTTPS-адрес сервера");
         running=true;
         coverageIncomplete=true;
@@ -238,7 +240,7 @@ final class CloudSearchClient {
         }
     }
 
-    private static JSONObject request(String method,String address,JSONObject body)
+    private JSONObject request(String method,String address,JSONObject body)
             throws Exception {
         URL url=new URL(address);
         if(!"https".equalsIgnoreCase(url.getProtocol()))
@@ -250,6 +252,8 @@ final class CloudSearchClient {
             conn.setReadTimeout(15000);
             conn.setInstanceFollowRedirects(false);
             conn.setRequestProperty("Accept","application/json");
+            if(!accessKey.isBlank())
+                conn.setRequestProperty("X-MarketRadar-Key",accessKey);
             if(body!=null){
                 conn.setDoOutput(true);
                 conn.setRequestProperty("Content-Type","application/json; charset=utf-8");
