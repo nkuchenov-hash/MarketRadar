@@ -1032,6 +1032,11 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
                 .append(marketStates.getOrDefault(shop.id,"нет сообщений"))
                 .append('\n');
         }
+        report.append("\nАудит найденных дешёвых карточек и причин исключения:\n");
+        for(Shop shop:lastSelectedMarkets){
+            report.append(shop.name).append(":\n  ")
+                .append(engine.marketBreakdown(shop.id)).append('\n');
+        }
         report.append("\nЛогины, cookies и ключи в отчёт не включаются.");
         return report.toString();
     }
