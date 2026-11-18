@@ -13,6 +13,42 @@ public class CoreTest {
         assertFalse(ScanEngine.exact(q, "Яндекс Станция Мини 3 Лайт"));
         assertFalse(ScanEngine.exact(q, "Чехол для Яндекс Станции Мини 3 Про"));
     }
+    @Test public void screenshotRegressionCheaperWbAndYandexNotMissedAfterFirstMatch()
+            throws Exception {
+        String query="Яндекс Станция Мини 3 Про";
+        Shop wb=Shop.byId("wb"),ym=Shop.byId("ym");
+        assertTrue(ScanEngine.mustCompleteListingAfterQuickPass(wb,true,false,1));
+        assertTrue(ScanEngine.mustCompleteListingAfterQuickPass(ym,true,false,1));
+        assertFalse(ScanEngine.mustCompleteListingAfterQuickPass(
+            Shop.byId("ozon"),true,false,1));
+        assertFalse(ScanEngine.mustCompleteListingAfterQuickPass(wb,true,true,1));
+        assertTrue(ScanEngine.expandedScanLimitReached(true,80));
+        assertFalse(ScanEngine.expandedScanLimitReached(true,79));
+        assertFalse(ScanEngine.expandedScanLimitReached(false,80));
+        String before="Умная колонка Яндекс Станция Мини 3 Про с Алисой Zigbee";
+        JSONArray first=new JSONArray().put(new org.json.JSONObject()
+            .put("url","https://www.wildberries.ru/catalog/223500000/detail.aspx")
+            .put("title",before).put("context",before+" 11 835 ₽")
+            .put("deliveryHint","20 ноября"));
+        JSONArray later=new JSONArray().put(new org.json.JSONObject()
+            .put("url","https://www.wildberries.ru/catalog/223500001/detail.aspx")
+            .put("title",before).put("context",before+" 10 824 ₽")
+            .put("deliveryHint","21 ноября"));
+        java.util.Map<String,ScanEngine.Candidate> pool=new java.util.LinkedHashMap<>();
+        ScanEngine.mergeSearchSnapshot(pool,first,wb,query);
+        assertEquals(11835,ScanEngine.rankCandidates(pool.values(),10).get(0).listingPrice);
+        ScanEngine.mergeSearchSnapshot(pool,later,wb,query);
+        assertEquals(10824,ScanEngine.rankCandidates(pool.values(),10).get(0).listingPrice);
+        assertEquals(2,pool.size());
+        DeliveryPolicy policy=new DeliveryPolicy(3,false,15,
+            java.time.LocalDate.of(2026,11,18));
+        assertTrue(policy.timely("21 ноября"));
+        assertTrue(ScanEngine.exact(query,"Яндекс Станция Мини 3 Про, синий"));
+        assertFalse(ScanEngine.exact(query,"Яндекс Станция Мини 3 с Алисой"));
+        assertFalse(policy.timely("22 ноября"));
+        assertFalse(policy.timely("26 ноября"));
+    }
+
     @Test public void genericNumericModelMustMatch() {
         assertTrue(ScanEngine.exact("Samsung Galaxy A56 256 ГБ","Смартфон Samsung Galaxy A56, 256 ГБ"));
         assertFalse(ScanEngine.exact("Samsung Galaxy A56 256 ГБ","Смартфон Samsung Galaxy A55, 256 ГБ"));
