@@ -30,3 +30,16 @@ def test_wb_browser_challenge_is_not_an_empty_catalogue():
     from server.core import BLOCK_WORDS
     assert "проверяем браузер" in BLOCK_WORDS
     assert any(word in "Проверяем браузер".lower() for word in BLOCK_WORDS)
+
+
+def test_mini_3_pro_accessories_cannot_win_price_comparison():
+    from server.core import model_match
+    query = 'Яндекс Станция Мини 3 Про'
+    assert model_match(query, 'Умная колонка Яндекс Станция Мини 3 Про YNDX-00059BLU')
+    for title in (
+        'Блок питания для Яндекс Станции Мини 3 Про',
+        'Зарядное устройство Яндекс Станция Мини 3 Про',
+        'Сумка для Яндекс Станции Мини 3 Про',
+        'Совместим с Яндекс Станция Мини 3 Про — аксессуар',
+    ):
+        assert not model_match(query, title), title
