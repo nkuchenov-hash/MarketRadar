@@ -423,6 +423,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         allowLateDiscount.setOnCheckedChangeListener((v,checked)->
             discountPercentInput.setEnabled(checked));
         add(filterPanel,discountPercentInput,-1,45);
+        updateDeadlineButton();
         gap(filterPanel,10);
         add(filterPanel,text("Поиск просматривает доступную выдачу целиком; цены и сроки без проверки корзины предварительные.",12,MUTED,false),-1,-2);
         add(settingsPage,filterPanel,-1,-2);
