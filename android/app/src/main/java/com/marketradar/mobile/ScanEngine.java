@@ -423,10 +423,7 @@ final class ScanEngine {
             "; сортировка: "+sortEvidence.description(
                 shop!=null&&shop.priceAscendingRequested(currentSearchUrl))+
             (firstRejectionMarket.isEmpty()?"":"; пример: "+firstRejectionMarket)+
-            "\n"+searchAudit.summary()+
-            (shop!=null&&shop.id.equals("ym")&&
-                ScanEngine.norm(query).contains("станция мини 3 про")?
-                "\n"+searchAudit.probePrice(11687):"");
+            "\n"+searchAudit.summary();
     }
     private boolean stoppedForFastCheck=false,fullPassFallback=false;
     private static final int MAX_EXPANDED_LISTING_SNAPSHOTS=400;
