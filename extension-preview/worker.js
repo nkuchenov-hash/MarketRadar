@@ -10,7 +10,7 @@ function safeURL(url){try{const u=new URL(url);return u.protocol==='https:'&&(u.
 function productURL(m,url){if(!safeURL(url))return false;try{const u=new URL(url);if(m==='ozon')return /\/product\/[^/]+/.test(u.pathname);if(m==='wb')return /\/catalog\/\d+\/detail\.aspx/.test(u.pathname);return /\/product--|\/product\/|\/card\//.test(u.pathname);}catch{return false;}}
 function canonical(url){try{const u=new URL(url);u.search='';u.hash='';return u.href;}catch{return url;}}
 function norm(s){return String(s||'').toLowerCase().replace(/ё/g,'е').replace(/\bmini\b/g,'мини').replace(/\bpro\b/g,'про').replace(/[^\p{L}\p{N}]+/gu,' ').trim().replace(/\s+/g,' ')}
-const ACCESSORY=/(?:^|\s)(?:климатическ[\p{L}]*|модул[\p{L}]*|датчик[\p{L}]*|чехол[\p{L}]*|креплен[\p{L}]*|кронштейн[\p{L}]*|держател[\p{L}]*|адаптер[\p{L}]*|кабел[\p{L}]*|насадк[\p{L}]*|подставк[\p{L}]*|корпус[\p{L}]*|аккумулятор[\p{L}]*|запчаст[\p{L}]*|зарядн[\p{L}]*|футляр[\p{L}]*|наклейк[\p{L}]*|пульт[\p{L}]*)(?:\s|$)/u;
+const ACCESSORY=/(?:^|\s)(?:климатическ[\p{L}]*|модул[\p{L}]*|датчик[\p{L}]*|чехол[\p{L}]*|креплен[\p{L}]*|кронштейн[\p{L}]*|держател[\p{L}]*|адаптер[\p{L}]*|кабел[\p{L}]*|насадк[\p{L}]*|подставк[\p{L}]*|корпус[\p{L}]*|аккумулятор[\p{L}]*|запчаст[\p{L}]*|зарядн[\p{L}]*|питан[\p{L}]*|блок[\p{L}]*|сумк[\p{L}]*|футляр[\p{L}]*|наклейк[\p{L}]*|пульт[\p{L}]*)(?:\s|$)/u;
 const IGNORE=new Set(['умная','умный','колонка','станция','яндекс','алиса','для','с','и','на','в','серый','черный','белый','синий','красный','зеленый','цвет','bluetooth','zigbee','вт','беспроводная','новый','оригинал']);
 function scoreMatch(query,title){
  const q=norm(query),t=norm(title);if(!q||!t)return 0;
