@@ -126,6 +126,14 @@ final class SearchSessionStore {
         if(!json.isBlank())preferences.edit().putString(KEY,json).commit();
     }
 
+    static boolean canAutoResume(Snapshot snapshot){
+        // Avoid endless restarts on a device that repeatedly kills WebView or
+        // the offline model during memory pressure. A manual search resets this.
+        return snapshot!=null&&snapshot.interrupted&&
+            snapshot.resumeAttempts<2&&snapshot.markets!=null&&
+            !snapshot.markets.isEmpty()&&snapshot.query.length()>=3;
+    }
+
     static Snapshot load(SharedPreferences preferences){
         return decode(preferences.getString(KEY,""));
     }
