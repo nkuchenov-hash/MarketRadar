@@ -388,7 +388,7 @@ final class ScanEngine {
     private int listingSnapshots=0,firstExactSnapshot=-1;
     private int verifiedMarket=0,verifiedTimelyMarket=0;
     private boolean stoppedForFastCheck=false,fullPassFallback=false;
-    private boolean ozonUnsortedFallbackAttempted=false;
+    private boolean plainSearchFallbackAttempted=false;
 
     ScanEngine(WebView browser, Handler handler, Listener listener) {
         this.browser=browser;this.handler=handler;this.listener=listener;
@@ -492,7 +492,7 @@ final class ScanEngine {
         lastSearchPageDiagnostics="";
         verifiedMarket=0;verifiedTimelyMarket=0;
         stoppedForFastCheck=false;fullPassFallback=false;
-        ozonUnsortedFallbackAttempted=false;
+        plainSearchFallbackAttempted=false;
         listener.status(shop,"Ищем точную модель…");
         load(currentSearchUrl);
     }
@@ -521,7 +521,18 @@ final class ScanEngine {
         // Ignore completion callbacks from the previous marketplace. Both
         // search and product pages share one WebView, so a prior host can
         // finish after the next shop has already started loading.
-        if(!details && !shop.allowed(url))return;
+        if(!details && !shop.allowed(url)){
+            // Unexpected search redirects must be recorded, not ignored until
+            // the watchdog fires and the user gets no result or explanation.
+            final int redirectedToken=token;
+            handler.postDelayed(()->{
+                if(running&&redirectedToken==token&&!details&&
+                   !shop.allowed(browser.getUrl())&&
+                   !shop.isLoginUrl(browser.getUrl()))
+                    failPage("Магазин перенаправил поиск на другой адрес");
+            },900);
+            return;
+        }
         // A stale completion callback from a previous card must not be
         // interpreted as a result for the card currently being loaded.
         if(!details&&searchSampling)return;
@@ -587,6 +598,8 @@ final class ScanEngine {
             },300L*attempt);
             return;
         }
+        if(!details&&searchPool.isEmpty()&&tryPlainSearchFallback(message))
+            return;
         coverageIncomplete=true;
         if(message.contains("Нет прогресса"))timeLimitReached=true;
         token++;
@@ -852,30 +865,41 @@ final class ScanEngine {
         finishListingCollection();
     }
 
+    /**
+     * A price-sorted marketplace URL can be served as an empty SPA shell,
+     * even when the ordinary search returns product tiles. This is a single
+     * site-supported navigation fallback, not an HTTP/captcha bypass.
+     */
+    private boolean tryPlainSearchFallback(String reason){
+        if(running&&!details&&searchPool.isEmpty()&&
+           !plainSearchFallbackAttempted&&shop!=null&&
+           (shop.id.equals("ozon")||shop.id.equals("ym"))){
+            String plain=shop.searchBase+
+                java.net.URLEncoder.encode(query,java.nio.charset.StandardCharsets.UTF_8);
+            if(plain.equals(currentSearchUrl))return false;
+            plainSearchFallbackAttempted=true;
+            currentSearchUrl=plain;
+            searchPool.clear();seen.clear();visitedSearchPages.clear();
+            visitedSearchPages.add(currentSearchUrl);
+            stableBottom=0;lastPoolSize=-1;lastHeight=-1;loadMoreAttempts=0;
+            lastObservedScrollY=-1;lastObservedScrollHeight=-1;
+            lastObservedPoolCount=-1;stalledScrollChecks=0;
+            hydrationRetries=0;retryCount=0;browserCheckRetries=0;
+            searchSampling=false;listingSnapshots=0;firstExactSnapshot=-1;
+            listener.status(shop,"Повторяем поиск без сортировки по цене");
+            load(currentSearchUrl);
+            return true;
+        }
+        return false;
+    }
+
     private void finishListingCollection(){
         if(details)return;
         candidates.clear();
         candidates.addAll(rankCandidates(searchPool.values(),Integer.MAX_VALUE));
         searchSampling=false;
         if(candidates.isEmpty()){
-            // Ozon can return an empty price-sorted search although ordinary
-            // search contains products. Retry once using its standard URL.
-            // Do not retry explicit HTTP access denials or alter WB/Yandex.
-            if(shop.id.equals("ozon")&&!ozonUnsortedFallbackAttempted){
-                ozonUnsortedFallbackAttempted=true;
-                currentSearchUrl=shop.searchBase+
-                    java.net.URLEncoder.encode(query,java.nio.charset.StandardCharsets.UTF_8);
-                searchPool.clear();seen.clear();visitedSearchPages.clear();
-                visitedSearchPages.add(currentSearchUrl);
-                stableBottom=0;lastPoolSize=-1;lastHeight=-1;loadMoreAttempts=0;
-                lastObservedScrollY=-1;lastObservedScrollHeight=-1;
-                lastObservedPoolCount=-1;stalledScrollChecks=0;
-                hydrationRetries=0;retryCount=0;
-                searchSampling=false;listingSnapshots=0;firstExactSnapshot=-1;
-                listener.status(shop,"Повторный поиск Ozon в обычном режиме");
-                load(currentSearchUrl);
-                return;
-            }
+            if(tryPlainSearchFallback("Пустая выдача"))return;
             coverageIncomplete=true;
             listener.status(shop,"Нет подходящих карточек · "+lastSearchPageDiagnostics+
                 " · полнота выдачи не подтверждена");
