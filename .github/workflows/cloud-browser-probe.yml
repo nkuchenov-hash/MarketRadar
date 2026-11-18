@@ -5,6 +5,7 @@ on:
     paths:
       - 'server/cloud_browser.py'
       - 'server/agent.py'
+      - 'server/test_cloud_browser.py'
       - '.github/workflows/cloud-browser-probe.yml'
   workflow_dispatch:
 permissions:
@@ -26,6 +27,7 @@ jobs:
           python -m pip install 'playwright>=1.50,<2'
           python -m playwright install --with-deps chromium
           python -m compileall -q server
+          python -m unittest server.test_cloud_browser -v
       - name: Browser search with price ordering and captured network responses
         env:
           CLOUD_BROWSER_ENABLED: "true"
