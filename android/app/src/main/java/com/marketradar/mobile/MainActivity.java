@@ -303,7 +303,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         summaryPanel=panel();
         summaryPanel.setVisibility(View.GONE);
         bestPriceLabel=text("Минимальная найденная цена",14,MUTED,true);
-        add(summaryPanel,bestPriceLabel,-1,24);
+        add(summaryPanel,bestPriceLabel,-1,-2);
         gap(summaryPanel,4);
         bestPrice=text("—",31,TEXT,true);
         add(summaryPanel,bestPrice,-1,47);
