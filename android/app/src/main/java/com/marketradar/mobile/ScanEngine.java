@@ -79,7 +79,7 @@ final class ScanEngine {
               let node=semantic||a;
               for(let level=0;level<9&&node&&node!==body;level++,node=node.parentElement){
                 const text=(node.innerText||node.textContent||'').trim();
-                const productLinks=node.querySelectorAll('a[href*="/catalog/"],a[href*="/product/"]').length;
+                const productLinks=new Set([...node.querySelectorAll('a[href*="/catalog/"],a[href*="/product/"]')].map(link=>{try{const u=new URL(link.href);return u.origin+u.pathname.replace(/\\/$/,'');}catch(e){return link.href;}})).size;
                 if(text.length>=8&&text.length<=1600&&pricePattern.test(text)&&productLinks<=1)
                   return text.slice(0,1300);
               }
