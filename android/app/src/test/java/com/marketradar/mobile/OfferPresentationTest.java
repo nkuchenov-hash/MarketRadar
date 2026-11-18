@@ -89,6 +89,24 @@ public class OfferPresentationTest {
         assertTrue(OfferPresentation.showAlternative(policy,item(12300,"28 ноября"),0));
     }
 
+    @Test public void equivalentSellerCardsDoNotClutterResults(){
+        DeliveryPolicy p=new DeliveryPolicy(3,false,15,LocalDate.of(2026,11,18));
+        ScanEngine.Offer a=new ScanEngine.Offer(Shop.byId("wb"),
+            "https://www.wildberries.ru/catalog/12345/detail.aspx",
+            "Умная колонка Яндекс Станция Мини 3 Про с Алисой, Zigbee, серый Яндекс 2235040416",
+            11835,"","20 ноября","");
+        ScanEngine.Offer b=new ScanEngine.Offer(Shop.byId("wb"),
+            "https://www.wildberries.ru/catalog/98765/detail.aspx",
+            "Умная колонка Яндекс Станция Мини 3 Про с Алисой, Zigbee, серый Яндекс 2235041579",
+            11835,"","20 ноября","");
+        ScanEngine.Offer blue=new ScanEngine.Offer(Shop.byId("wb"),
+            "https://www.wildberries.ru/catalog/88888/detail.aspx",
+            "Умная колонка Яндекс Станция Мини 3 Про с Алисой, Zigbee, синий Яндекс 2235041579",
+            11835,"","20 ноября","");
+        assertEquals(OfferPresentation.displayKey(a,p),OfferPresentation.displayKey(b,p));
+        assertNotEquals(OfferPresentation.displayKey(a,p),OfferPresentation.displayKey(blue,p));
+    }
+
     @Test public void crossYearDateIsUnambiguous(){
         DeliveryPolicy policy=new DeliveryPolicy(5,false,15,LocalDate.of(2026,12,30));
         assertEquals("Доставка до 4 января 2027 · 5 дн.",OfferPresentation.deadline(policy));
