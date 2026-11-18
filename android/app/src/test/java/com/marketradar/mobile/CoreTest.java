@@ -75,13 +75,34 @@ public class CoreTest {
         assertFalse(policy.timely("22 ноября"));
     }
 
-    @Test public void unverifiedMarketplaceSortingMustNotPruneMoreExpensiveCards(){
-        assertFalse(ScanEngine.canPrunePriceCandidate(Shop.byId("wb"),false));
-        assertFalse(ScanEngine.canPrunePriceCandidate(Shop.byId("ym"),false));
-        assertFalse(ScanEngine.canPrunePriceCandidate(Shop.byId("wb"),true));
-        assertFalse(ScanEngine.canPrunePriceCandidate(Shop.byId("ym"),true));
-        assertFalse(ScanEngine.canPrunePriceCandidate(Shop.byId("ozon"),false));
-        assertFalse(ScanEngine.canPrunePriceCandidate(Shop.byId("ozon"),true));
+    @Test public void dynamicRankingDoesNotDependOnNativeSort(){
+        // Actual pruning requires a verified price on the SAME store.
+        assertTrue(ScanEngine.canPrunePriceCandidate(Shop.byId("wb"),false));
+        assertTrue(ScanEngine.canPrunePriceCandidate(Shop.byId("ym"),false));
+        assertTrue(ScanEngine.canPrunePriceCandidate(Shop.byId("ozon"),false));
+        assertFalse(ScanEngine.canPrunePriceCandidate(null,true));
+    }
+
+    @Test public void repeatedFullPassOnlyReopensGenuinelyCheaperVariants(){
+        java.util.Map<String,Integer> seen=new java.util.LinkedHashMap<>();
+        ScanEngine.Candidate initial=new ScanEngine.Candidate(
+            "https://www.wildberries.ru/catalog/123/detail.aspx",
+            11479,"20 ноября","с WB Кошельком");
+        ScanEngine.Candidate same=new ScanEngine.Candidate(initial.url,11479,
+            "20 ноября","с WB Кошельком");
+        ScanEngine.Candidate moreExpensive=new ScanEngine.Candidate(initial.url,11835,
+            "20 ноября","с WB Кошельком");
+        ScanEngine.Candidate improved=new ScanEngine.Candidate(initial.url,10990,
+            "20 ноября","с WB Кошельком");
+        assertTrue(ScanEngine.markCheaperCandidate(seen,initial));
+        assertFalse(ScanEngine.markCheaperCandidate(seen,same));
+        assertFalse(ScanEngine.markCheaperCandidate(seen,moreExpensive));
+        assertTrue(ScanEngine.markCheaperCandidate(seen,improved));
+        assertEquals(1,seen.size());
+        assertTrue(ScanEngine.markCheaperCandidate(seen,
+            new ScanEngine.Candidate(initial.url,10990,
+                "21 ноября","с WB Кошельком")));
+        assertEquals(2,seen.size());
     }
 
     @Test public void genericNumericModelMustMatch() {
