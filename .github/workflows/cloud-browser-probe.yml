@@ -64,9 +64,13 @@ jobs:
               finally:
                   await browser.close()
               Path("cloud-probe-result.json").write_text(json.dumps(findings,ensure_ascii=False,indent=2),encoding="utf-8")
+              wb=findings.get("Wildberries",{})
+              if wb.get("state")!="ok" or wb.get("candidate_count",0)==0:
+                  raise RuntimeError("LIVE SEARCH NOT VERIFIED: Wildberries returned no product candidates")
           asyncio.run(main())
           PY
       - name: Diagnose browser hydration and search results on Wildberries
+        if: always()
         shell: bash
         run: |
           python - <<'PY'
