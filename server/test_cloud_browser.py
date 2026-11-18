@@ -28,6 +28,28 @@ class CloudSearchTests(unittest.TestCase):
         self.assertEqual([1200,11120,13560],sorted(x["price"] for x in items))
         self.assertGreater(visited,3)
 
+    def test_wildberries_first_party_json_prices_and_product_ids(self):
+        data={"data":{"products":[
+            {"id":123456789,"name":"Умная колонка Яндекс Станция Мини 3 Про",
+             "sizes":[{"price":{"total":1089300}}]},
+            {"id":123456790,"name":"Умная колонка Яндекс Станция Мини 3 Про",
+             "salePriceU":1077200}
+        ]}}
+        links,_=network_products(data,"https://search.wb.ru/exactmatch/ru/common/v6/search",
+                                 market="Wildberries")
+        self.assertEqual([10772,10893],sorted(x["price"] for x in links))
+        self.assertEqual(2,len(links))
+        self.assertTrue(all(x["url"].startswith("https://www.wildberries.ru/catalog/")
+                            for x in links))
+
+    def test_exact_model_gate(self):
+        from server.mobile_cloud import exact_product
+        query="Яндекс Станция Мини 3 Про"
+        self.assertTrue(exact_product(query,"Умная колонка Яндекс Станция Мини 3 Про"))
+        self.assertFalse(exact_product(query,"Яндекс Станция Мини 3"))
+        self.assertFalse(exact_product(query,"Чехол для Яндекс Станция Мини 3 Про"))
+        self.assertFalse(exact_product(query,"Яндекс Станция Мини 3 Лайт"))
+
     def test_real_chromium_dom_card_with_sibling_price(self):
         async def run():
             from playwright.async_api import async_playwright
@@ -59,6 +81,30 @@ class CloudSearchTests(unittest.TestCase):
                     self.assertEqual(11120,by_id["12345679"]["price"])
                     self.assertEqual(15560,by_id["12345678"]["price"])
                     self.assertEqual(1200,by_id["12345680"]["price"])
+                finally:
+                    await browser.close()
+        asyncio.run(run())
+
+    def test_never_assigns_grid_wide_price_to_every_child(self):
+        async def run():
+            from playwright.async_api import async_playwright
+            async with async_playwright() as p:
+                browser=await p.chromium.launch(headless=True)
+                try:
+                    page=await browser.new_page()
+                    await page.set_content("""
+                     <div class='grid'>
+                       <div><a href='https://market.yandex.ru/card/thing/12345678'>
+                       Смартфон Первый</a></div>
+                       <div><a href='https://market.yandex.ru/card/thing/12345679'>
+                       Смартфон Второй</a></div>
+                       <div>9 500 ₽</div>
+                     </div>
+                    """)
+                    view=await page.evaluate(_DOM_SNAPSHOT)
+                    self.assertEqual(2,len(view["products"]))
+                    self.assertEqual([0,0],[c["price"] for c in view["products"]])
+                    self.assertIn(9500,view["visible_prices"])
                 finally:
                     await browser.close()
         asyncio.run(run())
