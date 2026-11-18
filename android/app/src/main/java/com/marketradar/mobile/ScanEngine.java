@@ -102,9 +102,25 @@ final class ScanEngine {
               links.push({url:url.href,title,context:context.slice(0,1300),
                           imageAlt,priceCondition});
             }
+            // WB's own search XHR can be ready before cards render as DOM.
+            // Reuse only the response already seen by this same WebView.
+            const networkCards=Array.isArray(window.__marketRadarNetworkCards)?
+                window.__marketRadarNetworkCards:[];
+            for(const card of networkCards){
+              if(!card?.url||!card?.title||!Number.isFinite(card.price))continue;
+              links.push({
+                url:card.url,
+                title:card.title,
+                imageAlt:card.title,
+                context:card.title+' '+card.price+' ₽',
+                priceCondition:''
+              });
+            }
             return JSON.stringify({
               url:location.href,
               title:document.title,
+              networkResponses:window.__marketRadarNetworkResponses||0,
+              networkCandidates:networkCards.length,
               allAnchors:document.querySelectorAll('a[href]').length,
               text:(body?.innerText||'').slice(0,1800),
               links,
@@ -518,7 +534,9 @@ final class ScanEngine {
         JSONArray visibleLinks=data.optJSONArray("links");
         lastSearchPageDiagnostics="страница: "+data.optString("title","").replace("\\n"," ")+
             " · ссылок: "+data.optInt("allAnchors",0)+
-            " · товарных ссылок: "+(visibleLinks==null?0:visibleLinks.length());
+            " · товарных ссылок: "+(visibleLinks==null?0:visibleLinks.length())+
+            " · сетевых ответов WB: "+data.optInt("networkResponses",0)+
+            " · сетевых товаров WB: "+data.optInt("networkCandidates",0);
         mergeSearchSnapshot(searchPool,visibleLinks,shop,query);
         listingSnapshots++;
         if(firstExactSnapshot<0 && visibleLinks!=null){
