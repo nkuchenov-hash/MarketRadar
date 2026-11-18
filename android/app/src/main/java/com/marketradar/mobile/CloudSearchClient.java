@@ -1,6 +1,7 @@
 package com.marketradar.mobile;
 
 import android.os.Handler;
+import android.content.SharedPreferences;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import java.io.ByteArrayOutputStream;
@@ -32,6 +33,7 @@ final class CloudSearchClient {
 
     private final Handler ui;
     private final Listener listener;
+    private final SharedPreferences prefs;
     private final ExecutorService executor=Executors.newSingleThreadExecutor();
     private volatile int generation=0;
     private volatile boolean running=false;
@@ -41,8 +43,9 @@ final class CloudSearchClient {
     private final Map<String,String> statuses=new HashMap<>();
     private final Set<String> received=new HashSet<>();
 
-    CloudSearchClient(Handler ui,Listener listener){
+    CloudSearchClient(Handler ui,SharedPreferences prefs,Listener listener){
         this.ui=ui;
+        this.prefs=prefs;
         this.listener=listener;
     }
 
@@ -76,7 +79,12 @@ final class CloudSearchClient {
         coverageIncomplete=true;
         statuses.clear();
         received.clear();
-        executor.execute(()->run(request,query,new ArrayList<>(markets)));
+        String prior=prefs.getString("cloud_pending_job_id","");
+        if(!query.equals(prefs.getString("cloud_pending_query","")) ||
+            !baseUrl.equals(prefs.getString("cloud_pending_server","")))
+            prior="";
+        final String resumeJob=prior;
+        executor.execute(()->run(request,query,new ArrayList<>(markets),resumeJob));
     }
 
     void stop(){
@@ -86,28 +94,57 @@ final class CloudSearchClient {
         generation++;
         currentJob="";
         if(!job.isBlank()&&!server.isBlank()){
+            clearJob(job);
             executor.execute(()->{
                 try{request("DELETE",server+"/api/mobile/browser/jobs/"+job,null);}catch(Exception ignored){}
             });
         }
     }
 
+    /** Activity destroyed: leave the server working and resume after reopening. */
+    void detach(){
+        running=false;
+        generation++;
+        currentJob="";
+        executor.shutdownNow();
+    }
+
+    private void clearJob(String id){
+        if(id.equals(prefs.getString("cloud_pending_job_id","")))
+            prefs.edit().remove("cloud_pending_job_id")
+                .remove("cloud_pending_query").remove("cloud_pending_server").apply();
+    }
+
     private boolean active(int request){
         return running && generation==request;
     }
 
-    private void run(int request,String query,List<Shop> markets){
+    private void run(int request,String query,List<Shop> markets,String resumeJob){
         boolean incomplete=true;
+        String job=resumeJob;
         try{
-            JSONArray shops=new JSONArray();
-            for(Shop shop:markets)shops.put(shop.id);
-            JSONObject payload=new JSONObject()
-                .put("query",query).put("shops",shops);
-            JSONObject started=request("POST",
-                baseUrl+"/api/mobile/browser/start",payload);
-            String job=started.optString("id","");
-            if(job.length()<20)throw new IllegalStateException("Сервер не вернул ID поиска");
+            if(!job.isBlank()){
+                try{
+                    request("GET",baseUrl+"/api/mobile/browser/jobs/"+job,null);
+                }catch(Exception unavailable){
+                    clearJob(job);
+                    job="";
+                }
+            }
+            if(job.isBlank()){
+                JSONArray shops=new JSONArray();
+                for(Shop shop:markets)shops.put(shop.id);
+                JSONObject payload=new JSONObject()
+                    .put("query",query).put("shops",shops);
+                JSONObject started=request("POST",
+                    baseUrl+"/api/mobile/browser/start",payload);
+                job=started.optString("id","");
+                if(job.length()<20)throw new IllegalStateException("Сервер не вернул ID поиска");
+            }
             currentJob=job;
+            prefs.edit().putString("cloud_pending_job_id",job)
+                .putString("cloud_pending_query",query)
+                .putString("cloud_pending_server",baseUrl).apply();
             int rounds=0;
             JSONObject latest=null;
             while(active(request)&&rounds++<150){
@@ -143,6 +180,7 @@ final class CloudSearchClient {
                         "Ошибка: "+message,true);
             });
         }finally{
+            if(active(request)&&!currentJob.isBlank())clearJob(currentJob);
             final boolean fail=incomplete;
             ui.post(()->{
                 if(!active(request))return;
