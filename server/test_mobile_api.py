@@ -1,0 +1,53 @@
+"""Exercise the API contract Android uses; no real market network is required."""
+import os
+import unittest
+from unittest.mock import patch
+
+os.environ["CLOUD_BROWSER_ENABLED"]="true"
+from fastapi.testclient import TestClient
+from server.main import app
+
+
+class PublicCloudApiTests(unittest.TestCase):
+    def test_start_poll_stop_contract(self):
+        job_id="a" * 32
+        payload={
+            "id":job_id,"state":"finished",
+            "markets":{"ym":{"state":"partial","candidates":12,
+                              "checked":3,"coverage_complete":False}},
+            "offers":[{"market_id":"ym","price":11550,
+                        "url":"https://market.yandex.ru/card/thing/12345678",
+                        "title":"Тестовая модель","image_url":"",
+                        "delivery":"завтра","condition":"","note":"test"}],
+            "errors":[],"finished":1,
+        }
+        with (patch("server.main.cloud_browser.available",return_value=(True,"ok")),
+              patch("server.main.mobile_cloud.start_job",
+                    return_value={"id":job_id,"state":"running"}) as start,
+              patch("server.main.mobile_cloud.job_status",
+                    return_value=payload),
+              patch("server.main.mobile_cloud.cancel_job",return_value=True)):
+            with TestClient(app) as client:
+                response=client.post("/api/mobile/browser/start",json={
+                    "query":"Яндекс Станция Мини 3 Про","shops":["ym","wb"]})
+                self.assertEqual(202,response.status_code,response.text)
+                self.assertEqual(job_id,response.json()["id"])
+                start.assert_called_once()
+                report=client.get("/api/mobile/browser/jobs/"+job_id)
+                self.assertEqual(200,report.status_code,report.text)
+                self.assertEqual(11550,report.json()["offers"][0]["price"])
+                self.assertEqual("завтра",report.json()["offers"][0]["delivery"])
+                stopped=client.delete("/api/mobile/browser/jobs/"+job_id)
+                self.assertEqual(200,stopped.status_code,stopped.text)
+                self.assertTrue(stopped.json()["stopped"])
+
+    def test_invalid_shops_rejected(self):
+        with patch("server.main.cloud_browser.available",return_value=(True,"ok")):
+            with TestClient(app) as client:
+                r=client.post("/api/mobile/browser/start",json={
+                    "query":"Тестовая модель","shops":["random-host"]})
+                self.assertEqual(422,r.status_code,r.text)
+
+
+if __name__ == "__main__":
+    unittest.main()
