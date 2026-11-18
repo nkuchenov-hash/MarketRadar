@@ -168,6 +168,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
             if(draft!=null)queryInput.setText(draft);
         }
         engine=new ParallelScanCoordinator(this,root,browser,ui,this);
+        restoreSavedSearch();
         for(Shop shop:Shop.ALL)refreshShop(shop);
     }
     private void buildBrowser(){
@@ -719,18 +720,46 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
                 Integer.parseInt(field.getText().toString().trim())));
         }catch(Exception ignored){return fallback;}
     }
+    private void saveCurrentSearch(boolean searching){
+        if(prefs==null||deliveryPolicy==null)return;
+        String query=activeQuery;
+        if(query.isBlank())return;
+        SearchSessionStore.save(prefs,query,deliveryPolicy,offers,searching,
+            progress==null?"":progress.getText().toString());
+    }
+    private void restoreSavedSearch(){
+        SearchSessionStore.Snapshot snapshot=SearchSessionStore.load(prefs);
+        if(snapshot==null)return;
+        activeQuery=snapshot.query;
+        deliveryPolicy=snapshot.policy;
+        queryInput.setText(snapshot.query);
+        offers.clear();
+        offers.addAll(snapshot.offers);
+        summaryPanel.setVisibility(View.VISIBLE);
+        renderResults();
+        searchButton.setText("Найти лучшую цену");
+        updateDeadlineButton();
+        if(snapshot.interrupted){
+            progress.setText(snapshot.offers.isEmpty()?
+                "Поиск прерван системой. Можно запустить снова.":
+                "Результаты сохранены. Поиск был прерван системой.");
+        }else{
+            progress.setText(snapshot.message.isBlank()?
+                "Восстановлены результаты предыдущего поиска":snapshot.message);
+        }
+    }
     private void beginSearch(){
         if(engine.isRunning()||aiChecking){
             aiGeneration++;
             aiChecking=false;
             engine.stop();
-            offers.clear();
+            // Stopping an unfinished scan must not discard the offers already found.
             pendingOffers.clear();
-            results.removeAllViews();
-            summaryPanel.setVisibility(View.GONE);
-            sortRow.setVisibility(View.GONE);
             searchButton.setText("Найти лучшую цену");
-            progress.setText("Поиск остановлен");
+            progress.setText("Поиск остановлен · результаты сохранены");
+            summaryPanel.setVisibility(View.VISIBLE);
+            renderResults();
+            saveCurrentSearch(false);
             return;
         }
         String q=queryInput.getText().toString().trim();
@@ -771,6 +800,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         count.setVisibility(View.GONE);
         searchButton.setText("Остановить");
         progress.setText("Поиск…");
+        saveCurrentSearch(true);
         engine.start(q,Integer.MAX_VALUE,chosen,deliveryPolicy);
     }
     @Override public void status(Shop shop,String state){
@@ -813,6 +843,8 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
                 offers.add(o);
                 renderResults();
                 progress.setText("Подбираем предложения дешевле найденной цены…");
+                // Android may kill a background WebView process at any point.
+                saveCurrentSearch(true);
             }
         });
     }
@@ -1075,6 +1107,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
                     "Показана лучшая проверенная цена среди доступных результатов":
                     "Предварительные цены найдены · корзина и персональные скидки не проверены");
             }
+            saveCurrentSearch(false);
         });
     }
     @Override public void onBackPressed(){
@@ -1087,16 +1120,28 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
                 .setNegativeButton("Продолжить",null)
                 .setPositiveButton("Остановить",(d,w)->{
                     engine.stop();searchButton.setText("Найти предложения");
+                    progress.setText("Поиск остановлен · результаты сохранены");
+                    saveCurrentSearch(false);
                 }).show();
         }else super.onBackPressed();
     }
+    @Override protected void onPause(){
+        saveCurrentSearch(engine!=null&&engine.isRunning());
+        super.onPause();
+    }
+    @Override protected void onStop(){
+        saveCurrentSearch(engine!=null&&engine.isRunning());
+        super.onStop();
+    }
     @Override protected void onSaveInstanceState(Bundle saved){
+        saveCurrentSearch(engine!=null&&engine.isRunning());
         saved.putInt("screen",currentScreen);
         if(queryInput!=null)
             saved.putString("query_draft",queryInput.getText().toString());
         super.onSaveInstanceState(saved);
     }
     @Override protected void onDestroy(){
+        saveCurrentSearch(engine!=null&&engine.isRunning());
         aiGeneration++;
         if(engine!=null)engine.destroy();
         browser.destroy();
