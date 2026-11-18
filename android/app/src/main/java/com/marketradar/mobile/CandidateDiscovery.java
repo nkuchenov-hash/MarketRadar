@@ -28,7 +28,16 @@ final class CandidateDiscovery {
            mainTitle.startsWith("комплект для")||
            mainTitle.startsWith("комплект крепления")||
            mainTitle.startsWith("чехол для")||
-           mainTitle.startsWith("крепление для"))return false;
+           mainTitle.startsWith("крепление для")||
+           mainTitle.startsWith("кейс для")||
+           mainTitle.startsWith("чехол ")||
+           mainTitle.startsWith("кейс ")||
+           mainTitle.startsWith("пульт для")||
+           mainTitle.startsWith("держатель для")||
+           mainTitle.startsWith("подставка для")||
+           mainTitle.startsWith("адаптер для")||
+           mainTitle.startsWith("блок питания для")||
+           mainTitle.startsWith("кабель для"))return false;
         // An explicit full non-Pro model isn't a truncated Pro listing.
         // An abbreviated "Умная колонка Станция Мини" still qualifies,
         // and an image ALT bearing "Про" was accepted above.
