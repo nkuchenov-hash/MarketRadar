@@ -48,6 +48,19 @@ final class Shop {
         for (Shop shop:ALL) if(shop.id.equals(id))return shop;
         return null;
     }
+    static boolean isTransientDocument(String url){
+        if(url==null)return true;
+        String value=url.trim().toLowerCase(java.util.Locale.ROOT);
+        return value.isEmpty()||value.equals("about:blank")||
+            value.equals("about:srcdoc");
+    }
+    static String safeHost(String url){
+        if(isTransientDocument(url))return "пустая страница";
+        try{
+            String host=new java.net.URI(url).getHost();
+            return host==null?"неизвестный адрес":host;
+        }catch(Exception ignored){return "неизвестный адрес";}
+    }
     boolean allowed(String url) {
         if(url==null)return false;
         try {
