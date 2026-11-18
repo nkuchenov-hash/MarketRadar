@@ -24,6 +24,20 @@ public class DeliveryPolicyTest {
         assertFalse(p.eligible(12518,"",11316));
     }
 
+    @Test public void abbreviatedMarketplaceDatesAreRealDates(){
+        DeliveryPolicy p=new DeliveryPolicy(3,false,15,LocalDate.of(2026,11,18));
+        assertEquals(2,p.days("20 ноя."));
+        assertEquals(3,p.days("21 ноя"));
+        assertEquals(10,p.days("28 ноя."));
+        assertEquals("20 ноя.",ScanEngine.readDeliveryHint(
+            "Умная колонка 11 479 ₽ доставка 20 ноя."));
+        assertEquals(2,p.days(ScanEngine.readDeliveryHint(
+            "Умная колонка 11 479 ₽ доставка 20 ноя.")));
+        assertEquals("через 2 дня",ScanEngine.readDeliveryHint(
+            "Умная колонка 11 479 ₽ через 2 дня"));
+        assertEquals(-1,p.days("Доставка уточняется"));
+    }
+
     @Test public void lateCheapItemMustNeverPruneFastDelivery(){
         DeliveryPolicy p=new DeliveryPolicy(3,false,15,LocalDate.of(2026,11,17));
         DynamicPriceFrontier f=new DynamicPriceFrontier();
