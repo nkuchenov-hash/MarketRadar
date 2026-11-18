@@ -114,6 +114,7 @@ _DOM_SNAPSHOT = r"""() => {
                 node = node.parentElement;
                 const txt = (node.innerText || '').trim();
                 const links = node.querySelectorAll('a[href]').length;
+                price.lastIndex = 0;
                 if(txt.length > 12 && txt.length < 2200 &&
                     (price.test(txt) || links > 1)) {tile = node; break;}
                 price.lastIndex = 0;
@@ -137,7 +138,7 @@ _DOM_SNAPSHOT = r"""() => {
     const prices = [...body.matchAll(price)].map(m => Number(m[1].replace(/\D/g,'')))
         .filter(n => n >= 100 && n <= 50000000);
     const scroll = document.scrollingElement || document.documentElement;
-    const controls = [...document.querySelectorAll('a[rel="next"],button,[role="button"]')]
+    const controls = [...document.querySelectorAll('a[rel="next"],nav a[href],a[aria-label],button,[role="button"]')]
         .filter(el => /^(?:показать ещё|показать еще|загрузить ещё|загрузить еще|следующая|далее|next|›)$/i
             .test((el.innerText || el.getAttribute('aria-label') || '').trim()))
         .slice(0,5).map(el => ({tag:el.tagName, url:el.href || '',
@@ -221,6 +222,9 @@ class CloudBrowser:
         complete = False
         diagnostic = ""
         last_snapshot = {}
+        visited_pages = {target}
+        page_count = 1
+        load_more_count = 0
         max_scrolls = int(os.getenv("CLOUD_SEARCH_SCROLLS", "28")) if search else 0
         max_scrolls = min(80, max(0, max_scrolls))
 
@@ -313,7 +317,43 @@ class CloudBrowser:
                 at_end = snapshot.get("scroll_y",0) + snapshot.get("viewport",0) >= \
                     snapshot.get("scroll_height",0) - 100
                 if at_end and unchanged >= 2:
-                    complete = True
+                    controls = snapshot.get("controls", [])
+                    next_url = ""
+                    for control in controls:
+                        candidate = control.get("url", "")
+                        if (candidate and candidate not in visited_pages and
+                            host_allowed(candidate) and
+                            market_of(candidate) == market_of(target) and
+                            "search" in urlparse(candidate).path.lower()):
+                            next_url = sorted_search_url(candidate)
+                            break
+                    if next_url and page_count < 6:
+                        visited_pages.add(next_url)
+                        page_count += 1
+                        await page.goto(next_url, wait_until="domcontentloaded", timeout=25000)
+                        await page.wait_for_timeout(1200)
+                        unchanged = 0
+                        previous = (-1, -1, -1)
+                        continue
+                    more = next((x for x in controls if x.get("tag") in ("BUTTON", "DIV")
+                                 and "ещ" in x.get("label","").lower()), None)
+                    if more and load_more_count < 12:
+                        label = more["label"]
+                        clicked = await page.evaluate("""label => {
+                            for(const el of document.querySelectorAll('button,[role="button"]')){
+                                if((el.innerText||'').trim()===label){el.click();return true;}
+                            }
+                            return false;
+                        }""", label)
+                        if clicked:
+                            load_more_count += 1
+                            unchanged = 0
+                            previous = (-1, -1, -1)
+                            await page.wait_for_timeout(950)
+                            continue
+                    complete = not bool(next_url or more)
+                    if not complete:
+                        diagnostic = "Дополнительные страницы выдачи не завершены"
                     break
                 # Scroll the actual page; fallback to the largest scrollable panel
                 # used by virtualized storefront grids.
@@ -350,7 +390,8 @@ class CloudBrowser:
                 "audit": {
                     "raw_seen": raw_count, "unique_products": len(ledger),
                     "network_products": network_count,
-                    "dom_snapshots": visited_snapshots,
+                    "dom_snapshots": visited_snapshots, "pages": page_count,
+                    "load_more_clicks": load_more_count,
                     "priced_products": sum(x["price"] > 0 for x in links),
                     "unlinked_low_prices": orphans,
                     "sort_requested": bool(search),
