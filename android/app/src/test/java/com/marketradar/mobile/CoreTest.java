@@ -105,8 +105,8 @@ public class CoreTest {
         assertEquals(0,ScanEngine.readCardPrice("Одна страница с товарами\n".repeat(45)));
     }
     @Test public void yandexPayScreenshotUsesFullPriceNotSixSplitPayments(){
-        String card="Умная колонка Яндекс Станция Мини 3 Про с Алисой\\n"+
-            "11 687 ₽ Пэй\\n6×1 948 ₽ в сплит\\n21 ноября, по клику · ПВЗ";
+        String card="Умная колонка Яндекс Станция Мини 3 Про с Алисой\n"+
+            "11 687 ₽ Пэй\n6×1 948 ₽ в сплит\n21 ноября, по клику · ПВЗ";
         assertEquals(11687,ScanEngine.readCardPrice(card));
         assertEquals("21 ноября",ScanEngine.readDeliveryHint(card));
         assertEquals("с Яндекс Пэй",ScanEngine.priceConditionForCard(card,"",
