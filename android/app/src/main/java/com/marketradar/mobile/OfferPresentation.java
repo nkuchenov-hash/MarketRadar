@@ -83,6 +83,14 @@ final class OfferPresentation {
         }
         java.util.ArrayList<ScanEngine.Offer> visible=
             new java.util.ArrayList<>(bestByShop.values());
+        // Keep the unconditional minimum even when delivery is late or unknown.
+        ScanEngine.Offer absoluteBest=null;
+        for(ScanEngine.Offer offer:ordered){
+            if(offer.price>0 && (absoluteBest==null || offer.price<absoluteBest.price))
+                absoluteBest=offer;
+        }
+        if(absoluteBest!=null && !visible.contains(absoluteBest))
+            visible.add(absoluteBest);
         java.util.HashSet<String> deduped=new java.util.HashSet<>();
         for(ScanEngine.Offer item:visible)deduped.add(displayKey(item,policy));
         if(expanded&&bestTimely>0){
