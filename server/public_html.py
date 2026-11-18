@@ -228,53 +228,102 @@ def _delivery_from_snippet(anchor: _Node) -> str:
 
 
 def fetch_public_search_html(url: str) -> dict:
-    """Normal public HTTPS transport, used if Chromium is denied.
+    """Read publicly accessible SSR pages in price order, preserving every card.
 
-    No accounts, credentials, CAPTCHA solving, or proxy. Preserve every
-    visible search-card URL and mark the page as a partial snapshot.
+    Chromium remains the primary browsing engine. This is a secondary
+    first-party HTML transport for storefronts that serve public SSR to HTTP
+    clients but deny Chromium on cloud egress. Never claim exhaustive access.
     """
+    import os
     import urllib.request
+    from urllib.parse import urlparse, parse_qsl, urlencode, urlunparse
+    from concurrent.futures import ThreadPoolExecutor
     from .core import host_allowed
+
     if not host_allowed(url):
         raise ValueError("Storefront URL required")
-    request = urllib.request.Request(url, headers={
+
+    max_pages=max(1,min(24,int(os.getenv("CLOUD_SSR_PAGES","6"))))
+    headers = {
         "User-Agent":("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
                       "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"),
         "Accept":"text/html,application/xhtml+xml;q=0.9,*/*;q=0.8",
         "Accept-Language":"ru-RU,ru;q=0.9"
-    })
-    try:
-        with urllib.request.urlopen(request,timeout=18) as response:
-            if response.status != 200 or not host_allowed(response.url):
-                return {}
-            if "text/html" not in response.headers.get("Content-Type","").lower():
-                return {}
-            raw = response.read(8_000_001)
-            if len(raw) > 8_000_000:
-                return {}
-            parsed = extract_public_html(raw.decode("utf-8","replace"),response.url)
-            if not parsed["links"]:
-                return {}
-            return {
-                "state":"ok", "url":response.url,
-                "title":"Публичная выдача",
-                "links":parsed["links"],
-                "price_fragments":parsed["price_fragments"],
-                "text":"Публичная поисковая выдача магазина",
-                "coverage_complete":False,
-                "diagnostic":"HTML-выдача: список товаров, охват неполный",
-                "audit":{
-                    "source":"public_html","http_status":200,
-                    "raw_seen":parsed["observed_product_anchors"],
-                    "unique_products":parsed["unique_products"],
-                    "priced_products":sum(x["price"]>0 for x in parsed["links"]),
-                    "dom_snapshots":0,
-                    "sort_requested":True,
-                    "coverage_complete":False,
-                }
-            }
-    except (OSError,ValueError,UnicodeError):
+    }
+
+    def fetch_one(page_num: int) -> dict:
+        parts=urlparse(url)
+        params=dict(parse_qsl(parts.query,keep_blank_values=True))
+        if page_num>1:
+            params["page"]=str(page_num)
+        else:
+            params.pop("page",None)
+        target=urlunparse(parts._replace(query=urlencode(params)))
+        request=urllib.request.Request(target,headers=headers)
+        try:
+            with urllib.request.urlopen(request,timeout=18) as response:
+                if response.status != 200 or not host_allowed(response.url):
+                    return {}
+                if "text/html" not in response.headers.get("Content-Type","").lower():
+                    return {}
+                raw=response.read(8_000_001)
+                if len(raw)>8_000_000:
+                    return {}
+                result=extract_public_html(raw.decode("utf-8","replace"),response.url)
+                return result if result["links"] else {}
+        except (OSError,ValueError,UnicodeError):
+            return {}
+
+    first=fetch_one(1)
+    if not first:
         return {}
+    products={x["url"]:x for x in first["links"]}
+    raw_seen=first["observed_product_anchors"]
+    visited=[1]
+    failed=[]
+    with ThreadPoolExecutor(max_workers=3) as workers:
+        # Fetch bounded batches; stop when an entire batch contributes no
+        # new card. Different storefront pages may overlap in results.
+        for begin in range(2,max_pages+1,3):
+            pages=list(range(begin,min(max_pages,begin+2)+1))
+            batch=list(workers.map(fetch_one,pages))
+            newly_added=0
+            for num,info in zip(pages,batch):
+                if not info:
+                    failed.append(num)
+                    continue
+                visited.append(num)
+                raw_seen+=info["observed_product_anchors"]
+                for item in info["links"]:
+                    prior=products.get(item["url"])
+                    if prior is None:
+                        products[item["url"]]=item
+                        newly_added+=1
+                    elif item["price"] and (
+                         not prior["price"] or item["price"]<prior["price"]):
+                        products[item["url"]]=item
+            if newly_added==0:
+                break
+
+    links=sorted(products.values(),key=lambda item: (
+        item["price"]<=0,item["price"] or 10**12,item["url"]))
+    priced=[x for x in links if x["price"]>0]
+    return {
+        "state":"ok", "url":url, "title":"Публичная выдача",
+        "links":links,
+        "price_fragments":[f"{x['price']} ₽" for x in priced[:100]],
+        "text":"Публичная поисковая выдача магазина",
+        "coverage_complete":False,
+        "diagnostic":f"HTML: просмотрено страниц {len(visited)}, охват неполный",
+        "audit":{
+            "source":"public_html","http_status":200,
+            "raw_seen":raw_seen,"unique_products":len(products),
+            "priced_products":len(priced),
+            "pages_visited":visited,"pages_failed":failed,
+            "dom_snapshots":0,"sort_requested":True,
+            "coverage_complete":False,
+        }
+    }
 
 
 def extract_public_html(html: str, origin: str) -> dict:
