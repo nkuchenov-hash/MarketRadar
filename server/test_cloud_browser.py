@@ -49,6 +49,12 @@ class CloudSearchTests(unittest.TestCase):
         self.assertFalse(exact_product(query,"Яндекс Станция Мини 3"))
         self.assertFalse(exact_product(query,"Чехол для Яндекс Станция Мини 3 Про"))
         self.assertFalse(exact_product(query,"Яндекс Станция Мини 3 Лайт"))
+        self.assertFalse(exact_product("iPhone 15 Pro","Apple iPhone 14 Pro"))
+        self.assertTrue(exact_product("iPhone 15 Pro","Apple iPhone 15 Pro 256GB"))
+        from server.mobile_cloud import plausible_listing
+        self.assertTrue(plausible_listing(query,"Яндекс Станция Мини"))
+        self.assertTrue(plausible_listing(query,""))
+        self.assertFalse(plausible_listing(query,"Чехол для Яндекс Станции Мини 3 Про"))
 
     def test_real_chromium_dom_card_with_sibling_price(self):
         async def run():
