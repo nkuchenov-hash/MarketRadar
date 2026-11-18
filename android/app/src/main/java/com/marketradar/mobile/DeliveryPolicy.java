@@ -61,6 +61,23 @@ final class DeliveryPolicy {
                 return (int)ChronoUnit.DAYS.between(today,date);
             }catch(Exception ignored){return -1;}
         }
+        // Short marketplace badges often say "20 ноя." or "21 окт".
+        Matcher abbreviated=Pattern.compile(
+            "(?iu)(\\d{1,2})\\s*(янв|фев|мар|апр|мая|июн|июл|авг|сен|окт|ноя|дек)\\.?(?![\\p{L}])")
+            .matcher(s);
+        if(abbreviated.find()){
+            String[] prefixes={"янв","фев","мар","апр","мая","июн",
+                "июл","авг","сен","окт","ноя","дек"};
+            int month=0;
+            for(int i=0;i<prefixes.length;i++)
+                if(prefixes[i].equals(abbreviated.group(2)))month=i+1;
+            if(month>0)try{
+                LocalDate date=LocalDate.of(today.getYear(),month,
+                    Integer.parseInt(abbreviated.group(1)));
+                if(date.isBefore(today))date=date.plusYears(1);
+                return (int)ChronoUnit.DAYS.between(today,date);
+            }catch(Exception ignored){}
+        }
         String[] weekdays={"понедельник","вторник","среду","четверг",
             "пятницу","субботу","воскресенье"};
         for(int i=0;i<weekdays.length;i++){
