@@ -109,10 +109,10 @@ jobs:
             --ks /tmp/market-signing/marketradar-release.jks \
             --ks-key-alias marketradar-v2 --ks-pass env:MR_SIGNING_PASS \
             --key-pass env:MR_SIGNING_PASS \
-            --out dist/MarketRadar-Android-0.18.0.apk \
+            --out dist/MarketRadar-Android-0.19.0.apk \
             android/app/build/outputs/apk/release/app-release-unsigned.apk
           "$signer" verify --verbose --print-certs \
-            dist/MarketRadar-Android-0.18.0.apk > /tmp/signature.txt
+            dist/MarketRadar-Android-0.19.0.apk > /tmp/signature.txt
           current="$(grep -i 'sha-256 digest' /tmp/signature.txt | head -1 | sed -E 's/.*digest:[[:space:]]*//' | tr '[:upper:]' '[:lower:]' | tr -dc '0-9a-f')"
           expected="$(keytool -exportcert \
             -keystore /tmp/market-signing/marketradar-release.jks \
@@ -121,8 +121,8 @@ jobs:
           [[ -n "$current" && "$current" == "$expected" ]] || {
             echo "::error::Signing fingerprint does not match persistent backup."; exit 1;
           }
-          "$aapt" dump badging dist/MarketRadar-Android-0.18.0.apk > /tmp/badging.txt
-          grep -Fq "package: name='com.marketradar.mobile.next' versionCode='18' versionName='0.18.0'" /tmp/badging.txt
+          "$aapt" dump badging dist/MarketRadar-Android-0.19.0.apk > /tmp/badging.txt
+          grep -Fq "package: name='com.marketradar.mobile.next' versionCode='19' versionName='0.19.0'" /tmp/badging.txt
           if gh release view marketradar-android-0.4.0 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release download marketradar-android-0.4.0 \
               --repo "$GITHUB_REPOSITORY" \
@@ -132,7 +132,7 @@ jobs:
               echo "::error::Published v2 signing certificate mismatch"; exit 1;
             }
           fi
-          (cd dist && sha256sum MarketRadar-Android-0.18.0.apk > SHA256SUMS.txt)
+          (cd dist && sha256sum MarketRadar-Android-0.19.0.apk > SHA256SUMS.txt)
 
       - name: Publish isolated stable-signed MarketRadar v2 APK
         shell: bash
@@ -140,67 +140,34 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          tag=marketradar-android-0.18.0
+          tag=marketradar-android-0.19.0
           cat > /tmp/notes.md <<'EOF'
-          # MarketRadar Android 0.18.0 — signed test build
-          Corrected nested marketplace scrolling: the Android search
-          now identifies the product-list scroll container and scrolls
-          it rather than assuming the browser window always moves.
-          Initial price checks also accept plausible truncated WB titles
-          (full identity still verified against the product page).
-          The browser can still be challenged/blocked and real WB
-          matching prices have not been proven in an Android device run.
-          Package com.marketradar.mobile.next, same persistent v2 signing certificate.
-          Version code 17 upgrades installed v0.14.0 and other v0.2+ APKs
-          in place WITHOUT deleting WebView sessions or saved settings.
-
-          Native Android WebView now captures the Wildberries site's own
-          first-party JSON product search response (when supplied by the site),
-          alongside DOM card parsing. No external API keys, cookies or account
-          credentials are exported. Uses AndroidX document-start JS feature,
-          and falls back gracefully when WebView does not support it.
-          A real browser that returns no product data remains an access
-          limitation, not a proven lowest price.
-
-          Faster price-sorted WB search checks an exact product after two further
-          search viewports, BEFORE walking thousands of candidates.
-          If early verification finds no eligible delivery, scan automatically
-          expands to the complete listing.
-          Product-card extraction accepts WB sibling price/title labels and
-          lazy image placeholders; missing results report page title and
-          number of extracted product links.
-          Cheapest confirmed offer is shown even if delivery is later than
-          the requested deadline, with a separate timely best price.
-          Literal exact-model matches bypass probabilistic AI checks.
-
-          Prior WB search discovery fix: candidate URLs with abbreviated
-          listing names like "Умная колонка Станция Мини" now reach their
-          full product page and local NLI model verification instead of
-          being permanently rejected by strict substring matching.
-          Separate model names, image alt text and nearest tile context
-          are included as retrieval evidence but never count as verified
-          product identity until the full page has been inspected.
-          A verified Ozon price can no longer prune uninspected WB products:
-          per-store price bounds protect against discount differences.
-          The misleading "WB prices are all more expensive" status is removed
-          when WB had no confirmed offer.
-          Tests include user-reported WB 11 316 RUB and 10 772 RUB listing
-          examples, with deadlines 20 and 25 November 2026.
-          This does NOT prove that native-app-only WB prices or checkout
-          payment promotions can be retrieved by an Android WebView.
-          Signed, in-place upgrade retaining marketplace cookies and
-          light/dark/theme settings; this remains a test release.
+          # MarketRadar Android 0.19.0 — photo-first offer cards
+          Search results now prioritize real product images, price, marketplace,
+          short product name, and delivery date. Tap the whole card to inspect
+          the listing. Product imagery is extracted from the marketplace's
+          search tile and verified product page and fetched via HTTPS.
+          Technical per-store statuses and scraper diagnostics are no longer
+          shown in the result cards; search diagnostics remain available in
+          the separate report. Offers still sort by lowest found price.
+          Confirmed lower prices with later delivery remain visible rather
+          than being silently excluded; check dates and wallet conditions.
+          The search may remain incomplete if a marketplace blocks WebView.
+          Product-price and date hints are not confirmed checkout quotations.
+          Reuses the persistent Android v2 signing key, package
+          com.marketradar.mobile.next, and preserves installed sessions/settings.
+          APK versionCode 19; installs over prior v0.18.0.
           EOF
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release edit "$tag" --repo "$GITHUB_REPOSITORY" \
-              --title "MarketRadar Android 0.18.0 — stable-signing preview" \
+              --title "MarketRadar Android 0.19.0 — stable-signing preview" \
               --notes-file /tmp/notes.md --prerelease
             gh release upload "$tag" --repo "$GITHUB_REPOSITORY" \
-              dist/MarketRadar-Android-0.18.0.apk dist/SHA256SUMS.txt --clobber
+              dist/MarketRadar-Android-0.19.0.apk dist/SHA256SUMS.txt --clobber
           else
             gh release create "$tag" --repo "$GITHUB_REPOSITORY" \
-              dist/MarketRadar-Android-0.18.0.apk dist/SHA256SUMS.txt \
-              --title "MarketRadar Android 0.18.0 — stable-signing preview" \
+              dist/MarketRadar-Android-0.19.0.apk dist/SHA256SUMS.txt \
+              --title "MarketRadar Android 0.19.0 — stable-signing preview" \
               --notes-file /tmp/notes.md --prerelease
           fi
           gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets \
