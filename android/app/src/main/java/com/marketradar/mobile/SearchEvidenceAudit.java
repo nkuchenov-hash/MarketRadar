@@ -101,20 +101,24 @@ final class SearchEvidenceAudit {
             .append("; отобрано до ИИ ").append(accepted)
             .append("; исключено до ИИ ").append(rejected)
             .append("; без цены ").append(noPrice);
+        appendExamples(out,sorted,true,8,"Самые дешёвые подходящие кандидаты");
+        appendExamples(out,sorted,false,3,"Дешёвые ссылки, исключённые до ИИ");
+        return out.toString();
+    }
+
+    private static void appendExamples(StringBuilder out,ArrayList<Card> sorted,
+            boolean candidates,int max,String heading){
         int examples=0;
         for(Card card:sorted){
-            if(examples>=8)break;
-            // These are evidence samples, not guaranteed matched products.
-            // Include rejected inexpensive cards to identify false negatives.
-            if(card.price<=0)continue;
+            if(card.eligible!=candidates||card.price<=0)continue;
+            if(examples++==0)out.append("\n").append(heading).append(':');
+            if(examples>max)break;
             out.append("\n  ").append(card.price).append(" ₽")
                 .append(" · ").append(card.delivery.isBlank()?"дата ?":card.delivery)
                 .append(" · ").append(card.stage)
                 .append(" · ").append(publicId(card.path))
                 .append(" · ").append(trim(card.title,74));
-            examples++;
         }
-        return out.toString();
     }
 
     private static String publicId(String path){
