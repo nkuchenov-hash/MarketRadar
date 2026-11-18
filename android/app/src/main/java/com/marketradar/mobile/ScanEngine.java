@@ -423,6 +423,21 @@ final class ScanEngine {
             text.contains("checking your browser") ||
             ("...".equals(title) && text.length()<90);
     }
+    static boolean explicitAccessChallenge(String title,String body,int productLinks){
+        // Marketplace pages sometimes contain an incidental mention of
+        // "captcha" in ordinary UI text. A page with product cards is NOT
+        // evidence that a marketplace blocked the session.
+        if(productLinks>0)return false;
+        String headline=title==null?"":title.trim().toLowerCase(Locale.ROOT);
+        String text=body==null?"":body.toLowerCase(Locale.ROOT);
+        return headline.equals("403")||headline.equals("access denied")||
+            text.contains("подозрительная активность")||
+            text.contains("вы не робот")||
+            text.contains("access denied")||
+            (text.contains("captcha")&&
+             (text.contains("пройдите проверку")||text.contains("verify you are human")));
+    }
+
     static boolean exceededIdle(long lastProgress,long now,long idleLimit){
         return now-lastProgress>=idleLimit;
     }
@@ -665,14 +680,15 @@ final class ScanEngine {
             }
             return;
         }
-        if(body.contains("подозрительная активность")||
-            body.contains("похоже, нет соединения")||
-            body.contains("вы не робот")||body.contains("captcha")||
-            body.contains("access denied")||title.equals("403")) {
+        if(!details&&body.contains("похоже, нет соединения")){
+            failPage("Ошибка загрузки: магазин сообщает о проблеме соединения");
+            return;
+        }
+        JSONArray pageLinks=data.optJSONArray("links");
+        if(explicitAccessChallenge(title,body,
+            pageLinks==null?0:pageLinks.length())){
             coverageIncomplete=true;
-            listener.status(shop,shop.id.equals("wb")?
-                "Wildberries ограничил браузерную выдачу · цены не проверены":
-                "Магазин ограничил доступ · цены не проверены");
+            listener.status(shop,"Магазин показал страницу проверки доступа");
             nextMarket();return;
         }
         if(details){
