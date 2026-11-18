@@ -38,6 +38,8 @@ final class ParallelScanCoordinator {
     private final DynamicPriceFrontier frontier=new DynamicPriceFrontier();
     private final List<Worker> workers=new ArrayList<>();
     private final Map<WebView,Worker> byBrowser=new IdentityHashMap<>();
+    private CloudSearchClient cloudClient;
+    private boolean cloudMode=false;
     private boolean running=false;
     private boolean wasTimeLimited=false;
     private boolean coverageIncomplete=false;
@@ -146,7 +148,8 @@ final class ParallelScanCoordinator {
     }
     boolean isRunning(){return running;}
     boolean wasTimeLimited(){return wasTimeLimited;}
-    boolean coverageIncomplete(){return coverageIncomplete;}
+    boolean coverageIncomplete(){return cloudMode&&cloudClient!=null?
+        cloudClient.coverageIncomplete():coverageIncomplete;}
     String marketBreakdown(String id){
         String completedReport=completedBreakdown.get(id);
         if(completedReport!=null)return completedReport;
@@ -157,6 +160,17 @@ final class ParallelScanCoordinator {
         return "Этапы поиска ещё не начались";
     }
     String progressSummary(){
+        if(cloudMode && cloudClient!=null){
+            StringBuilder result=new StringBuilder(cloudClient.progressSummary());
+            for(Shop shop:pendingMarkets){
+                MarketProgress record=marketProgress.get(shop.id);
+                result.append("\n").append(shop.name).append(": ");
+                String state=record==null?"ожидаем":record.status;
+                if(state.isBlank())state="ожидаем";
+                result.append(state.length()>100?state.substring(0,100)+"…":state);
+            }
+            return result.toString();
+        }
         StringBuilder report=new StringBuilder(running?
             "Поиск идёт · обработано площадок: ":
             "Поиск завершён · обработано площадок: ")
@@ -230,6 +244,46 @@ final class ParallelScanCoordinator {
         marketProgress.clear();
         for(Shop market:pendingMarkets)
             marketProgress.put(market.id,new MarketProgress());
+        String cloudUrl=activity.getSharedPreferences("market_sessions",Activity.MODE_PRIVATE)
+            .getString("cloud_browser_url","").trim();
+        cloudMode=!cloudUrl.isEmpty();
+        if(cloudMode){
+            if(cloudClient==null)cloudClient=new CloudSearchClient(handler,
+                new CloudSearchClient.Listener(){
+                    @Override public void onMarket(Shop shop,String state,
+                            String breakdown,boolean incomplete){
+                        if(!running||!cloudMode)return;
+                        MarketProgress record=marketProgress.get(shop.id);
+                        if(record!=null){
+                            record.started=true;
+                            record.updatedAt=android.os.SystemClock.elapsedRealtime();
+                            record.status=state;
+                            boolean finished=state.contains(": complete")||
+                                state.contains(": partial")||
+                                state.contains(": blocked")||
+                                state.contains(": error");
+                            record.finished=finished;
+                            record.incomplete=incomplete;
+                        }
+                        completedBreakdown.put(shop.id,breakdown);
+                        listener.status(shop,state);
+                    }
+                    @Override public void onOffer(ScanEngine.Offer offer){
+                        if(running&&cloudMode)listener.offer(offer);
+                    }
+                    @Override public void onComplete(boolean incomplete,boolean cancelled){
+                        if(!running||!cloudMode)return;
+                        coverageIncomplete=incomplete;
+                        running=false;
+                        completed=workersInSearch;
+                        listener.done();
+                    }
+                });
+            cloudClient.start(cloudUrl,query,markets);
+            listener.status(markets.get(0),"Облачный Chromium · запрос отправляется");
+            return;
+        }
+        // Local search is retained only while no cloud server address is set.
         // Working WB and Yandex results should not be blocked behind a
         // challenge-heavy Ozon WebView. Order affects start only, not ranking.
         pendingMarkets.sort(java.util.Comparator.comparingInt(
@@ -274,6 +328,8 @@ final class ParallelScanCoordinator {
         if(worker!=null&&isCurrent(worker))worker.scan.onHttpError(url,statusCode);
     }
     void stop(){
+        if(cloudClient!=null)cloudClient.stop();
+        cloudMode=false;
         generation++;
         running=false;
         pendingMarkets.clear();
