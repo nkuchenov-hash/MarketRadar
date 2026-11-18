@@ -149,6 +149,24 @@ public class OfferPresentationTest {
         assertFalse(expanded.contains(yandexLate));
     }
 
+    @Test public void compactAlwaysKeepsAbsoluteMinimumWhenDeliveryIsLateOrUnknown(){
+        DeliveryPolicy policy=new DeliveryPolicy(3,false,15,LocalDate.of(2026,11,18));
+        ScanEngine.Offer timely=item(11835,"20 ноября");
+        ScanEngine.Offer late=item(10772,"28 ноября");
+        ScanEngine.Offer unknown=item(10893,"");
+        ArrayList<ScanEngine.Offer> compact=OfferPresentation.visibleOffers(
+            Arrays.asList(timely,late,unknown),policy,false,false);
+        assertTrue(compact.contains(timely));
+        assertTrue(compact.contains(late));
+        assertFalse(compact.contains(unknown));
+        assertEquals(2,compact.size());
+
+        ArrayList<ScanEngine.Offer> onlyUnknown=OfferPresentation.visibleOffers(
+            Arrays.asList(unknown),policy,false,false);
+        assertEquals(1,onlyUnknown.size());
+        assertSame(unknown,onlyUnknown.get(0));
+    }
+
     @Test public void crossYearDateIsUnambiguous(){
         DeliveryPolicy policy=new DeliveryPolicy(5,false,15,LocalDate.of(2026,12,30));
         assertEquals("Доставка до 4 января 2027 · 5 дн.",OfferPresentation.deadline(policy));
