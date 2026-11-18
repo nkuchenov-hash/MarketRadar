@@ -74,7 +74,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
     private TextView bestPrice, priceSummary, marketProgress, resultsHeading, bestPriceLabel;
     private LinearLayout summaryPanel, filterPanel, sortRow;
     private Button sortToggleButton;
-    private TextView deadlineLabel, alternativeSummary, marketNotice;
+    private TextView deadlineLabel, marketNotice;
     private Button retryMissingButton;
     private TextView deadlinePreview;
     private boolean sortByDelivery=false;
@@ -312,10 +312,6 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         priceSummary=text("",12,MUTED,false);
         priceSummary.setVisibility(View.GONE);
         add(summaryPanel,priceSummary,-1,-2);
-        alternativeSummary=text("",12,MUTED,false);
-        alternativeSummary.setVisibility(View.GONE);
-        gap(summaryPanel,5);
-        add(summaryPanel,alternativeSummary,-1,-2);
         marketProgress=text("",14,TEXT,false);
         add(page,summaryPanel,-1,-2);
         gap(page,12);
@@ -973,9 +969,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
                 if(bestEligible==null||o.price<bestEligible.price)bestEligible=o;
             }
         }
-        String cutoff=OfferPresentation.deadline(deliveryPolicy)
-            .replace("Доставка до ","до ");
-        bestPriceLabel.setText("Лучшее с доставкой "+cutoff);
+        bestPriceLabel.setText("Лучшая цена с доставкой в срок");
         if(bestEligible==null){
             bestPrice.setText(offers.isEmpty()?"Ищем…":"Пока не найдено");
             bestPrice.setTextSize(20);
@@ -993,9 +987,6 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
             priceSummary.setText(bestEligible.shop.name+" · "+delivery+wallet+exception);
             priceSummary.setVisibility(View.VISIBLE);
         }
-        // Alternative prices appear only in the product section, not repeated
-        // as another technical status inside the main price summary.
-        alternativeSummary.setVisibility(View.GONE);
         if(sortRow!=null)
             sortRow.setVisibility(offers.isEmpty()?View.GONE:View.VISIBLE);
         count.setVisibility(View.GONE);
@@ -1138,6 +1129,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         }
         resultsHeading.setText(eligibleCount>0?
             "В срок · "+eligibleCount:"Предложения · "+visible.size());
+        resultsHeading.setVisibility(View.VISIBLE);
         boolean otherHeadingAdded=false;
         for(ScanEngine.Offer o:visible){
             boolean secondary=OfferPresentation.priority(deliveryPolicy,o,timelyBest)!=0;
