@@ -1087,8 +1087,9 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
                 if(o.shop.id.equals(shop.id))candidates++;
             for(ScanEngine.Offer o:offers)
                 if(o.shop.id.equals(shop.id))confirmed++;
-            report.append("\n  Найденных кандидатов: ").append(candidates);
+            report.append("\n  Предложений передано на проверку: ").append(candidates);
             report.append("; подтверждено локальной моделью: ").append(confirmed);
+            report.append("\n  Этапы поиска: ").append(engine.marketBreakdown(shop.id));
             for(ScanEngine.Offer o:offers){
                 if(o.shop.id.equals(shop.id)){
                     report.append("\n  ").append(o.price>0?rubles(o.price):"Цена неизвестна");
