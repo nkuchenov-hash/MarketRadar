@@ -444,6 +444,11 @@ final class ScanEngine {
     static boolean expandedScanLimitReached(boolean expanded,int snapshots){
         return expanded&&snapshots>=MAX_EXPANDED_LISTING_SNAPSHOTS;
     }
+    static boolean canPrunePriceCandidate(Shop shop,boolean observedAscending){
+        // Search params alone are not enough; order should be observable
+        // from the marketplace's priced product cards in this search.
+        return shop!=null&&(shop.id.equals("ozon")||observedAscending);
+    }
     static boolean settledAtBottom(boolean bottom,long height,long previousHeight,
                                    int count,int previousCount){
         return bottom&&height==previousHeight&&count==previousCount;
@@ -870,7 +875,9 @@ final class ScanEngine {
         if(fastCheckReady(listingSnapshots,firstExactSnapshot,
                           searchPool.size(),fullPassFallback)){
             stoppedForFastCheck=true;
-            coverageIncomplete=true;
+            // WB/Yandex run an expanded follow-up after the quick check;
+            // only an actual access/scroll failure makes them incomplete.
+            if(shop.id.equals("ozon"))coverageIncomplete=true;
             listener.status(shop,"Найдена точная модель в выдаче · сразу проверяем цены");
             finishListingCollection();
             return;
@@ -1080,8 +1087,8 @@ final class ScanEngine {
         // demonstrates stable ascending order. In personalized WB/Yandex
         // listings the same item may be cheaper under an account condition.
         // A URL parameter by itself is not sufficient evidence.
-        boolean safeToPrune=shop!=null&&
-            (shop.id.equals("ozon")||sortEvidence.ascendingObserved());
+        boolean safeToPrune=canPrunePriceCandidate(
+            shop,sortEvidence.ascendingObserved());
         int next=safeToPrune?
             DynamicPriceFrontier.nextUnpruned(candidates,cardIndex,frontier,shop):
             cardIndex;
