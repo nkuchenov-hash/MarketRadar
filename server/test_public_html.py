@@ -25,6 +25,36 @@ class SSRExtractionTests(unittest.TestCase):
         self.assertEqual(14900,r["links"][1]["price"])
         self.assertEqual("завтра",r["links"][1]["delivery_hint"])
 
+    def test_yandex_snippet_price_label_does_not_replace_product_title(self):
+        html = '''
+        <div data-baobab-name="productSnippet"
+          data-zone-data="{&quot;deliveryOptions&quot;:[{&quot;type&quot;:&quot;COURIER&quot;,
+          &quot;dateFrom&quot;:&quot;2026-11-20&quot;}]}">
+          <a href="/card/umnaya-kolonka-yandeks-stantsiya-mini-3-pro/4554877195">
+            Цена с картой Яндекс Пэй 12 447 ₽
+          </a>
+          <h3 data-auto="snippet-title">Умная колонка Яндекс Станция Мини 3 Про</h3>
+          <img alt="Умная колонка Яндекс Станция Мини 3 Про"
+               src="https://cdn.example.org/item.webp">
+        </div>
+        '''
+        r=extract_public_html(html,self.ORIGIN)
+        self.assertEqual(1,r["unique_products"])
+        product=r["links"][0]
+        self.assertEqual(12447,product["price"])
+        self.assertEqual("Умная колонка Яндекс Станция Мини 3 Про",product["title"])
+        self.assertEqual("20 ноября",product["delivery_hint"])
+        self.assertEqual("https://cdn.example.org/item.webp",product["image_url"])
+
+    def test_bad_price_label_uses_product_slug_as_title(self):
+        html = '''
+        <article><a href="/card/yandeks-stantsiya-mini-3-pro/4554877195">
+        Цена с картой Яндекс Пэй 12 447 ₽</a></article>
+        '''
+        r=extract_public_html(html,self.ORIGIN)
+        self.assertEqual(1,r["unique_products"])
+        self.assertIn("Яндекс Станция Мини 3 Про",r["links"][0]["title"])
+
     def test_shared_price_is_never_attributed_to_each_product(self):
         html = """
         <div id="grid">
