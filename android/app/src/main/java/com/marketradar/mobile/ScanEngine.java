@@ -81,6 +81,32 @@ final class ScanEngine {
               const r=e.getBoundingClientRect();
               return r.width>0&&r.height>0;
             };
+            // Delivery may live in a sibling widget OUTSIDE the price label.
+            // Only inspect ancestors containing one distinct product URL.
+            const tileDelivery=a=>{
+              const date=/(?:сегодня|завтра|послезавтра|через\\s*\\d{1,2}\\s*(?:дн|сут)|\\d{1,2}\\s*(?:января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря|янв\\.?|фев\\.?|мар\\.?|апр\\.?|июн\\.?|июл\\.?|авг\\.?|сен\\.?|окт\\.?|ноя\\.?|дек\\.?))/i;
+              for(let node=a;node&&node!==body;node=node.parentElement){
+                const productLinks=new Set([...node.querySelectorAll(
+                  'a[href*="/catalog/"],a[href*="/product/"],a[href*="/card/"]'
+                )].map(link=>{
+                  try{const u=new URL(link.href);
+                    return u.origin+u.pathname.replace(/\\/$/,'');
+                  }catch(e){return link.href;}
+                }));
+                if(productLinks.size>1)break;
+                const specific=node.querySelectorAll(
+                  '[class*="deliver"],[class*="Deliver"],[data-testid*="deliver"],[class*="pickup"],[class*="arrival"]');
+                for(const el of [...specific].slice(0,15)){
+                  const text=(el.innerText||el.textContent||'').slice(0,200);
+                  const match=text.match(date);
+                  if(match)return match[0];
+                }
+                const text=(node.innerText||'').slice(0,1300);
+                const match=text.match(date);
+                if(match&&productLinks.size===1)return match[0];
+              }
+              return '';
+            };
             const tileText=a=>{
               // Search cards often keep the image, title and wallet price in
               // SIBLING elements, not inside the product anchor itself.
@@ -115,7 +141,8 @@ final class ScanEngine {
               try{const u=new URL(rawImage,location.href);
                   if(u.protocol==='https:')imageUrl=u.href;}catch(e){}
               links.push({url:url.href,title,context:context.slice(0,1300),
-                          imageAlt,imageUrl,priceCondition});
+                          imageAlt,imageUrl,priceCondition,
+                          deliveryHint:tileDelivery(a)});
             }
             // WB's own search XHR can be ready before cards render as DOM.
             // Reuse only the response already seen by this same WebView.
@@ -284,12 +311,24 @@ final class ScanEngine {
             let imageUrl='';
             try{const u=new URL(rawPhoto,location.href);
                 if(u.protocol==='https:')imageUrl=u.href;}catch(e){}
+            // Product pages sometimes render delivery only after card opening.
+            // Avoid reading unrelated date mentions from the entire page.
+            let deliveryHint='';
+            const deliveryDate=/(?:сегодня|завтра|послезавтра|через\\s*\\d{1,2}\\s*(?:дн|сут)|\\d{1,2}\\s*(?:января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря|янв\\.?|фев\\.?|мар\\.?|апр\\.?|июн\\.?|июл\\.?|авг\\.?|сен\\.?|окт\\.?|ноя\\.?|дек\\.?))/i;
+            const widgets=document.querySelectorAll(
+              '[data-testid*="deliver"],[class*="delivery"],[class*="Delivery"],[class*="arrival"],[class*="pickup"]');
+            for(const node of [...widgets].slice(0,40)){
+              const text=(node.innerText||node.textContent||'').trim().slice(0,300);
+              const match=text.match(deliveryDate);
+              if(match){deliveryHint=match[0];break;}
+            }
             return JSON.stringify({
               url:location.href,
               title:document.title,
               heading:document.querySelector('h1')?.innerText||'',
               text:(body?.innerText||'').slice(0,1800),
               imageUrl,
+              deliveryHint,
               structuredPrices
             });
           }catch(e){
@@ -903,7 +942,8 @@ final class ScanEngine {
             if(!CandidateDiscovery.shouldInspect(query,title,context,imageAlt))continue;
             String clean=cleanUrl(url);
             int listingPrice=readCardPrice(context);
-            String delivery=readDeliveryHint(context);
+            String delivery=readDeliveryHint(item.optString("deliveryHint",""));
+            if(delivery.isBlank())delivery=readDeliveryHint(context);
             String priceCondition=priceConditionForCard(
                 context,item.optString("priceCondition",""),shop);
             String key=clean+"\u0001"+delivery+"\u0001"+priceCondition;
@@ -1014,6 +1054,8 @@ final class ScanEngine {
                 else
                     note="Модель совпадает · цена не найдена";
                 String delivery=candidates.get(cardIndex-1).deliveryHint;
+                if(delivery.isBlank())
+                    delivery=readDeliveryHint(data.optString("deliveryHint",""));
                 String priceCondition=candidates.get(cardIndex-1).priceCondition;
                 String image=data.optString("imageUrl","");
                 if(image.isBlank())image=selected.imageUrl;
