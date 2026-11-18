@@ -107,20 +107,33 @@ _DOM_SNAPSHOT = r"""() => {
         .filter(a => { try {return new URL(a.href).protocol === 'https:' &&
             path.test(new URL(a.href).pathname);} catch(e) {return false;} });
     for (const a of productLinks) {
+        const uniqueProducts=node=>new Set(
+            [...node.querySelectorAll('a[href]')].filter(a=>{
+                try{return path.test(new URL(a.href).pathname);}catch(e){return false;}
+            }).map(a=>{
+                try{const u=new URL(a.href);return u.origin+u.pathname.replace(/\\/$/,'');}
+                catch(e){return a.href;}
+            })
+        ).size;
         let tile = a.closest('[data-testid*="product"],[data-nm-id],article,li,.product-card');
+        if(tile && uniqueProducts(tile)>1)tile=null;
         if (!tile) {
             let node = a;
             for(let i = 0; i < 8 && node.parentElement; i++) {
                 node = node.parentElement;
                 const txt = (node.innerText || '').trim();
-                const links = node.querySelectorAll('a[href]').length;
+                if(uniqueProducts(node)>1)break;
                 price.lastIndex = 0;
-                if(txt.length > 12 && txt.length < 2200 &&
-                    (price.test(txt) || links > 1)) {tile = node; break;}
-                price.lastIndex = 0;
+                if(txt.length > 12 && txt.length < 2200 && price.test(txt)){
+                    tile = node; break;
+                }
             }
         }
-        const context = (tile?.innerText || a.parentElement?.innerText || a.innerText || '')
+        // Never attribute the cheapest price of a multi-product list to
+        // every child anchor. Unknown price is preferable to a false minimum.
+        const fallback = uniqueProducts(a.parentElement||a)>1 ? a.innerText :
+            (a.parentElement?.innerText||a.innerText);
+        const context = (tile?.innerText || fallback || '')
             .trim().slice(0,2200);
         const title = (a.getAttribute('title') || a.getAttribute('aria-label') ||
             a.innerText || a.querySelector('img')?.alt ||
