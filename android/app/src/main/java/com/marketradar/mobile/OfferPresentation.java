@@ -30,6 +30,19 @@ final class OfferPresentation {
             .thenComparingInt(offer->dateRank(policy,offer));
     }
 
+    /** Priority is determined by search conditions, not by the absolute cheapest price. */
+    static int priority(DeliveryPolicy policy,ScanEngine.Offer offer,int timelyBest){
+        if(policy.eligible(offer.price,offer.deliveryHint,timelyBest))return 0;
+        return policy.days(offer.deliveryHint)>=0?1:2;
+    }
+
+    static Comparator<ScanEngine.Offer> priorityComparator(
+            DeliveryPolicy policy,boolean deliveryFirst,int timelyBest){
+        return Comparator.comparingInt(
+            (ScanEngine.Offer offer)->priority(policy,offer,timelyBest))
+            .thenComparing(comparator(policy,deliveryFirst));
+    }
+
     private static String dateText(LocalDate date,LocalDate base){
         return date.format(date.getYear()==base.getYear()?DAY_MONTH:FULL_DATE);
     }
