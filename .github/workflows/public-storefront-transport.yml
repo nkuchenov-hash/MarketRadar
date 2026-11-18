@@ -20,6 +20,7 @@ jobs:
         run: |
           python - <<'PY'
           import json, urllib.request, urllib.error, urllib.parse, socket, re, html
+          from server.public_html import extract_public_html
           from pathlib import Path
 
           q=urllib.parse.quote("Яндекс Станция Мини 3 Про")
@@ -67,6 +68,18 @@ jobs:
                     result["response_url_host"]=urllib.parse.urlparse(response.url).hostname
                     content=payload.decode("utf-8","replace")
                     unescaped=html.unescape(content)
+                    ssr=extract_public_html(content,"https://market.yandex.ru/search?text="+q)
+                    result["ssr_audit"]={
+                      "unique_products":ssr["unique_products"],
+                      "observed_anchors":ssr["observed_product_anchors"],
+                      "priced_anchors":ssr["priced_anchors"],
+                      "products":[{
+                        "title":x["title"][:90],
+                        "price":x["price"],
+                        "delivery":x["delivery_hint"],
+                        "url_path":urllib.parse.urlparse(x["url"]).path
+                      } for x in ssr["links"][:10]]
+                    }
                     result["total_read_bytes"]=len(payload)
                     result["html_anchor_count"]=content.count("<a ")
                     result["html_price_mentions"]=content.count("₽")
