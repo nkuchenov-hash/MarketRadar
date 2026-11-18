@@ -44,6 +44,7 @@ jobs:
           from pathlib import Path
           from urllib.parse import quote
           from server.cloud_browser import CloudBrowser, sorted_search_url, network_products
+          from server.mobile_cloud import exact_product
 
           async def main():
               q = "Яндекс Станция Мини 3 Про"
@@ -63,12 +64,20 @@ jobs:
                           "price": x.get("price"),
                           "title": x.get("title"),
                           "url": x.get("url"),
-                          "source": x.get("source")
+                          "source": x.get("source"),
+                          "delivery":x.get("delivery_hint",""),
+                          "has_image":bool(x.get("image_url",""))
                       } for x in links[:12]]
+                      exact=[x for x in links if
+                             x.get("price",0)>0 and
+                             exact_product(q,x.get("title",""))]
                       findings[market] = {
                           "state":result.get("state"),"requested_url":sorted_search_url(url),
                           "final_url":result.get("url"),"page_title":result.get("title"),
-                          "total_products":len(links),"coverage_complete":result.get("coverage_complete"),
+                          "total_products":len(links),"exact_priced_matches":len(exact),
+                          "cheapest_exact_listing_price":min(
+                              (x["price"] for x in exact),default=None),
+                          "coverage_complete":result.get("coverage_complete"),
                           "audit":result.get("audit",{}),
                           "diagnostic":result.get("diagnostic",""),
                           "sample":examples,
@@ -80,7 +89,7 @@ jobs:
               Path("live-storefront-search.json").write_text(
                   json.dumps(findings,ensure_ascii=False,indent=2), encoding="utf-8")
               ym=findings["Яндекс Маркет"]
-              if ym["state"]!="ok" or ym["total_products"]<1:
+              if ym["state"]!="ok" or ym["exact_priced_matches"]<1:
                   raise RuntimeError("Yandex Market live Chromium search returned no verifiable product records")
           asyncio.run(main())
           PY
