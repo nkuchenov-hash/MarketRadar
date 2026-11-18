@@ -28,6 +28,10 @@ import android.view.WindowManager;
 import android.view.inputmethod.InputMethodManager;
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.content.ClipData;
+import android.content.ClipboardManager;
+import android.content.Intent;
+import android.widget.Toast;
 import android.webkit.CookieManager;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceError;
@@ -96,6 +100,8 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
     private int aiGeneration=0;
     private String activeQuery="";
     private int resumeAttempts=0;
+    private boolean progressTickerRunning=false;
+    private long searchStartedAt=0L;
     private static final ExecutorService PHOTO_POOL=Executors.newFixedThreadPool(3);
     private static final LruCache<String,Bitmap> PHOTO_CACHE=new LruCache<String,Bitmap>(24*1024*1024){
         @Override protected int sizeOf(String url,Bitmap bitmap){return bitmap.getByteCount();}
@@ -439,10 +445,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         gap(settingsPage,14);
         Button lastReport=button("Отчёт о последнем поиске",false);
         add(settingsPage,lastReport,-1,44);
-        lastReport.setOnClickListener(v->new AlertDialog.Builder(this)
-            .setTitle("Отчёт о поиске")
-            .setMessage(prefs.getString("last_search_diagnostics","Поисков пока не было"))
-            .setPositiveButton("Закрыть",null).show());
+        lastReport.setOnClickListener(v->showDiagnostics());
         gap(settingsPage,20);
 
         add(marketPage,text("МОИ МАРКЕТПЛЕЙСЫ",11,ACCENT,true),-1,22);
@@ -481,11 +484,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         gap(marketPage,12);
         Button report=button("Отчёт о последнем поиске",false);
         add(marketPage,report,-1,44);
-        report.setOnClickListener(v->new AlertDialog.Builder(this)
-            .setTitle("Что произошло при поиске")
-            .setMessage(prefs.getString("last_search_diagnostics",
-                "Поисков пока не было"))
-            .setPositiveButton("Закрыть",null).show());
+        report.setOnClickListener(v->showDiagnostics());
         gap(marketPage,15);
         Button clear=button("Сбросить все входы на этом телефоне",false);
         add(marketPage,clear,-1,46);
@@ -783,8 +782,10 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
                 if(isFinishing()||isDestroyed()||engine==null||engine.isRunning())return;
                 try{
                     startSearchProtection();
+                    searchStartedAt=android.os.SystemClock.elapsedRealtime();
                     engine.start(activeQuery,Integer.MAX_VALUE,lastSelectedMarkets,
                         deliveryPolicy);
+                    startProgressTicker();
                 }catch(Exception error){
                     stopSearchProtection();
                     progress.setText("Не удалось продолжить поиск автоматически");
@@ -859,9 +860,11 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         retryMissingButton.setVisibility(View.GONE);
         progress.setVisibility(View.VISIBLE);
         progress.setText("Поиск…");
+        searchStartedAt=android.os.SystemClock.elapsedRealtime();
         saveCurrentSearch(true);
         startSearchProtection();
         engine.start(q,Integer.MAX_VALUE,chosen,deliveryPolicy);
+        startProgressTicker();
     }
     @Override public void status(Shop shop,String state){
         runOnUiThread(()->{
@@ -870,7 +873,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
             // search look as though Ozon (or another store) is still running.
             if(engine!=null&&engine.isRunning()){
                 progress.setVisibility(View.VISIBLE);
-                progress.setText("Идёт поиск предложений…");
+                progress.setText(engine.progressSummary());
             }
             updateSummary();
         });
@@ -907,7 +910,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
             if(!exists){
                 offers.add(o);
                 renderResults();
-                progress.setText("Подбираем предложения дешевле найденной цены…");
+                progress.setText(engine.progressSummary());
                 // Android may kill a background WebView process at any point.
                 saveCurrentSearch(true);
             }
@@ -993,6 +996,71 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
     }
     // Kept off the main search screen. Explicit per-shop evidence helps
     // diagnose access blocks and early timeouts without leaking cookies.
+    private String currentDiagnosticReport(){
+        if(engine==null||!engine.isRunning())
+            return prefs.getString("last_search_diagnostics",
+                "Завершённых поисков пока не было");
+        StringBuilder report=new StringBuilder("MarketRadar · текущий поиск\n");
+        report.append("Время: ").append(
+            java.text.DateFormat.getDateTimeInstance().format(new java.util.Date())).append('\n');
+        report.append("Запрос: ").append(activeQuery).append('\n');
+        report.append(OfferPresentation.deadline(deliveryPolicy)).append('\n');
+        report.append("Продолжительность: ")
+            .append(Math.max(0,(android.os.SystemClock.elapsedRealtime()-searchStartedAt)/1000))
+            .append(" с\n");
+        report.append("Подтверждено предложений: ").append(offers.size()).append('\n');
+        report.append("Проверяется локально: ").append(pendingOffers.size()).append('\n');
+        report.append(engine.detailedProgress());
+        report.append("\nПоследние сообщения по площадкам:\n");
+        for(Shop shop:lastSelectedMarkets){
+            report.append(shop.name).append(": ")
+                .append(marketStates.getOrDefault(shop.id,"нет сообщений"))
+                .append('\n');
+        }
+        report.append("\nЛогины, cookies и ключи в отчёт не включаются.");
+        return report.toString();
+    }
+    private void showDiagnostics(){
+        final String full=currentDiagnosticReport();
+        String preview=full.length()>1600?full.substring(0,1600)+
+            "\n…\nПолный отчёт доступен через «Копировать» или «Поделиться».":full;
+        new AlertDialog.Builder(this)
+            .setTitle(engine!=null&&engine.isRunning()?
+                "Диагностика текущего поиска":"Последняя диагностика")
+            .setMessage(preview)
+            .setNeutralButton("Копировать",(dialog,which)->{
+                ClipboardManager clipboard=(ClipboardManager)
+                    getSystemService(Context.CLIPBOARD_SERVICE);
+                clipboard.setPrimaryClip(ClipData.newPlainText(
+                    "MarketRadar — диагностика",full));
+                Toast.makeText(this,"Диагностика скопирована",Toast.LENGTH_SHORT).show();
+            })
+            .setPositiveButton("Поделиться",(dialog,which)->{
+                Intent share=new Intent(Intent.ACTION_SEND);
+                share.setType("text/plain");
+                share.putExtra(Intent.EXTRA_SUBJECT,"Диагностика MarketRadar");
+                share.putExtra(Intent.EXTRA_TEXT,full);
+                startActivity(Intent.createChooser(share,"Отправить диагностику"));
+            })
+            .setNegativeButton("Закрыть",null)
+            .show();
+    }
+    private void startProgressTicker(){
+        if(progressTickerRunning)return;
+        progressTickerRunning=true;
+        ui.postDelayed(new Runnable(){
+            @Override public void run(){
+                if(isDestroyed()||isFinishing()||
+                    engine==null||!engine.isRunning()){
+                    progressTickerRunning=false;
+                    return;
+                }
+                progress.setVisibility(View.VISIBLE);
+                progress.setText(engine.progressSummary());
+                ui.postDelayed(this,4000);
+            }
+        },4000);
+    }
     private void saveSearchReport(List<ScanEngine.Offer> provisional,String reason){
         StringBuilder report=new StringBuilder();
         report.append(java.text.DateFormat.getDateTimeInstance().format(new java.util.Date()));
@@ -1214,7 +1282,9 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         // sites for which the current search yielded no verified products.
         saveCurrentSearch(true);
         startSearchProtection();
+        searchStartedAt=android.os.SystemClock.elapsedRealtime();
         engine.start(activeQuery,Integer.MAX_VALUE,missing,deliveryPolicy);
+        startProgressTicker();
     }
     private void updateMarketplaceNotice(){
         if(marketNotice==null)return;
