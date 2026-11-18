@@ -124,6 +124,7 @@ _DOM_SNAPSHOT = r"""() => {
         const title = (a.getAttribute('title') || a.getAttribute('aria-label') ||
             a.innerText || a.querySelector('img')?.alt ||
             tile?.querySelector('img')?.alt || '').trim().slice(0,300);
+        price.lastIndex = 0;
         const matches = [...context.matchAll(price)];
         const prices = matches.map(m => Number(m[1].replace(/\D/g,'')))
             .filter(n => n >= 100 && n <= 50000000);
@@ -132,6 +133,7 @@ _DOM_SNAPSHOT = r"""() => {
             source:'dom'});
     }
     const body = (document.body?.innerText || '').slice(0,120000);
+    price.lastIndex = 0;
     const prices = [...body.matchAll(price)].map(m => Number(m[1].replace(/\D/g,'')))
         .filter(n => n >= 100 && n <= 50000000);
     const scroll = document.scrollingElement || document.documentElement;
@@ -164,8 +166,20 @@ class CloudBrowser:
         try:
             from playwright.async_api import async_playwright
             self.playwright = await async_playwright().start()
-            self.browser = await self.playwright.chromium.launch(headless=True,
-                                      args=["--disable-dev-shm-usage"])
+            cdp = os.getenv("MARKETRADAR_CHROMIUM_CDP_URL","").strip()
+            if cdp:
+                # A persistent Chromium worker may run in a network where
+                # storefronts actually serve public pages. Endpoint credentials
+                # are server-side secrets and are never logged or sent to mobile.
+                if not (cdp.startswith("wss://") or
+                        cdp.startswith("ws://127.0.0.1:") or
+                        cdp.startswith("http://127.0.0.1:")):
+                    raise RuntimeError("Удалённый Chromium должен использовать WSS")
+                self.browser = await self.playwright.chromium.connect_over_cdp(
+                    cdp, timeout=30000)
+            else:
+                self.browser = await self.playwright.chromium.launch(headless=True,
+                                          args=["--disable-dev-shm-usage"])
             self.context = await self.browser.new_context(
                 locale="ru-RU", viewport={"width": 1280, "height": 900},
                 service_workers="allow")
