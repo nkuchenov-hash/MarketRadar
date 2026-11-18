@@ -72,9 +72,21 @@ public class OfferPresentationTest {
         DeliveryPolicy policy=new DeliveryPolicy(3,true,15,LocalDate.of(2026,11,18));
         ScanEngine.Offer normal=item(12000,"20 ноября");
         ScanEngine.Offer discounted=item(9900,"28 ноября");
-        assertEquals(0,OfferPresentation.priority(policy,discounted,12000));
+        // Discounts permit a late alternative, never an on-time headline.
+        assertEquals(1,OfferPresentation.priority(policy,discounted,12000));
         assertEquals(0,OfferPresentation.priority(policy,normal,12000));
         assertEquals(1,OfferPresentation.priority(policy,item(11000,"28 ноября"),12000));
+    }
+
+    @Test public void onlyCheaperAlternativesShouldBeShown(){
+        DeliveryPolicy policy=new DeliveryPolicy(3,false,15,LocalDate.of(2026,11,18));
+        assertTrue(OfferPresentation.showAlternative(policy,item(10893,"28 ноября"),11479));
+        assertTrue(OfferPresentation.showAlternative(policy,item(11090,""),11479));
+        assertFalse(OfferPresentation.showAlternative(policy,item(11479,"28 ноября"),11479));
+        assertFalse(OfferPresentation.showAlternative(policy,item(11999,"28 ноября"),11479));
+        assertFalse(OfferPresentation.showAlternative(policy,item(12500,""),11479));
+        assertFalse(OfferPresentation.showAlternative(policy,item(11300,"20 ноября"),11479));
+        assertTrue(OfferPresentation.showAlternative(policy,item(12300,"28 ноября"),0));
     }
 
     @Test public void crossYearDateIsUnambiguous(){
