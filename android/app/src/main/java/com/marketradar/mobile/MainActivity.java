@@ -786,6 +786,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
                     searchStartedAt=android.os.SystemClock.elapsedRealtime();
                     engine.start(activeQuery,Integer.MAX_VALUE,lastSelectedMarkets,
                         deliveryPolicy);
+                    progress.setText(engine.progressSummary());
                     startProgressTicker();
                 }catch(Exception error){
                     stopSearchProtection();
@@ -866,6 +867,8 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         saveCurrentSearch(true);
         startSearchProtection();
         engine.start(q,Integer.MAX_VALUE,chosen,deliveryPolicy);
+        progress.setVisibility(View.VISIBLE);
+        progress.setText(engine.progressSummary());
         startProgressTicker();
     }
     @Override public void status(Shop shop,String state){
@@ -981,10 +984,15 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
             incomplete?"Лучшая найденная цена · поиск неполный":
                 "Лучшая цена с доставкой в срок");
         if(bestEligible==null){
-            bestPrice.setText(offers.isEmpty()?"Ищем…":"Пока не найдено");
+            boolean active=engine!=null&&engine.isRunning();
+            bestPrice.setText(offers.isEmpty()?
+                (active?"Ищем…":"Предложений нет"):"Пока не найдено");
             bestPrice.setTextSize(20);
-            priceSummary.setText(offers.isEmpty()?"":"Подходящие по сроку предложения ещё не найдены");
-            priceSummary.setVisibility(offers.isEmpty()?View.GONE:View.VISIBLE);
+            priceSummary.setText(offers.isEmpty()?
+                (active?"Проверяем выбранные площадки":
+                    "Поиск окончен без подтверждённых товаров"):
+                "Подходящие по сроку предложения ещё не найдены");
+            priceSummary.setVisibility(View.VISIBLE);
         }else{
             bestPrice.setText(rubles(bestEligible.price));
             bestPrice.setTextSize(31);
@@ -1305,6 +1313,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         startSearchProtection();
         searchStartedAt=android.os.SystemClock.elapsedRealtime();
         engine.start(activeQuery,Integer.MAX_VALUE,missing,deliveryPolicy);
+        progress.setText(engine.progressSummary());
         startProgressTicker();
     }
     private void updateMarketplaceNotice(){
@@ -1336,20 +1345,21 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
             if(offers.isEmpty()){
                 summaryPanel.setVisibility(View.VISIBLE);
                 updateSummary();
-                progress.setText(engine.coverageIncomplete()?
-                    "Поиск неполный: часть выдачи недоступна":
-                    "Не найдены подтверждённые предложения");
+                progress.setText((engine.coverageIncomplete()?
+                    "Поиск завершился без результатов · причина ниже":
+                    "Не найдены подтверждённые предложения")+
+                    "\n"+engine.progressSummary());
             }else{
-                progress.setText(engine.coverageIncomplete()?
-                    "Показана лучшая проверенная цена среди доступных результатов":
-                    "Предварительные цены найдены · корзина и персональные скидки не проверены");
+                progress.setText((engine.coverageIncomplete()?
+                    "Поиск неполный · окончательный минимум не подтверждён":
+                    "Поиск завершён · найденные предложения ниже")+
+                    "\n"+engine.progressSummary());
             }
             saveCurrentSearch(false);
             // Never hide the incomplete-search warning under the product cards:
             // a confirmed offer is NOT proof that every store was checked.
-            if(!offers.isEmpty()&&!engine.coverageIncomplete())
-                progress.setVisibility(View.GONE);
-            else progress.setVisibility(View.VISIBLE);
+            // Keep each shop's final status visible even on a completed search.
+            progress.setVisibility(View.VISIBLE);
             stopSearchProtection();
         });
     }
