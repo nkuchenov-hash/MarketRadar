@@ -68,37 +68,39 @@ final class DynamicPriceFrontier {
     }
 
     synchronized boolean deferHigher(int listingPrice,String deliveryHint){
-        // Late offers must still be checked for the unconditional absolute minimum.
-        if(!policy.potentiallyEligible(deliveryHint))return false;
-        if(listingPrice<=0||confirmed==Integer.MAX_VALUE)return false;
-        int days=policy.days(deliveryHint);
-        if(days>policy.maxDays)return false;
-        if(days<0)return listingPrice>confirmed; // price ceiling still applies
-        if(days<=policy.maxDays)return listingPrice>confirmed;
-        // The optional long-delivery rule is an EXCEPTION and only applies
-        // if the late offer is X% cheaper than the best timely offer.
-        if(policy.allowSlowDiscount)
-            return (long)listingPrice*100 >
-                (long)confirmed*(100-policy.slowDiscountPercent);
-        return true;
+        return deferAgainst(listingPrice,deliveryHint,confirmed,confirmed);
     }
 
     synchronized boolean deferHigher(int listingPrice,String deliveryHint,Shop shop){
         if(shop==null)return deferHigher(listingPrice,deliveryHint);
-        int shopBest=confirmedPerShop.getOrDefault(shop.id,Integer.MAX_VALUE);
-        // There is NO safe confirmed price baseline for this marketplace yet.
-        if(shopBest==Integer.MAX_VALUE)return false;
-        // Late offers must still be checked for the unconditional absolute minimum.
-        if(!policy.potentiallyEligible(deliveryHint))return false;
-        int days=policy.days(deliveryHint);
-        if(listingPrice<=0)return false;
-        if(days>policy.maxDays)return false;
-        if(days<0)return listingPrice>shopBest;
-        if(days<=policy.maxDays)return listingPrice>shopBest;
-        if(policy.allowSlowDiscount)
-            return (long)listingPrice*100 >
-                (long)shopBest*(100-policy.slowDiscountPercent);
-        return true;
+        int siteBest=confirmedPerShop.getOrDefault(shop.id,Integer.MAX_VALUE);
+        return deferAgainst(listingPrice,deliveryHint,siteBest,confirmed);
+    }
+
+    /**
+     * The listing has already exposed an exact price. After a verified
+     * timely offer is available for THIS marketplace, higher priced
+     * listings cannot improve its cheapest result. This changes DETAIL
+     * verification order only; the scanner must keep discovering all
+     * listing URLs so newly found cheaper items still get a chance.
+     * Unknown-price cards are not pruned.
+     */
+    private boolean deferAgainst(int price,String delivery,int siteBest,int globalBest){
+        if(price<=0)return false;
+        int days=policy.days(delivery);
+        if(days>policy.maxDays){
+            if(!policy.allowSlowDiscount)return true;
+            if(globalBest==Integer.MAX_VALUE)return false;
+            return !policy.lateException(price,delivery,globalBest);
+        }
+        if(siteBest==Integer.MAX_VALUE)return false;
+        return price>siteBest;
+    }
+
+    synchronized int confirmedFor(Shop shop){
+        return shop==null?confirmedCeiling():
+            (confirmedPerShop.getOrDefault(shop.id,Integer.MAX_VALUE)==Integer.MAX_VALUE?
+                0:confirmedPerShop.get(shop.id));
     }
 
     static int nextUnpruned(java.util.List<ScanEngine.Candidate> ordered,
