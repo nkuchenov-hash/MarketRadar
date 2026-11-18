@@ -72,14 +72,18 @@ final class ScanEngine {
               return r.width>0&&r.height>0;
             };
             const tileText=a=>{
-              let node=a;
-              for(let level=0;level<7&&node&&node!==body;level++,node=node.parentElement){
-                const text=(node.innerText||'').trim();
-                if(text.length>12&&text.length<=700&&pricePattern.test(text)&&
-                   (node.querySelector('img')||node.querySelector('picture')))
-                  return text;
+              // Search cards often keep the image, title and wallet price in
+              // SIBLING elements, not inside the product anchor itself.
+              // Do not require an image: WB lazy loading may omit it.
+              const semantic=a.closest('[data-nm-id],.product-card,.product-card__wrapper,article,li,[data-testid*="product"]');
+              let node=semantic||a;
+              for(let level=0;level<9&&node&&node!==body;level++,node=node.parentElement){
+                const text=(node.innerText||node.textContent||'').trim();
+                const productLinks=node.querySelectorAll('a[href*="/catalog/"],a[href*="/product/"]').length;
+                if(text.length>=8&&text.length<=1600&&pricePattern.test(text)&&productLinks<=4)
+                  return text.slice(0,1300);
               }
-              return '';
+              return (a.parentElement?.innerText||a.innerText||'').trim().slice(0,1300);
             };
             for(const a of document.querySelectorAll('a[href]')){
               let url;
@@ -87,21 +91,21 @@ final class ScanEngine {
               if(url.protocol!=='https:'||!productPath.test(url.pathname))continue;
               // Layout measurements force reflow. Do them for product links
               // only, not thousands of menu/filter/navigation anchors.
-              if(!visible(a))continue;
-              const img=a.querySelector('img');
-              const title=(a.getAttribute('title')||a.innerText||img?.alt||
-                           a.getAttribute('aria-label')||'').trim().slice(0,300);
+              const img=a.querySelector('img')||a.closest('.product-card,article,li')?.querySelector('img');
+              const title=(a.getAttribute('title')||a.getAttribute('aria-label')||
+                           a.innerText||img?.alt||'').trim().slice(0,300);
               const context=tileText(a);
               const imageAlt=(img?.alt||a.querySelector('picture img')?.alt||'')
                   .trim().slice(0,300);
               const priceCondition=/(?:с\\s+wb\\s+кошельком|wb\\s+кошелек|wb\\s+wallet)/i
                   .test(context)?'с WB Кошельком':'';
-              links.push({url:url.href,title,context:context.slice(0,650),
+              links.push({url:url.href,title,context:context.slice(0,1300),
                           imageAlt,priceCondition});
             }
             return JSON.stringify({
               url:location.href,
               title:document.title,
+              allAnchors:document.querySelectorAll('a[href]').length,
               text:(body?.innerText||'').slice(0,1800),
               links,
               scrollY:Math.round(window.scrollY||0),
@@ -246,6 +250,9 @@ final class ScanEngine {
     private boolean sessionProbeRequested=false;
     private int lastDetailCount=0;
     private long lastSearchGrowthMs=0;
+    private int listingSnapshots=0,firstExactSnapshot=-1;
+    private int verifiedMarket=0,verifiedTimelyMarket=0;
+    private boolean stoppedForFastCheck=false,fullPassFallback=false;
 
     ScanEngine(WebView browser, Handler handler, Listener listener) {
         this.browser=browser;this.handler=handler;this.listener=listener;
@@ -328,6 +335,9 @@ final class ScanEngine {
         lastObservedScrollY=-1;lastObservedScrollHeight=-1;
         lastObservedPoolCount=-1;stalledScrollChecks=0;lastDetailCount=0;
         lastSearchGrowthMs=android.os.SystemClock.elapsedRealtime();
+        listingSnapshots=0;firstExactSnapshot=-1;
+        verifiedMarket=0;verifiedTimelyMarket=0;
+        stoppedForFastCheck=false;fullPassFallback=false;
         listener.status(shop,"Ищем точную модель…");
         load(currentSearchUrl);
     }
@@ -498,7 +508,22 @@ final class ScanEngine {
         // Combine all scroll snapshots, not only the initial screen and not
         // only the first ten DOM links. Each candidate still needs its own
         // product page verification before it can become a visible offer.
-        mergeSearchSnapshot(searchPool,data.optJSONArray("links"),shop,query);
+        JSONArray visibleLinks=data.optJSONArray("links");
+        mergeSearchSnapshot(searchPool,visibleLinks,shop,query);
+        listingSnapshots++;
+        if(firstExactSnapshot<0 && visibleLinks!=null){
+            for(int i=0;i<visibleLinks.length();i++){
+                JSONObject tile=visibleLinks.optJSONObject(i);
+                if(tile==null)continue;
+                String title=tile.optString("title","");
+                String alt=tile.optString("imageAlt","");
+                String context=tile.optString("context","");
+                if((exact(query,title)||exact(query,alt))&&readCardPrice(context)>0){
+                    firstExactSnapshot=listingSnapshots;
+                    break;
+                }
+            }
+        }
         // Update the optimistic global target AS SOON AS another search
         // viewport yields a cheaper exact-model listing. This does not
         // discard fallback candidates before AI checks the cheapest one.
@@ -569,6 +594,20 @@ final class ScanEngine {
 
         if(height<=0||viewport<=0){
             failPage("Нет данных о конце выдачи, полноту не подтвердить");
+            return;
+        }
+        // The search is requested in increasing-price order. As soon as
+        // we see an exact, priced item, sample two more viewports and CHECK
+        // the cheapest candidates immediately. A full crawl is the fallback
+        // only when those candidates fail or have no eligible delivery.
+        // Until a full crawl, never claim that the global minimum is proven.
+        if(!fullPassFallback && firstExactSnapshot>=0 &&
+           listingSnapshots>=firstExactSnapshot+2 &&
+           searchPool.size()>0){
+            stoppedForFastCheck=true;
+            coverageIncomplete=true;
+            listener.status(shop,"Найдена точная модель в выдаче · сразу проверяем цены");
+            finishListingCollection();
             return;
         }
         // Marketplace cards can hydrate AFTER the window reaches the bottom.
@@ -738,6 +777,22 @@ final class ScanEngine {
         skippedAboveBest+=next-cardIndex;
         cardIndex=next;
         if(cardIndex>=candidates.size()){
+            if(stoppedForFastCheck && !fullPassFallback &&
+               verifiedTimelyMarket==0){
+                // Do not stop after a wrongly identified item or only a
+                // slow-delivery quote: retry with the complete listing.
+                fullPassFallback=true;
+                stoppedForFastCheck=false;
+                details=false;
+                searchSampling=false;
+                stableBottom=0;lastHeight=-1;lastPoolSize=-1;
+                lastObservedScrollY=-1;lastObservedScrollHeight=-1;
+                lastObservedPoolCount=-1;stalledScrollChecks=0;
+                listingSnapshots=0;firstExactSnapshot=-1;
+                listener.status(shop,"Быстрая проверка не дала подходящей доставки · расширяем поиск");
+                load(currentSearchUrl);
+                return;
+            }
             listener.status(shop,"Обработано "+checkedMarket+
                 " карточек из "+candidates.size()+
                 (coverageIncomplete?". Проверка неполная":" · поиск завершён")+
@@ -826,6 +881,8 @@ final class ScanEngine {
                         coverageIncomplete=true;
                         listener.status(shop,"Локальный ИИ не подтвердил проверку");
                     }else if(verdict.booleanValue()){
+                        verifiedMarket++;
+                        if(price>0&&frontier.policy().timely(delivery))verifiedTimelyMarket++;
                         if(price>0&&frontier.confirm(price,delivery,shop))
                             listener.status(shop,"Новый минимум с подходящей доставкой: "+price+" ₽");
                         listener.offer(proposal);
@@ -931,7 +988,7 @@ final class ScanEngine {
         return best==Integer.MAX_VALUE?0:best;
     }
     static int readCardPrice(String context){
-        if(context==null||context.isBlank()||context.length()>650)return 0;
+        if(context==null||context.isBlank()||context.length()>1400)return 0;
         JSONArray priceLines=new JSONArray();
         for(String line:context.split("\\R")){
             String lower=line.toLowerCase(Locale.ROOT);
