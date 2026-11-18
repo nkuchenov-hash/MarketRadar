@@ -6,6 +6,7 @@ on:
       - 'Dockerfile'
       - 'requirements.txt'
       - 'server/**'
+      - 'deploy/**'
       - 'render.yaml'
       - 'railway.json'
       - '.github/workflows/backend-container-smoke.yml'
@@ -21,6 +22,17 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+      - name: Validate Russian VPS packaging and Caddy HTTPS gateway
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n deploy/bootstrap.sh deploy/update.sh deploy/backup.sh deploy/verify.sh
+          printf 'MARKETRADAR_DOMAIN=example.com\nMARKETRADAR_MOBILE_ACCESS_KEY=ci-only-example\n' > .env.production
+          docker compose --env-file .env.production -f deploy/compose.vps.yml config --quiet
+          docker run --rm --env MARKETRADAR_DOMAIN=example.com \
+            --volume "$PWD/deploy/Caddyfile:/etc/caddy/Caddyfile:ro" \
+            caddy:2.10-alpine caddy validate --config /etc/caddy/Caddyfile
+          rm .env.production
       - name: Build deployable Chromium backend
         run: docker build -t marketradar-backend:smoke .
       - name: Launch actual FastAPI container
@@ -28,6 +40,7 @@ jobs:
           docker run --detach --rm --name marketradar-backend-smoke \
             --publish 127.0.0.1:18765:10000 \
             --env PORT=10000 --env CLOUD_BROWSER_ENABLED=true \
+            --env MARKETRADAR_MOBILE_ACCESS_KEY=ci-only-example \
             marketradar-backend:smoke
           for retry in $(seq 1 55); do
             if curl -fsS --max-time 4 http://127.0.0.1:18765/health; then
@@ -42,12 +55,18 @@ jobs:
         shell: bash
         run: |
           python - <<'PY'
-          import json, urllib.request, time
+          import json, urllib.request, urllib.error, time
           base="http://127.0.0.1:18765"
+          try:
+              urllib.request.urlopen(base+"/api/mobile/browser/jobs/missing",timeout=5)
+              raise AssertionError("Private API exposed without access key")
+          except urllib.error.HTTPError as e:
+              assert e.code==401,e
+          access={"X-MarketRadar-Key":"ci-only-example"}
           payload=json.dumps({"query":"Яндекс Станция Мини 3 Про",
                               "shops":["ym"]},ensure_ascii=False).encode()
           request=urllib.request.Request(base+"/api/mobile/browser/start",data=payload,
-                headers={"Content-Type":"application/json"},method="POST")
+                headers={"Content-Type":"application/json",**access},method="POST")
           with urllib.request.urlopen(request,timeout=15) as response:
               assert response.status==202,response.status
               job=json.load(response)
@@ -55,7 +74,8 @@ jobs:
           print("Created live browser search job",job_id[:8],"status",job["state"])
           result=None
           for _ in range(14):
-              with urllib.request.urlopen(base+"/api/mobile/browser/jobs/"+job_id,timeout=10) as r:
+              with urllib.request.urlopen(urllib.request.Request(
+                      base+"/api/mobile/browser/jobs/"+job_id,headers=access),timeout=10) as r:
                   result=json.load(r)
               if result["state"]!="running":break
               time.sleep(2)
@@ -68,7 +88,7 @@ jobs:
               "offer_count":len(result["offers"])},ensure_ascii=False))
           if result["state"]=="running":
               urllib.request.urlopen(urllib.request.Request(
-                  base+"/api/mobile/browser/jobs/"+job_id,method="DELETE"),timeout=10)
+                  base+"/api/mobile/browser/jobs/"+job_id,headers=access,method="DELETE"),timeout=10)
           # This is deployment/API smoke only. Market access is a separate
           # live acceptance gate and can still be HTTP 403/498 in GitHub CI.
           PY
