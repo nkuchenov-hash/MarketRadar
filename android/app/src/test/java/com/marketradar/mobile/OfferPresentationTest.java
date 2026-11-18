@@ -107,6 +107,41 @@ public class OfferPresentationTest {
         assertNotEquals(OfferPresentation.displayKey(a,p),OfferPresentation.displayKey(blue,p));
     }
 
+    @Test public void compactResultsShowCheapestPerMarketNotEveryPricierYandexCard(){
+        DeliveryPolicy policy=new DeliveryPolicy(3,false,15,LocalDate.of(2026,11,18));
+        Shop ym=Shop.byId("ym"),wb=Shop.byId("wb"),oz=Shop.byId("ozon");
+        ScanEngine.Offer yandexExpensive=new ScanEngine.Offer(ym,
+            "https://market.yandex.ru/card/a/4620658531",
+            "Яндекс Станция Мини 3 Про",12420,"","21 ноября","");
+        ScanEngine.Offer yandexCheaper=new ScanEngine.Offer(ym,
+            "https://market.yandex.ru/card/b/4620658532",
+            "Яндекс Станция Мини 3 Про",11687,"","21 ноября","с Яндекс Пэй");
+        ScanEngine.Offer yandexLate=new ScanEngine.Offer(ym,
+            "https://market.yandex.ru/card/c/4620658533",
+            "Яндекс Станция Мини 3 Про",12103,"","22 ноября","");
+        ScanEngine.Offer wbBest=new ScanEngine.Offer(wb,
+            "https://www.wildberries.ru/catalog/223500001/detail.aspx",
+            "Яндекс Станция Мини 3 Про",11835,"","20 ноября","");
+        ScanEngine.Offer ozBest=new ScanEngine.Offer(oz,
+            "https://www.ozon.ru/product/test-235235223/",
+            "Яндекс Станция Мини 3 Про",12990,"","21 ноября","");
+        java.util.List<ScanEngine.Offer> all=Arrays.asList(
+            yandexExpensive,yandexLate,wbBest,ozBest,yandexCheaper);
+        ArrayList<ScanEngine.Offer> compact=OfferPresentation.visibleOffers(
+            all,policy,false,false);
+        assertEquals(3,compact.size());
+        assertSame(yandexCheaper,compact.get(0));
+        assertSame(wbBest,compact.get(1));
+        assertSame(ozBest,compact.get(2));
+        assertFalse(compact.contains(yandexExpensive));
+        assertFalse(compact.contains(yandexLate));
+        ArrayList<ScanEngine.Offer> expanded=OfferPresentation.visibleOffers(
+            all,policy,true,false);
+        assertEquals(5,expanded.size());
+        assertTrue(expanded.contains(yandexExpensive));
+        assertTrue(expanded.contains(yandexLate));
+    }
+
     @Test public void crossYearDateIsUnambiguous(){
         DeliveryPolicy policy=new DeliveryPolicy(5,false,15,LocalDate.of(2026,12,30));
         assertEquals("Доставка до 4 января 2027 · 5 дн.",OfferPresentation.deadline(policy));
