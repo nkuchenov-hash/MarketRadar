@@ -249,6 +249,7 @@ final class ParallelScanCoordinator {
         cloudMode=!cloudUrl.isEmpty();
         if(cloudMode){
             if(cloudClient==null)cloudClient=new CloudSearchClient(handler,
+                activity.getSharedPreferences("market_sessions",Activity.MODE_PRIVATE),
                 new CloudSearchClient.Listener(){
                     @Override public void onMarket(Shop shop,String state,
                             String breakdown,boolean incomplete){
@@ -341,7 +342,13 @@ final class ParallelScanCoordinator {
         }
     }
     void destroy(){
-        stop();
+        if(cloudMode&&cloudClient!=null){
+            // Device UI is disappearing; keep the server-side job alive.
+            cloudClient.detach();
+            cloudMode=false;
+            running=false;
+            generation++;
+        }else stop();
         for(Worker worker:workers){
             root.removeView(worker.view);
             worker.view.destroy();
