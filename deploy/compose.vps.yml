@@ -1,0 +1,58 @@
+# Russian VPS deployment (Beget / Timeweb / any Ubuntu server with Docker).
+# All service ports except 80/443 stay private to the Docker network.
+name: marketradar
+services:
+  backend:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    init: true
+    shm_size: "512m"
+    mem_limit: 3g
+    pids_limit: 500
+    env_file:
+      - path: ../.env.production
+        required: true
+    environment:
+      DB_PATH: /app/data/marketradar.sqlite3
+      CLOUD_BROWSER_ENABLED: "true"
+      CLOUD_BROWSER_PARALLEL: "1"
+      CLOUD_SEARCH_SCROLLS: "20"
+      MARKETRADAR_MOBILE_ACCESS_KEY: ${MARKETRADAR_MOBILE_ACCESS_KEY:?Generate a private key before deployment}
+      APP_ORIGIN: https://${MARKETRADAR_DOMAIN:?Set DNS name}
+      COOKIE_SECURE: "true"
+    volumes:
+      - radar_data:/app/data
+    networks: [internal]
+    healthcheck:
+      test: ["CMD","python","-c","import urllib.request; import json; u=urllib.request.urlopen('http://127.0.0.1:10000/health',timeout=5); assert json.load(u)['ok']"]
+      interval: 30s
+      timeout: 8s
+      start_period: 60s
+      retries: 4
+
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    environment:
+      MARKETRADAR_DOMAIN: ${MARKETRADAR_DOMAIN:?Set DNS name}
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks: [internal]
+
+networks:
+  internal:
+
+volumes:
+  radar_data:
+  caddy_data:
+  caddy_config:
