@@ -11,3 +11,6 @@ __pycache__/
 *.db
 node_modules/
 .DS_Store
+
+# VPS snapshots and private configuration
+deploy/backups/
