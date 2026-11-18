@@ -7,6 +7,8 @@ import android.graphics.Typeface;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.widget.ImageView;
+import android.text.Editable;
+import android.text.TextWatcher;
 import android.util.LruCache;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
@@ -70,7 +72,10 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
     private Button navButton, settingsNavButton;
     private boolean accountsVisible=false;
     private TextView bestPrice, priceSummary, marketProgress, resultsHeading, bestPriceLabel;
-    private LinearLayout summaryPanel, filterPanel;
+    private LinearLayout summaryPanel, filterPanel, sortRow;
+    private Button deadlineButton, sortPriceButton, sortDeliveryButton;
+    private TextView deadlinePreview;
+    private boolean sortByDelivery=false;
     private final Map<String,String> marketStates=new HashMap<>();
     private final Map<String,SessionProbe.Verdict> accountEvidence=new HashMap<>();
     private final Map<String,CheckBox> marketChoices=new HashMap<>();
@@ -135,6 +140,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
     @Override public void onCreate(Bundle state){
         super.onCreate(state);
         prefs=getSharedPreferences("market_sessions",MODE_PRIVATE);
+        sortByDelivery=prefs.getBoolean("sort_by_delivery",false);
         boolean deviceDark=(getResources().getConfiguration().uiMode&
             Configuration.UI_MODE_NIGHT_MASK)==Configuration.UI_MODE_NIGHT_YES;
         themePalette=ThemePalette.resolve(
@@ -277,9 +283,11 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         searchButton.setOnClickListener(v->beginSearch());
         gap(page,9);
 
-        Button settingsButton=button("Настроить условия поиска",false);
-        add(page,settingsButton,-1,43);
-        settingsButton.setOnClickListener(v->showScreen(SCREEN_SETTINGS));
+        deadlineButton=button("Доставка: условия поиска",false);
+        deadlineButton.setTextSize(14);
+        add(page,deadlineButton,-1,47);
+        deadlineButton.setOnClickListener(v->showScreen(SCREEN_SETTINGS));
+        updateDeadlineButton();
         gap(page,9);
         progress=text("",13,MUTED,false);
         add(page,progress,-1,-2);
@@ -302,6 +310,25 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         resultsHeading=text("Предложения",19,TEXT,true);
         resultsHeading.setVisibility(View.GONE);
         add(page,resultsHeading,-1,28);
+        gap(page,7);
+        sortRow=linear(LinearLayout.HORIZONTAL);
+        sortRow.setGravity(Gravity.CENTER_VERTICAL);
+        TextView sortLabel=text("Сортировать:",13,MUTED,false);
+        sortRow.addView(sortLabel,new LinearLayout.LayoutParams(0,dp(40),1));
+        sortPriceButton=button("Цена ↑",!sortByDelivery);
+        sortPriceButton.setTextSize(12);
+        sortPriceButton.setContentDescription("По возрастанию цены");
+        add(sortRow,sortPriceButton,82,40);
+        add(sortRow,new View(this),6,1);
+        sortDeliveryButton=button("Доставка ↑",sortByDelivery);
+        sortDeliveryButton.setTextSize(12);
+        sortDeliveryButton.setContentDescription("Сначала ближайшая дата доставки");
+        add(sortRow,sortDeliveryButton,113,40);
+        sortPriceButton.setOnClickListener(v->setSortByDelivery(false));
+        sortDeliveryButton.setOnClickListener(v->setSortByDelivery(true));
+        sortRow.setVisibility(View.GONE);
+        add(page,sortRow,-1,-2);
+        updateSortButtons();
         count=text("",12,MUTED,false);
         count.setVisibility(View.GONE);
         add(page,count,-1,-2);
@@ -364,6 +391,17 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         deliveryDaysInput.setPadding(dp(13),0,dp(13),0);
         deliveryDaysInput.setText(Integer.toString(prefs.getInt("delivery_days",3)));
         add(filterPanel,deliveryDaysInput,-1,45);
+        deadlinePreview=text("",13,ACCENT,true);
+        gap(filterPanel,5);
+        add(filterPanel,deadlinePreview,-1,-2);
+        deliveryDaysInput.addTextChangedListener(new TextWatcher(){
+            @Override public void beforeTextChanged(CharSequence s,int start,int count,int after){}
+            @Override public void onTextChanged(CharSequence s,int start,int before,int count){
+                updateDeadlinePreview();
+            }
+            @Override public void afterTextChanged(Editable e){}
+        });
+        updateDeadlinePreview();
         gap(filterPanel,8);
         allowLateDiscount=new CheckBox(this);
         allowLateDiscount.setText("Допускать долгую доставку со скидкой");
@@ -462,6 +500,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
     }
     private void showScreen(int screen){
         currentScreen=screen;
+        if(screen==SCREEN_SEARCH)updateDeadlineButton();
         accountsVisible=screen==SCREEN_SHOPS;
         searchScroll.setVisibility(screen==SCREEN_SEARCH?View.VISIBLE:View.GONE);
         accountsScroll.setVisibility(screen==SCREEN_SHOPS?View.VISIBLE:View.GONE);
@@ -483,6 +522,13 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
             .putInt("late_discount_percent",discount)
             .putBoolean("delivery_late_discount",allowSlow)
             .apply();
+        updateDeadlinePreview();
+        if(engine==null||!engine.isRunning()){
+            deliveryPolicy=new DeliveryPolicy(days,allowSlow,discount,
+                java.time.LocalDate.now());
+            if(!offers.isEmpty())renderResults();
+        }
+        updateDeadlineButton();
     }
     private void applyTheme(String nextMode){
         String chosen=ThemePalette.normalize(nextMode);
@@ -681,6 +727,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
             pendingOffers.clear();
             results.removeAllViews();
             summaryPanel.setVisibility(View.GONE);
+            sortRow.setVisibility(View.GONE);
             searchButton.setText("Найти лучшую цену");
             progress.setText("Поиск остановлен");
             return;
@@ -709,6 +756,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
             .putBoolean("delivery_late_discount",allowSlow).apply();
         deliveryPolicy=new DeliveryPolicy(days,allowSlow,discount,
             java.time.LocalDate.now());
+        updateDeadlineButton();
         bestPriceLabel.setText("Самая низкая найденная цена");
         ++aiGeneration;
         lastSelectedMarkets=chosen;
@@ -716,6 +764,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         offers.clear();pendingOffers.clear();results.removeAllViews();marketStates.clear();
         summaryPanel.setVisibility(View.VISIBLE);
         resultsHeading.setVisibility(View.GONE);
+        sortRow.setVisibility(View.GONE);
         bestPrice.setText("—");
         marketProgress.setText("Ищем предложения…");
         count.setVisibility(View.GONE);
@@ -766,6 +815,44 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
             }
         });
     }
+    private DeliveryPolicy pendingPolicy(){
+        if(engine!=null&&engine.isRunning())return deliveryPolicy;
+        return new DeliveryPolicy(
+            boundedField(deliveryDaysInput,prefs.getInt("delivery_days",3),0,90),
+            allowLateDiscount!=null&&allowLateDiscount.isChecked(),
+            boundedField(discountPercentInput,prefs.getInt("late_discount_percent",15),1,90),
+            java.time.LocalDate.now());
+    }
+    private void updateDeadlineButton(){
+        if(deadlineButton==null||deliveryDaysInput==null)return;
+        DeliveryPolicy applied=pendingPolicy();
+        deadlineButton.setText(OfferPresentation.deadline(applied)+"  ·  Изменить");
+    }
+    private void updateDeadlinePreview(){
+        if(deadlinePreview==null||deliveryDaysInput==null)return;
+        DeliveryPolicy policy=new DeliveryPolicy(
+            boundedField(deliveryDaysInput,3,0,90),false,15,java.time.LocalDate.now());
+        deadlinePreview.setText("Крайняя дата: "+
+            OfferPresentation.deadline(policy).replace("Доставка до ",""));
+    }
+    private void setSortByDelivery(boolean delivery){
+        if(sortByDelivery==delivery)return;
+        sortByDelivery=delivery;
+        prefs.edit().putBoolean("sort_by_delivery",delivery).apply();
+        updateSortButtons();
+        renderResults(); // Sorting changes displayed cards; it never starts a new search.
+    }
+    private void updateSortButtons(){
+        if(sortPriceButton==null||sortDeliveryButton==null)return;
+        sortPriceButton.setBackground(bg(sortByDelivery?SURFACE:ACCENT,13,
+            sortByDelivery?BORDER:0));
+        sortPriceButton.setTextColor(sortByDelivery?ACCENT:
+            (themePalette.dark?0xFF091A33:Color.WHITE));
+        sortDeliveryButton.setBackground(bg(sortByDelivery?ACCENT:SURFACE,13,
+            sortByDelivery?0:BORDER));
+        sortDeliveryButton.setTextColor(sortByDelivery?
+            (themePalette.dark?0xFF091A33:Color.WHITE):ACCENT);
+    }
     private String rubles(int amount){
         return NumberFormat.getNumberInstance(new Locale("ru","RU")).format(amount)+" ₽";
     }
@@ -792,15 +879,20 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
             priceSummary.setText("");
             priceSummary.setVisibility(View.GONE);
         }else{
-            String delivery=cheapest.deliveryHint.isBlank()?
-                "доставка уточняется":"доставка "+cheapest.deliveryHint;
+            String delivery=OfferPresentation.deliveryDate(
+                deliveryPolicy,cheapest.deliveryHint);
+            String timing=OfferPresentation.deliveryNote(
+                deliveryPolicy,cheapest.deliveryHint);
             String wallet=cheapest.priceCondition.isBlank()?"":
                 " · "+cheapest.priceCondition;
-            priceSummary.setText(cheapest.shop.name+" · "+delivery+wallet);
+            priceSummary.setText(cheapest.shop.name+" · "+delivery+
+                " · "+timing+wallet);
             priceSummary.setVisibility(View.VISIBLE);
         }
         // Diagnostic states are retained only in the saved search report.
         resultsHeading.setVisibility(offers.isEmpty()?View.GONE:View.VISIBLE);
+        if(sortRow!=null)
+            sortRow.setVisibility(offers.isEmpty()?View.GONE:View.VISIBLE);
         count.setVisibility(View.GONE);
     }
     // Kept off the main search screen. Explicit per-shop evidence helps
@@ -918,8 +1010,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         return image;
     }
     private void renderResults(){
-        offers.sort(Comparator.comparingInt(
-            (ScanEngine.Offer o)->o.price<=0?Integer.MAX_VALUE:o.price));
+        offers.sort(OfferPresentation.comparator(deliveryPolicy,sortByDelivery));
         results.removeAllViews();
         updateSummary();
         for(ScanEngine.Offer o:offers){
@@ -941,10 +1032,15 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
             title.setMaxLines(2);
             title.setEllipsize(android.text.TextUtils.TruncateAt.END);
             add(details,title,-1,-2);
-            gap(details,5);
-            add(details,text(o.deliveryHint.isBlank()?
-                "Доставка: уточняется":"Доставка: "+o.deliveryHint,
-                12,MUTED,false),-1,-2);
+            gap(details,7);
+            boolean late=OfferPresentation.afterDeadline(deliveryPolicy,o.deliveryHint);
+            int dateColor=late?(themePalette.dark?0xFFFFC087:0xFFAA501C):TEXT;
+            add(details,text(OfferPresentation.deliveryDate(
+                deliveryPolicy,o.deliveryHint),15,dateColor,true),-1,-2);
+            gap(details,2);
+            add(details,text(OfferPresentation.deliveryNote(
+                deliveryPolicy,o.deliveryHint),12,
+                late?dateColor:MUTED,false),-1,-2);
             if(!o.priceCondition.isBlank()){
                 gap(details,4);
                 add(details,text(o.priceCondition,11,ACCENT,false),-1,-2);
