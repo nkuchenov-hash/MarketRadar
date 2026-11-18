@@ -53,6 +53,41 @@ final class OfferPresentation {
             .thenComparing(comparator(policy,deliveryFirst));
     }
 
+    /**
+     * Default: the cheapest on-time matching offer from EACH marketplace.
+     * All other confirmed offers remain available behind an explicit toggle.
+     * The compact view may also include up to three cheaper late alternatives.
+     */
+    static java.util.ArrayList<ScanEngine.Offer> visibleOffers(
+            java.util.List<ScanEngine.Offer> all,DeliveryPolicy policy,
+            boolean expanded,boolean deliveryFirst){
+        int bestTimely=0;
+        for(ScanEngine.Offer offer:all){
+            if(offer.price>0&&policy.timely(offer.deliveryHint)&&
+               (bestTimely==0||offer.price<bestTimely))
+                bestTimely=offer.price;
+        }
+        java.util.ArrayList<ScanEngine.Offer> ordered=new java.util.ArrayList<>(all);
+        ordered.sort(priorityComparator(policy,expanded&&deliveryFirst,bestTimely));
+        java.util.ArrayList<ScanEngine.Offer> visible=new java.util.ArrayList<>();
+        java.util.HashSet<String> deduped=new java.util.HashSet<>();
+        java.util.HashSet<String> featuredMarkets=new java.util.HashSet<>();
+        int lateCount=0;
+        for(ScanEngine.Offer offer:ordered){
+            if(offer.price<=0||!deduped.add(displayKey(offer,policy)))continue;
+            boolean timely=policy.timely(offer.deliveryHint);
+            if(expanded){
+                visible.add(offer);
+            }else if(timely){
+                if(featuredMarkets.add(offer.shop.id))visible.add(offer);
+            }else if(showAlternative(policy,offer,bestTimely)&&lateCount<3){
+                visible.add(offer);
+                lateCount++;
+            }
+        }
+        return visible;
+    }
+
     static String displayKey(ScanEngine.Offer offer,DeliveryPolicy policy){
         // Deduplicate equivalent marketplace tiles that carry different
         // seller/card IDs but show the same variant, date and price.
