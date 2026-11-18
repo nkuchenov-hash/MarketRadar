@@ -33,6 +33,16 @@ public class CoreTest {
         assertEquals(0,ScanEngine.readCardPrice("133 ₽ кешбэк\n1 130 ₽ / мес"));
         assertEquals(0,ScanEngine.readCardPrice("Одна страница с товарами\n".repeat(45)));
     }
+    @Test public void mixedWbPriceLinePreservesRealWalletDiscount(){
+        String line="Яндекс Станция Мини 3 Про 19 640 ₽ 10 772 ₽ с WB Кошельком; "+
+                    "133 ₽ кешбэк; доставка 25 ноября";
+        assertEquals(10772,ScanEngine.readCardPrice(line));
+        assertEquals(10772,ScanEngine.readPrice(new JSONArray().put(line)));
+        assertEquals(11542,ScanEngine.readCardPrice(
+            "Доставка завтра, цена 11 542 ₽, кэшбэк 133 ₽, бонус 200 ₽"));
+        assertEquals(0,ScanEngine.readCardPrice("Кэшбэк 133 ₽; 1 130 ₽ / мес"));
+    }
+
     @Test public void specificationsCannotOverridePayablePrice() throws Exception {
         String q="Яндекс Станция Мини 3 Про";
         JSONArray prices=new JSONArray()
