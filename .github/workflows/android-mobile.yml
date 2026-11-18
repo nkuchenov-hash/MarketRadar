@@ -109,10 +109,10 @@ jobs:
             --ks /tmp/market-signing/marketradar-release.jks \
             --ks-key-alias marketradar-v2 --ks-pass env:MR_SIGNING_PASS \
             --key-pass env:MR_SIGNING_PASS \
-            --out dist/MarketRadar-Android-0.21.0.apk \
+            --out dist/MarketRadar-Android-0.22.0.apk \
             android/app/build/outputs/apk/release/app-release-unsigned.apk
           "$signer" verify --verbose --print-certs \
-            dist/MarketRadar-Android-0.21.0.apk > /tmp/signature.txt
+            dist/MarketRadar-Android-0.22.0.apk > /tmp/signature.txt
           current="$(grep -i 'sha-256 digest' /tmp/signature.txt | head -1 | sed -E 's/.*digest:[[:space:]]*//' | tr '[:upper:]' '[:lower:]' | tr -dc '0-9a-f')"
           expected="$(keytool -exportcert \
             -keystore /tmp/market-signing/marketradar-release.jks \
@@ -121,8 +121,8 @@ jobs:
           [[ -n "$current" && "$current" == "$expected" ]] || {
             echo "::error::Signing fingerprint does not match persistent backup."; exit 1;
           }
-          "$aapt" dump badging dist/MarketRadar-Android-0.21.0.apk > /tmp/badging.txt
-          grep -Fq "package: name='com.marketradar.mobile.next' versionCode='21' versionName='0.21.0'" /tmp/badging.txt
+          "$aapt" dump badging dist/MarketRadar-Android-0.22.0.apk > /tmp/badging.txt
+          grep -Fq "package: name='com.marketradar.mobile.next' versionCode='22' versionName='0.22.0'" /tmp/badging.txt
           if gh release view marketradar-android-0.4.0 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release download marketradar-android-0.4.0 \
               --repo "$GITHUB_REPOSITORY" \
@@ -132,7 +132,7 @@ jobs:
               echo "::error::Published v2 signing certificate mismatch"; exit 1;
             }
           fi
-          (cd dist && sha256sum MarketRadar-Android-0.21.0.apk > SHA256SUMS.txt)
+          (cd dist && sha256sum MarketRadar-Android-0.22.0.apk > SHA256SUMS.txt)
 
       - name: Publish isolated stable-signed MarketRadar v2 APK
         shell: bash
@@ -140,35 +140,35 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          tag=marketradar-android-0.21.0
+          tag=marketradar-android-0.22.0
           cat > /tmp/notes.md <<'EOF'
-          # MarketRadar Android 0.21.0 — relevant-first results
-          Offers with a delivery date meeting the configured deadline take
-          priority. Late or unknown-date offers remain visible below in
-          smaller cards and never displace a matching on-time option.
-          Search delivery conditions are a plain inline label, not a button.
-          Photos, short names, prices, delivery dates, price/date sorting and
-          persisted results remain available. The search uses the same
-          per-market WebViews and product verification.
-          Delivery extraction now reads product-specific search card widgets
-          and product page delivery widgets, including short month names.
-          Ozon retries plain search once if price-sorted search yields no
-          candidates; access restrictions can still prevent completion.
-          Prices and delivery estimates require confirmation at checkout.
-          Package com.marketradar.mobile.next with persistent signing key.
-          APK versionCode 21; upgrades v0.20.0 in place without deleting
-          search results, settings or marketplace sessions.
+          # MarketRadar Android 0.22.0 — reliable background search recovery
+          Switching to another app no longer intentionally abandons the scan:
+          an active, short-lived Android dataSync foreground service protects
+          the process priority. The service/notification stops at completion.
+          If Android nevertheless destroys the Activity/WebViews, reopening
+          MarketRadar automatically resumes the incomplete marketplace scan,
+          keeping previously verified offers, photos, prices, delivery dates,
+          shopping site selection, and sorting intact.
+          Recovery attempts are bounded to prevent a restart loop during severe
+          device memory pressure; manual search resets the recovery counter.
+          The previously released relevant-first product list, clear delivery
+          cutoff, secondary alternatives, and Ozon fallback remain unchanged.
+          Upgrade from 0.21.0 uses the same app id and signing certificate.
+          Android cannot guarantee an uninterrupted scan if the operating
+          system force-stops the app or its entire process. Manual device
+          validation is still needed for background WebView behavior.
           EOF
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release edit "$tag" --repo "$GITHUB_REPOSITORY" \
-              --title "MarketRadar Android 0.21.0 — stable-signing preview" \
+              --title "MarketRadar Android 0.22.0 — stable-signing preview" \
               --notes-file /tmp/notes.md --prerelease
             gh release upload "$tag" --repo "$GITHUB_REPOSITORY" \
-              dist/MarketRadar-Android-0.21.0.apk dist/SHA256SUMS.txt --clobber
+              dist/MarketRadar-Android-0.22.0.apk dist/SHA256SUMS.txt --clobber
           else
             gh release create "$tag" --repo "$GITHUB_REPOSITORY" \
-              dist/MarketRadar-Android-0.21.0.apk dist/SHA256SUMS.txt \
-              --title "MarketRadar Android 0.21.0 — stable-signing preview" \
+              dist/MarketRadar-Android-0.22.0.apk dist/SHA256SUMS.txt \
+              --title "MarketRadar Android 0.22.0 — stable-signing preview" \
               --notes-file /tmp/notes.md --prerelease
           fi
           gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets \
