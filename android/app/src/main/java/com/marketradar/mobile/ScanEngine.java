@@ -393,6 +393,7 @@ final class ScanEngine {
     private int wrongModelMarket=0,missingPriceMarket=0,aiRejectedMarket=0;
     private int redirectedMarket=0,listingCandidatesMarket=0;
     private String firstRejectionMarket="";
+    private SearchEvidenceAudit searchAudit=new SearchEvidenceAudit();
     private void recordRejection(String cause,String title){
         if(!firstRejectionMarket.isEmpty())return;
         String safe=(title==null?"":title).replaceAll("[\\r\\n\\t]"," ").trim();
@@ -409,7 +410,8 @@ final class ScanEngine {
             "; дорогих отложено: "+skippedAboveBest+
             "; сортировка: "+sortEvidence.description(
                 shop!=null&&shop.priceAscendingRequested(currentSearchUrl))+
-            (firstRejectionMarket.isEmpty()?"":"; пример: "+firstRejectionMarket);
+            (firstRejectionMarket.isEmpty()?"":"; пример: "+firstRejectionMarket)+
+            "\n"+searchAudit.summary();
     }
     private boolean stoppedForFastCheck=false,fullPassFallback=false;
     private static final int MAX_EXPANDED_LISTING_SNAPSHOTS=400;
@@ -534,6 +536,7 @@ final class ScanEngine {
         }
         shop=activeMarkets.get(marketIndex++);
         candidates.clear();seen.clear();inspectedCandidatePrices.clear();
+        searchAudit=new SearchEvidenceAudit();
         sortEvidence.reset();
         cardIndex=0;details=false;checkedMarket=0;expectedUrl="";
         searchSampling=false;searchPool.clear();detailCache.clear();
@@ -689,6 +692,7 @@ final class ScanEngine {
         if(message.contains("Нет прогресса"))timeLimitReached=true;
         token++;
         if(details) {
+            searchAudit.stage(expectedUrl,"ошибка открытия: "+message);
             listener.status(shop,message+" · проверено карточек: "+checkedMarket);
             nextCandidate();
         } else {
@@ -816,6 +820,7 @@ final class ScanEngine {
             " · сетевых ответов WB: "+data.optInt("networkResponses",0)+
             " · сетевых товаров WB: "+data.optInt("networkCandidates",0)+
             " · прокрутка: "+data.optString("scrollKind","не определена");
+        searchAudit.observe(visibleLinks,shop,query);
         mergeSearchSnapshot(searchPool,visibleLinks,shop,query);
         listingCandidatesMarket=Math.max(listingCandidatesMarket,searchPool.size());
         sortEvidence.observe(visibleLinks,shop);
@@ -1144,6 +1149,9 @@ final class ScanEngine {
         // priced candidates without opening their detail page.
         int next=DynamicPriceFrontier.nextUnpruned(
             candidates,cardIndex,frontier,shop);
+        for(int i=cardIndex;i<next;i++)
+            searchAudit.stage(candidates.get(i).url,
+                "не открыта: цена не ниже подтверждённой на площадке");
         skippedAboveBest+=next-cardIndex;
         cardIndex=next;
         if(cardIndex>=candidates.size()){
@@ -1190,9 +1198,11 @@ final class ScanEngine {
         }
         Candidate current=candidates.get(cardIndex++);
         if(!markCheaperCandidate(inspectedCandidatePrices,current)){
+            searchAudit.stage(current.url,"повтор уже проверенной цены");
             nextCandidate();
             return;
         }
+        searchAudit.stage(current.url,"открываем товар для проверки");
         expectedUrl=current.url;
         detailHydrationRetries=0;
         retryCount=0;
@@ -1266,6 +1276,7 @@ final class ScanEngine {
                 String image=data.optString("imageUrl","");
                 if(image.isBlank())image=selected.imageUrl;
                 if(price<=0){
+                    searchAudit.stage(expectedUrl,"не подтверждена: цена отсутствует");
                     missingPriceMarket++;
                     recordRejection("Цена товара отсутствует",title);
                     nextCandidate();
@@ -1297,16 +1308,20 @@ final class ScanEngine {
                     awaitingAi=false;
                     noteProgress();
                     if(verdict==null){
+                        searchAudit.stage(expectedUrl,"ошибка ИИ-проверки");
                         coverageIncomplete=true;
                         recordRejection("Ошибка локальной ИИ-проверки",proposal.title);
                         listener.status(shop,"Локальный ИИ не подтвердил проверку");
                     }else if(verdict.booleanValue()){
+                        searchAudit.stage(expectedUrl,
+                            "ПОДТВЕРЖДЕНА · "+price+" ₽");
                         verifiedMarket++;
                         if(price>0&&frontier.policy().timely(delivery))verifiedTimelyMarket++;
                         if(price>0&&frontier.confirm(price,delivery,shop))
                             listener.status(shop,"Новый минимум с подходящей доставкой: "+price+" ₽");
                         listener.offer(proposal);
                     }else{
+                        searchAudit.stage(expectedUrl,"отклонена ИИ");
                         aiRejectedMarket++;
                         recordRejection("ИИ отклонил модель",proposal.title);
                     }
@@ -1314,10 +1329,13 @@ final class ScanEngine {
                 }));
                 return;
             }else{
+                searchAudit.stage(expectedUrl,"отклонена: другое название модели");
                 wrongModelMarket++;
                 recordRejection("Название не соответствует модели",title);
             }
         }else{
+            searchAudit.stage(expectedUrl,
+                "отклонена: URL товара изменился ("+Shop.safeHost(url)+")");
             redirectedMarket++;
             recordRejection("Карточка перенаправлена",url);
         }
