@@ -400,7 +400,8 @@ final class ScanEngine {
     }
     String resultBreakdown(){
         return "товарных кандидатов из выдачи: "+listingCandidatesMarket+
-            "; открыто карточек: "+checkedMarket+
+            "; проверено уникальных вариантов: "+inspectedCandidatePrices.size()+
+            "; открыто карточек с повторными снижениями цены: "+checkedMarket+
             "; модель не совпала: "+wrongModelMarket+
             "; цена не извлечена: "+missingPriceMarket+
             "; отклонено ИИ: "+aiRejectedMarket+
@@ -412,7 +413,9 @@ final class ScanEngine {
     }
     private boolean stoppedForFastCheck=false,fullPassFallback=false;
     private static final int MAX_EXPANDED_LISTING_SNAPSHOTS=400;
-    private final Set<String> inspectedCandidateKeys=new HashSet<>();
+    // Cheapest listing quote already checked per unique URL/delivery/payment.
+    // A second crawl must not reopen 100s of previously checked products.
+    private final Map<String,Integer> inspectedCandidatePrices=new LinkedHashMap<>();
     private boolean plainSearchFallbackAttempted=false;
     private int redirectRecoveryAttempts=0;
 
@@ -448,10 +451,10 @@ final class ScanEngine {
         return expanded&&snapshots>=MAX_EXPANDED_LISTING_SNAPSHOTS;
     }
     static boolean canPrunePriceCandidate(Shop shop,boolean observedAscending){
-        // Even a visually ascending listing may mix wallet/checkout prices
-        // and change as the site renders. Skipping a card can miss a cheaper
-        // genuine listing. Retain ALL collected candidates for inspection.
-        return false;
+        // Sorting on the marketplace is irrelevant here: candidates have
+        // already been collected and ranked by their own scraped prices.
+        // Pruning still requires a confirmed same-store baseline.
+        return shop!=null;
     }
     static boolean settledAtBottom(boolean bottom,long height,long previousHeight,
                                    int count,int previousCount){
@@ -530,7 +533,7 @@ final class ScanEngine {
             return;
         }
         shop=activeMarkets.get(marketIndex++);
-        candidates.clear();seen.clear();inspectedCandidateKeys.clear();
+        candidates.clear();seen.clear();inspectedCandidatePrices.clear();
         sortEvidence.reset();
         cardIndex=0;details=false;checkedMarket=0;expectedUrl="";
         searchSampling=false;searchPool.clear();detailCache.clear();
@@ -1122,19 +1125,25 @@ final class ScanEngine {
         return rankCandidates(unique.values(),maxCards);
     }
 
+    static boolean markCheaperCandidate(Map<String,Integer> seen,Candidate item){
+        String key=item.url+"\u0001"+item.deliveryHint+
+            "\u0001"+item.priceCondition;
+        Integer previous=seen.get(key);
+        // Retry only if a subsequent scroll discovered a genuinely lower
+        // listing quote, not if the same card was loaded a second time.
+        if(previous!=null && (item.listingPrice<=0 ||
+            (previous>0 && item.listingPrice>=previous)))return false;
+        seen.put(key,item.listingPrice);
+        return true;
+    }
+
     private void nextCandidate() {
         if(!running)return;
-        // Do not let a cheaper Ozon quote suppress WB candidates whose
-        // personalized WB-app prices may differ from website snippets.
-        // Only prune by scraped listing price when this session actually
-        // demonstrates stable ascending order. In personalized WB/Yandex
-        // listings the same item may be cheaper under an account condition.
-        // A URL parameter by itself is not sufficient evidence.
-        boolean safeToPrune=canPrunePriceCandidate(
-            shop,sortEvidence.ascendingObserved());
-        int next=safeToPrune?
-            DynamicPriceFrontier.nextUnpruned(candidates,cardIndex,frontier,shop):
-            cardIndex;
+        // Rank by already collected listing prices (not DOM order).
+        // Once a verified per-store price exists, we can defer higher
+        // priced candidates without opening their detail page.
+        int next=DynamicPriceFrontier.nextUnpruned(
+            candidates,cardIndex,frontier,shop);
         skippedAboveBest+=next-cardIndex;
         cardIndex=next;
         if(cardIndex>=candidates.size()){
@@ -1173,16 +1182,14 @@ final class ScanEngine {
                 load(currentSearchUrl);
                 return;
             }
-            listener.status(shop,"Обработано "+checkedMarket+
-                " карточек из "+candidates.size()+
+            listener.status(shop,"Проверено "+inspectedCandidatePrices.size()+
+                " уникальных вариантов · из выдачи "+listingCandidatesMarket+
                 (coverageIncomplete?". Проверка неполная":" · поиск завершён")+
                 (skippedAboveBest>0?" · отложено дорогих: "+skippedAboveBest:""));
             nextMarket();return;
         }
         Candidate current=candidates.get(cardIndex++);
-        String key=current.url+"\u0001"+current.listingPrice+
-            "\u0001"+current.deliveryHint+"\u0001"+current.priceCondition;
-        if(!inspectedCandidateKeys.add(key)){
+        if(!markCheaperCandidate(inspectedCandidatePrices,current)){
             nextCandidate();
             return;
         }
@@ -1314,7 +1321,8 @@ final class ScanEngine {
             redirectedMarket++;
             recordRejection("Карточка перенаправлена",url);
         }
-        listener.status(shop,"Карточек проверено: "+checkedMarket+" / "+candidates.size());
+        listener.status(shop,"Проверено вариантов: "+
+            inspectedCandidatePrices.size()+" · подтверждено: "+verifiedMarket);
         nextCandidate();
     }
     static String priceConditionForCard(String context,String supplied,Shop shop){
