@@ -819,8 +819,11 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
     }
     @Override public void status(Shop shop,String state){
         runOnUiThread(()->{
-            progress.setText("Поиск: "+shop.name+"…");
             marketStates.put(shop.id,state);
+            // A late WebView status callback must not make a completed
+            // search look as though Ozon (or another store) is still running.
+            if(engine!=null&&engine.isRunning())
+                progress.setText("Поиск: "+shop.name+"…");
             updateSummary();
         });
     }
