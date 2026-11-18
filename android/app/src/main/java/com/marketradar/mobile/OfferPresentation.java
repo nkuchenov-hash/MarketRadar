@@ -53,6 +53,18 @@ final class OfferPresentation {
             .thenComparing(comparator(policy,deliveryFirst));
     }
 
+    static String displayKey(ScanEngine.Offer offer,DeliveryPolicy policy){
+        // Deduplicate equivalent marketplace tiles that carry different
+        // seller/card IDs but show the same variant, date and price.
+        // Keep different colours, sizes or delivery dates separate.
+        String title=(offer.title==null?"":offer.title)
+            .replaceAll("(?iu)\\s+(?:купить\\s+за|в\\s+интернет-магазине).*$","")
+            .replaceAll("(?<!\\d)\\d{8,}(?!\\d)"," ");
+        return offer.shop.id+"|"+offer.price+"|"+
+            policy.days(offer.deliveryHint)+"|"+offer.priceCondition+"|"+
+            ScanEngine.norm(title);
+    }
+
     private static String dateText(LocalDate date,LocalDate base){
         return date.format(date.getYear()==base.getYear()?DAY_MONTH:FULL_DATE);
     }
