@@ -1222,7 +1222,7 @@ final class ScanEngine {
                     noteProgress();
                     if(verdict==null){
                         coverageIncomplete=true;
-                        recordRejection("Ошибка локальной ИИ-проверки",title);
+                        recordRejection("Ошибка локальной ИИ-проверки",proposal.title);
                         listener.status(shop,"Локальный ИИ не подтвердил проверку");
                     }else if(verdict.booleanValue()){
                         verifiedMarket++;
@@ -1232,7 +1232,7 @@ final class ScanEngine {
                         listener.offer(proposal);
                     }else{
                         aiRejectedMarket++;
-                        recordRejection("ИИ отклонил модель",title);
+                        recordRejection("ИИ отклонил модель",proposal.title);
                     }
                     nextCandidate();
                 }));
