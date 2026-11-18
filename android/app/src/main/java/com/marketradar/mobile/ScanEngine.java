@@ -340,7 +340,7 @@ final class ScanEngine {
         """;
 
     private static final Pattern PRICE = Pattern.compile(
-        "(?<![0-9])([0-9]{1,3}(?:[\\s\\u00a0\\u202f][0-9]{3})+|[0-9]{3,7})\\s*(?:₽|руб)",
+        "(?<![0-9])([0-9]{1,3}(?:[\\p{Zs}\\s][0-9]{3})+|[0-9]{3,7})[\\p{Zs}\\s]*(?:₽|руб)",
         Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
     private final WebView browser;
     private final Handler handler;
