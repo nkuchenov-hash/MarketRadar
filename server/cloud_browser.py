@@ -58,9 +58,9 @@ def _amount(value):
     return 0
 
 
-def network_products(payload, origin: str, max_nodes=12000):
-    """Extract explicit product URLs without inventing URL from an opaque ID."""
-    market = market_of(origin)
+def network_products(payload, origin: str, max_nodes=12000, market: str | None = None):
+    """Preserve first-party listings, including WB's documented numeric product route."""
+    market = market or market_of(origin)
     products = []
     visited = 0
     todo = [(payload, 0)]
@@ -81,17 +81,43 @@ def network_products(payload, origin: str, max_nodes=12000):
             continue
         raw = next((node.get(k) for k in ("url", "productUrl", "link", "shareUrl", "webUrl")
                     if isinstance(node.get(k), str) and node[k]), "")
+        if not raw and market == "Wildberries":
+            product_id = node.get("id")
+            if isinstance(product_id, int) and 100000 <= product_id < 10**12:
+                raw = f"/catalog/{product_id}/detail.aspx"
         if not raw:
             continue
-        candidate_url = urljoin(origin, raw)
+        storefront = ("https://www.wildberries.ru/" if market == "Wildberries"
+                      else "https://market.yandex.ru/" if market == "Яндекс Маркет"
+                      else "https://www.ozon.ru/")
+        candidate_url = urljoin(storefront, raw) if raw.startswith("/") else urljoin(origin, raw)
         if not is_product_link(market, candidate_url):
             continue
         amount = 0
-        for key in ("discountedPrice", "finalPrice", "salePrice", "price", "minPrice"):
-            if key in node:
-                amount = _amount(node[key])
-                if amount:
-                    break
+        if market == "Wildberries":
+            # WB first-party JSON amounts ending in U and sizes[].price.total
+            # are provided in kopecks, unlike storefront ruble prices.
+            for key in ("salePriceU", "priceU"):
+                value = node.get(key)
+                if isinstance(value, (int, float)) and value >= 10000:
+                    amount = _amount(round(value / 100))
+                    if amount:break
+            if not amount:
+                sizes = node.get("sizes", [])
+                for size in sizes if isinstance(sizes,list) else []:
+                    if not isinstance(size,dict):continue
+                    price_data = size.get("price",{})
+                    if not isinstance(price_data,dict):continue
+                    value = price_data.get("total") or price_data.get("product")
+                    if isinstance(value,(int,float)) and value >= 10000:
+                        amount = _amount(round(value / 100))
+                        if amount:break
+        if not amount:
+            for key in ("discountedPrice", "finalPrice", "salePrice", "price", "minPrice"):
+                if key in node:
+                    amount = _amount(node[key])
+                    if amount:
+                        break
         products.append({"url": canonical(candidate_url), "title": title[:240],
                          "context": "", "price": amount, "source": "network"})
     return products, visited
@@ -312,7 +338,13 @@ class CloudBrowser:
                     any(part in response.url.lower() for part in
                         ("search", "catalog", "products", "feed")))):
                     blocked_http.append(response.status)
-                if not search or market_of(response.url) != market_of(target):
+                target_market = market_of(target)
+                source_market = market_of(response.url)
+                if target_market == "Wildberries" and source_market is None:
+                    source_host = urlparse(response.url).hostname or ""
+                    if source_host == "wb.ru" or source_host.endswith(".wb.ru"):
+                        source_market = "Wildberries"
+                if not search or source_market != target_market:
                     return
                 if resource not in ("xhr", "fetch"):
                     return
@@ -322,7 +354,7 @@ class CloudBrowser:
                 if int(headers.get("content-length","0") or 0) > 2_500_000:
                     return
                 data = await response.json()
-                found, _ = network_products(data, response.url)
+                found, _ = network_products(data, response.url, market=source_market)
                 network_count += len(found)
                 for item in found:
                     preserve(item)
