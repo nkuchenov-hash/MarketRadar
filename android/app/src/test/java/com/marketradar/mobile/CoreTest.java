@@ -49,6 +49,32 @@ public class CoreTest {
         assertFalse(policy.timely("26 ноября"));
     }
 
+    @Test public void screenshotRegressionYandexProExcludesCheaperNonPro() throws Exception {
+        String query="Яндекс Станция Мини 3 Про";
+        Shop ym=Shop.byId("ym");
+        String normal="Умная колонка Яндекс Станция Мини 3 с Алисой";
+        String pro="Умная колонка Яндекс Станция Мини 3 Про с Алисой";
+        JSONArray links=new JSONArray()
+            .put(new org.json.JSONObject()
+                .put("url","https://market.yandex.ru/card/yandeks-stantsiya-mini-3/4620658001")
+                .put("title",normal)
+                .put("context",normal+" 9 757 ₽")
+                .put("deliveryHint","послезавтра"))
+            .put(new org.json.JSONObject()
+                .put("url","https://market.yandex.ru/card/yandeks-stantsiya-mini-3-pro/4620658532")
+                .put("title",pro)
+                .put("context",pro+" 11 687 ₽")
+                .put("deliveryHint","21 ноября"));
+        java.util.ArrayList<ScanEngine.Candidate> matches=
+            ScanEngine.selectCandidates(links,ym,query,10);
+        assertEquals(1,matches.size());
+        assertEquals(11687,matches.get(0).listingPrice);
+        DeliveryPolicy policy=new DeliveryPolicy(3,false,15,
+            java.time.LocalDate.of(2026,11,18));
+        assertTrue(policy.timely(matches.get(0).deliveryHint));
+        assertFalse(policy.timely("22 ноября"));
+    }
+
     @Test public void genericNumericModelMustMatch() {
         assertTrue(ScanEngine.exact("Samsung Galaxy A56 256 ГБ","Смартфон Samsung Galaxy A56, 256 ГБ"));
         assertFalse(ScanEngine.exact("Samsung Galaxy A56 256 ГБ","Смартфон Samsung Galaxy A55, 256 ГБ"));
