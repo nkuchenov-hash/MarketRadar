@@ -51,6 +51,41 @@ public class SearchSessionStoreTest {
         assertEquals(12100,snapshot.offers.get(0).price);
     }
 
+    @Test public void interruptedSearchResumesWithSameMarketsAndPartialOffers(){
+        DeliveryPolicy policy=new DeliveryPolicy(3,false,15,LocalDate.of(2026,11,18));
+        ScanEngine.Offer saved=new ScanEngine.Offer(
+            Shop.byId("wb"),"https://www.wildberries.ru/catalog/12345678/detail.aspx",
+            "Станция Мини 3 Про",10772,"Цена из выдачи","28 ноября",
+            "с WB Кошельком","https://example.com/product.jpg");
+        String snapshot=SearchSessionStore.encode("Яндекс Станция Мини 3 Про",
+            policy,Arrays.asList(saved),true,"Поиск…",
+            Arrays.asList(Shop.byId("wb"),Shop.byId("ozon")),1);
+        SearchSessionStore.Snapshot restored=SearchSessionStore.decode(snapshot);
+        assertNotNull(restored);
+        assertTrue(SearchSessionStore.canAutoResume(restored));
+        assertEquals(1,restored.resumeAttempts);
+        assertEquals(Arrays.asList(Shop.byId("wb"),Shop.byId("ozon")),
+            restored.markets);
+        assertEquals(1,restored.offers.size());
+        assertEquals(10772,restored.offers.get(0).price);
+        String afterRestart=SearchSessionStore.encode(restored.query,
+            restored.policy,restored.offers,true,"Продолжаем поиск",
+            restored.markets,restored.resumeAttempts+1);
+        SearchSessionStore.Snapshot twice=SearchSessionStore.decode(afterRestart);
+        assertNotNull(twice);
+        assertFalse(SearchSessionStore.canAutoResume(twice));
+        assertEquals(1,twice.offers.size());
+    }
+
+    @Test public void completedScanNeverResumesInBackground(){
+        DeliveryPolicy policy=new DeliveryPolicy(3,false,15,LocalDate.of(2026,11,18));
+        SearchSessionStore.Snapshot done=SearchSessionStore.decode(
+            SearchSessionStore.encode("Яндекс Станция Мини 3 Про",policy,
+                new ArrayList<>(),false,"Готово"));
+        assertNotNull(done);
+        assertFalse(SearchSessionStore.canAutoResume(done));
+    }
+
     @Test public void discardsCorruptStateAndForeignLinks(){
         assertNull(SearchSessionStore.decode(null));
         assertNull(SearchSessionStore.decode("not json"));
