@@ -8,7 +8,7 @@ MARKETS = {
     'Wildberries': {'host':'wildberries.ru','search':'https://www.wildberries.ru/catalog/0/search.aspx?search={q}'},
     'Яндекс Маркет': {'host':'market.yandex.ru','search':'https://market.yandex.ru/search?text={q}'}
 }
-BLOCK_WORDS = ('подозрительная активность','похоже, нет соединения',
+BLOCK_WORDS = ('подозрительная активность','проверяем браузер','похоже, нет соединения',
                'captcha-support@','проверка браузера','докажите, что вы не робот',
                'access denied','слишком много запросов','вы не робот','robot check')
 
