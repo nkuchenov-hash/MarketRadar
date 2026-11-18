@@ -475,7 +475,7 @@ public class CoreTest {
         frontier.confirm(12000);
         assertTrue(frontier.deferHigher(14000));
         assertFalse(frontier.deferHigher(11542));
-        assertFalse(frontier.deferHigher(12000));
+        assertTrue(frontier.deferHigher(12000)); // identical-priced variant cannot beat the best
         frontier.observe(11000);
         frontier.confirm(11000);
         assertTrue(frontier.deferHigher(11542));
@@ -557,10 +557,10 @@ public class CoreTest {
         // WB page checks: WB may have an account-specific discounted price.
         assertEquals(1,DynamicPriceFrontier.nextUnpruned(wbOffers,1,frontier,wb));
         assertTrue(frontier.confirm(11316,"20 ноября",wb));
-        // Candidate #1 is more expensive, but candidate #2 is a cheaper
-        // late-delivery offer. Preserve it for the absolute price minimum.
-        assertEquals(2,DynamicPriceFrontier.nextUnpruned(wbOffers,1,frontier,wb));
-        assertFalse(frontier.deferHigher(11316,"20 ноября",wb));
+        // Candidate #1 cannot improve WB's own best, and #2 arrives late
+        // without the required late-discount exception: skip both.
+        assertEquals(3,DynamicPriceFrontier.nextUnpruned(wbOffers,1,frontier,wb));
+        assertTrue(frontier.deferHigher(11316,"20 ноября",wb));
         assertTrue(frontier.deferHigher(13100,"20 ноября",wb));
     }
     @Test public void publicWbWalletListingsFromScreenshotsPreserveConditionAndDelivery() throws Exception {
