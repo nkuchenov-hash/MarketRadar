@@ -27,6 +27,8 @@ final class SearchEvidenceAudit {
 
     private final LinkedHashMap<String,Card> cards=new LinkedHashMap<>();
     private int snapshots=0,rawLinks=0,rejected=0,noPrice=0,accepted=0;
+    private final java.util.TreeSet<Integer> domPrices=new java.util.TreeSet<>();
+    private int domPriceSnapshots=0;
     private static final int MAX_CARDS=4000;
 
     static String path(String url){
@@ -84,6 +86,39 @@ final class SearchEvidenceAudit {
         }
     }
 
+    void observeDomPrices(JSONArray prices){
+        if(prices==null)return;
+        domPriceSnapshots++;
+        for(int i=0;i<prices.length();i++){
+            int price=prices.optInt(i,0);
+            if(price>=100&&price<=50000000)domPrices.add(price);
+        }
+    }
+
+    String probePrice(int amount){
+        if(amount<=0)return "";
+        boolean seenInDom=domPrices.contains(amount);
+        int matches=0,qualified=0;
+        StringBuilder matching=new StringBuilder();
+        for(Card card:cards.values()){
+            if(card.price!=amount)continue;
+            matches++;
+            if(card.eligible)qualified++;
+            if(matching.length()<350){
+                matching.append("\n    ").append(publicId(card.path))
+                    .append(" · ").append(card.stage)
+                    .append(" · ").append(card.delivery.isBlank()?"дата ?":card.delivery);
+            }
+        }
+        return "Проверка цены "+amount+" ₽: в тексте выдачи "+
+            (seenInDom?"есть":"не обнаружена")+
+            "; привязано к товарным карточкам "+matches+
+            "; отобрано для проверки "+qualified+
+            (matching.length()==0?"":matching.toString())+
+            (seenInDom&&matches==0?
+                "\n    ЦЕНА НА СТРАНИЦЕ ЕСТЬ, но карточка не извлечена: проверять DOM-селекторы.":"");
+    }
+
     void stage(String url,String stage){
         Card card=find(url);
         if(card!=null)card.stage=stage;
@@ -101,6 +136,16 @@ final class SearchEvidenceAudit {
             .append("; отобрано до ИИ ").append(accepted)
             .append("; исключено до ИИ ").append(rejected)
             .append("; без цены ").append(noPrice);
+        out.append("; ценников в тексте страницы ").append(domPrices.size());
+        if(!domPrices.isEmpty()){
+            out.append("\nСамые низкие ценники в DOM (не обязательно нужная модель): ");
+            int shown=0;
+            for(Integer value:domPrices){
+                if(shown++>=12)break;
+                if(shown>1)out.append(", ");
+                out.append(value).append(" ₽");
+            }
+        }
         appendExamples(out,sorted,true,8,"Самые дешёвые подходящие кандидаты");
         appendExamples(out,sorted,false,3,"Дешёвые ссылки, исключённые до ИИ");
         return out.toString();
