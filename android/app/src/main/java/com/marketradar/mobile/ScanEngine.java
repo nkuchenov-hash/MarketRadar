@@ -1125,7 +1125,22 @@ final class ScanEngine {
                 final String candidateUrl=expectedUrl;
                 listener.status(shop,"Проверяем найденный товар локальным ИИ…");
                 awaitingAi=true;
+                // The network watchdog intentionally skips AI work, but the
+                // model can stall at startup or under Android memory pressure.
+                // Never leave a market worker waiting forever for its callback.
+                final java.util.concurrent.atomic.AtomicBoolean settled=
+                    new java.util.concurrent.atomic.AtomicBoolean(false);
+                handler.postDelayed(()->{
+                    if(!running||request!=token||!candidateUrl.equals(expectedUrl)||
+                       !settled.compareAndSet(false,true))return;
+                    awaitingAi=false;
+                    coverageIncomplete=true;
+                    noteProgress();
+                    listener.status(shop,"Локальная проверка не ответила за 45 с · продолжаем");
+                    nextCandidate();
+                },45000);
                 listener.assess(proposal,verdict->handler.post(()->{
+                    if(!settled.compareAndSet(false,true))return;
                     if(!running||request!=token||!candidateUrl.equals(expectedUrl))return;
                     awaitingAi=false;
                     noteProgress();
