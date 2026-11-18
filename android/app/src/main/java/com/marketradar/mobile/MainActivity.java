@@ -73,7 +73,8 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
     private boolean accountsVisible=false;
     private TextView bestPrice, priceSummary, marketProgress, resultsHeading, bestPriceLabel;
     private LinearLayout summaryPanel, filterPanel, sortRow;
-    private Button deadlineButton, sortPriceButton, sortDeliveryButton;
+    private Button sortPriceButton, sortDeliveryButton;
+    private TextView deadlineLabel, alternativeSummary, marketNotice;
     private TextView deadlinePreview;
     private boolean sortByDelivery=false;
     private final Map<String,String> marketStates=new HashMap<>();
@@ -284,10 +285,15 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         searchButton.setOnClickListener(v->beginSearch());
         gap(page,9);
 
-        deadlineButton=button("Доставка: условия поиска",false);
-        deadlineButton.setTextSize(14);
-        add(page,deadlineButton,-1,47);
-        deadlineButton.setOnClickListener(v->showScreen(SCREEN_SETTINGS));
+        LinearLayout deliveryRow=linear(LinearLayout.HORIZONTAL);
+        deliveryRow.setGravity(Gravity.CENTER_VERTICAL);
+        deadlineLabel=text("",14,TEXT,false);
+        deliveryRow.addView(deadlineLabel,new LinearLayout.LayoutParams(0,-2,1));
+        TextView editDeadline=text("Изменить",13,ACCENT,true);
+        editDeadline.setPadding(dp(7),dp(7),0,dp(7));
+        editDeadline.setOnClickListener(v->showScreen(SCREEN_SETTINGS));
+        add(deliveryRow,editDeadline,-2,-2);
+        add(page,deliveryRow,-1,-2);
         updateDeadlineButton();
         gap(page,9);
         progress=text("",13,MUTED,false);
@@ -304,6 +310,10 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         priceSummary=text("",12,MUTED,false);
         priceSummary.setVisibility(View.GONE);
         add(summaryPanel,priceSummary,-1,-2);
+        alternativeSummary=text("",12,MUTED,false);
+        alternativeSummary.setVisibility(View.GONE);
+        gap(summaryPanel,5);
+        add(summaryPanel,alternativeSummary,-1,-2);
         marketProgress=text("",14,TEXT,false);
         add(page,summaryPanel,-1,-2);
         gap(page,12);
@@ -330,6 +340,9 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         sortRow.setVisibility(View.GONE);
         add(page,sortRow,-1,-2);
         updateSortButtons();
+        marketNotice=text("",12,MUTED,false);
+        marketNotice.setVisibility(View.GONE);
+        add(page,marketNotice,-1,-2);
         count=text("",12,MUTED,false);
         count.setVisibility(View.GONE);
         add(page,count,-1,-2);
@@ -799,6 +812,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         marketProgress.setText("Ищем предложения…");
         count.setVisibility(View.GONE);
         searchButton.setText("Остановить");
+        marketNotice.setVisibility(View.GONE);
         progress.setText("Поиск…");
         saveCurrentSearch(true);
         engine.start(q,Integer.MAX_VALUE,chosen,deliveryPolicy);
@@ -857,9 +871,8 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
             java.time.LocalDate.now());
     }
     private void updateDeadlineButton(){
-        if(deadlineButton==null||deliveryDaysInput==null)return;
-        DeliveryPolicy applied=pendingPolicy();
-        deadlineButton.setText(OfferPresentation.deadline(applied)+"  ·  Изменить");
+        if(deadlineLabel==null||deliveryDaysInput==null)return;
+        deadlineLabel.setText(OfferPresentation.deadline(pendingPolicy()));
     }
     private void updateDeadlinePreview(){
         if(deadlinePreview==null||deliveryDaysInput==null)return;
@@ -901,28 +914,42 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         return deliveryPolicy.eligible(o.price,o.deliveryHint,timelyBest);
     }
     private void updateSummary(){
-        ScanEngine.Offer cheapest=null;
+        int timelyBest=bestTimelyPrice();
+        ScanEngine.Offer bestEligible=null, bestOther=null;
         for(ScanEngine.Offer o:offers){
-            if(o.price>0&&(cheapest==null||o.price<cheapest.price))cheapest=o;
+            if(o.price<=0)continue;
+            if(qualifies(o,timelyBest)){
+                if(bestEligible==null||o.price<bestEligible.price)bestEligible=o;
+            }else if(bestOther==null||o.price<bestOther.price)bestOther=o;
         }
-        bestPriceLabel.setText("Лучшая найденная цена");
-        bestPrice.setText(cheapest==null?"Ищем…":rubles(cheapest.price));
-        bestPrice.setTextSize(cheapest==null?21:31);
-        if(cheapest==null){
-            priceSummary.setText("");
-            priceSummary.setVisibility(View.GONE);
+        String cutoff=OfferPresentation.deadline(deliveryPolicy)
+            .replace("Доставка до ","до ");
+        bestPriceLabel.setText("Лучшее с доставкой "+cutoff);
+        if(bestEligible==null){
+            bestPrice.setText(offers.isEmpty()?"Ищем…":"Пока не найдено");
+            bestPrice.setTextSize(20);
+            priceSummary.setText(offers.isEmpty()?"":"Подходящие по сроку предложения ещё не найдены");
+            priceSummary.setVisibility(offers.isEmpty()?View.GONE:View.VISIBLE);
         }else{
+            bestPrice.setText(rubles(bestEligible.price));
+            bestPrice.setTextSize(31);
             String delivery=OfferPresentation.deliveryDate(
-                deliveryPolicy,cheapest.deliveryHint);
-            String timing=OfferPresentation.deliveryNote(
-                deliveryPolicy,cheapest.deliveryHint);
-            String wallet=cheapest.priceCondition.isBlank()?"":
-                " · "+cheapest.priceCondition;
-            priceSummary.setText(cheapest.shop.name+" · "+delivery+
-                " · "+timing+wallet);
+                deliveryPolicy,bestEligible.deliveryHint);
+            String wallet=bestEligible.priceCondition.isBlank()?"":
+                " · "+bestEligible.priceCondition;
+            String exception=deliveryPolicy.timely(bestEligible.deliveryHint)?"":
+                " · выгоднее по разрешённому исключению";
+            priceSummary.setText(bestEligible.shop.name+" · "+delivery+wallet+exception);
             priceSummary.setVisibility(View.VISIBLE);
         }
-        // Diagnostic states are retained only in the saved search report.
+        if(bestOther!=null){
+            String tag=deliveryPolicy.days(bestOther.deliveryHint)<0?
+                "Без даты доставки":"Вне срока";
+            alternativeSummary.setText(tag+": "+rubles(bestOther.price)+
+                " · "+bestOther.shop.name+" · "+
+                OfferPresentation.deliveryDate(deliveryPolicy,bestOther.deliveryHint));
+            alternativeSummary.setVisibility(View.VISIBLE);
+        }else alternativeSummary.setVisibility(View.GONE);
         resultsHeading.setVisibility(offers.isEmpty()?View.GONE:View.VISIBLE);
         if(sortRow!=null)
             sortRow.setVisibility(offers.isEmpty()?View.GONE:View.VISIBLE);
@@ -1043,49 +1070,85 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         return image;
     }
     private void renderResults(){
-        offers.sort(OfferPresentation.comparator(deliveryPolicy,sortByDelivery));
+        final int timelyBest=bestTimelyPrice();
+        offers.sort(OfferPresentation.priorityComparator(
+            deliveryPolicy,sortByDelivery,timelyBest));
         results.removeAllViews();
         updateSummary();
+        int eligibleCount=0;
+        for(ScanEngine.Offer o:offers)
+            if(OfferPresentation.priority(deliveryPolicy,o,timelyBest)==0)
+                eligibleCount++;
+        resultsHeading.setText("Подходят по сроку · "+eligibleCount);
+        boolean otherHeadingAdded=false;
         for(ScanEngine.Offer o:offers){
+            boolean secondary=OfferPresentation.priority(deliveryPolicy,o,timelyBest)!=0;
+            if(secondary&&!otherHeadingAdded){
+                otherHeadingAdded=true;
+                gap(results,7);
+                add(results,text("Другие предложения · "+(offers.size()-eligibleCount),
+                    16,MUTED,true),-1,-2);
+                gap(results,9);
+            }
             LinearLayout card=panel();
+            if(secondary)card.setPadding(dp(13),dp(12),dp(13),dp(12));
             LinearLayout row=linear(LinearLayout.HORIZONTAL);
             row.setGravity(Gravity.CENTER_VERTICAL);
             View picture=photo(o);
-            row.addView(picture,new LinearLayout.LayoutParams(dp(104),dp(111)));
+            int pictureWidth=secondary?76:104;
+            row.addView(picture,new LinearLayout.LayoutParams(
+                dp(pictureWidth),dp(secondary?84:111)));
             LinearLayout details=linear(LinearLayout.VERTICAL);
             LinearLayout.LayoutParams layout=new LinearLayout.LayoutParams(0,-2,1);
-            layout.leftMargin=dp(13);
+            layout.leftMargin=dp(secondary?10:13);
             row.addView(details,layout);
             add(details,text(o.shop.name,12,ACCENT,true),-1,-2);
-            gap(details,3);
+            gap(details,secondary?2:3);
             add(details,text(o.price>0?rubles(o.price):"Цена уточняется",
-                23,TEXT,true),-1,-2);
-            gap(details,4);
-            TextView title=text(compactTitle(o.title),13,TEXT,false);
+                secondary?18:23,TEXT,true),-1,-2);
+            gap(details,secondary?2:4);
+            TextView title=text(compactTitle(o.title),secondary?12:13,TEXT,false);
             title.setMaxLines(2);
             title.setEllipsize(android.text.TextUtils.TruncateAt.END);
             add(details,title,-1,-2);
-            gap(details,7);
+            gap(details,secondary?4:7);
             boolean late=OfferPresentation.afterDeadline(deliveryPolicy,o.deliveryHint);
-            int dateColor=late?(themePalette.dark?0xFFFFC087:0xFFAA501C):TEXT;
+            int dateColor=late?(themePalette.dark?0xFFFFC087:0xFFAA501C):
+                secondary?MUTED:TEXT;
             add(details,text(OfferPresentation.deliveryDate(
-                deliveryPolicy,o.deliveryHint),15,dateColor,true),-1,-2);
+                deliveryPolicy,o.deliveryHint),secondary?13:15,dateColor,!secondary),-1,-2);
             gap(details,2);
             add(details,text(OfferPresentation.deliveryNote(
-                deliveryPolicy,o.deliveryHint),12,
+                deliveryPolicy,o.deliveryHint),secondary?11:12,
                 late?dateColor:MUTED,false),-1,-2);
             if(!o.priceCondition.isBlank()){
-                gap(details,4);
+                gap(details,secondary?2:4);
                 add(details,text(o.priceCondition,11,ACCENT,false),-1,-2);
             }
             add(card,row,-1,-2);
             card.setClickable(true);
             card.setOnClickListener(v->inspectOffer(o));
             add(results,card,-1,-2);
-            gap(results,9);
+            gap(results,secondary?6:9);
         }
-        resultsHeading.setText("Предложения · "+offers.size());
         resultsHeading.setVisibility(offers.isEmpty()?View.GONE:View.VISIBLE);
+    }
+    private void updateMarketplaceNotice(){
+        if(marketNotice==null)return;
+        ArrayList<String> unavailable=new ArrayList<>();
+        for(Shop shop:lastSelectedMarkets){
+            boolean found=false;
+            for(ScanEngine.Offer offer:offers)
+                if(offer.shop.id.equals(shop.id)){found=true;break;}
+            if(!found)unavailable.add(shop.name);
+        }
+        if(unavailable.isEmpty()){
+            marketNotice.setVisibility(View.GONE);
+        }else{
+            marketNotice.setText("Не получены предложения: "+
+                String.join(", ",unavailable)+". Причина — в отчёте поиска.");
+            marketNotice.setVisibility(View.VISIBLE);
+        }
     }
     @Override public void done(){
         runOnUiThread(()->{
@@ -1096,6 +1159,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
                 "Часть выдачи недоступна. Окончательный минимум не доказан.":
                 "Обход доступной выдачи завершён; дорогие карточки отсечены.";
             saveSearchReport(new ArrayList<>(pendingOffers),reason);
+            updateMarketplaceNotice();
             if(offers.isEmpty()){
                 summaryPanel.setVisibility(View.VISIBLE);
                 updateSummary();
