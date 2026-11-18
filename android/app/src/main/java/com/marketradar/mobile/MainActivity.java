@@ -75,6 +75,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
     private LinearLayout summaryPanel, filterPanel, sortRow;
     private Button sortPriceButton, sortDeliveryButton;
     private TextView deadlineLabel, alternativeSummary, marketNotice;
+    private Button retryMissingButton;
     private TextView deadlinePreview;
     private boolean sortByDelivery=false;
     private final Map<String,String> marketStates=new HashMap<>();
@@ -344,6 +345,11 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         marketNotice=text("",12,MUTED,false);
         marketNotice.setVisibility(View.GONE);
         add(page,marketNotice,-1,-2);
+        retryMissingButton=button("Повторить недостающие площадки",false);
+        retryMissingButton.setTextSize(12);
+        retryMissingButton.setVisibility(View.GONE);
+        add(page,retryMissingButton,-1,38);
+        retryMissingButton.setOnClickListener(v->retryMissingMarkets());
         count=text("",12,MUTED,false);
         count.setVisibility(View.GONE);
         add(page,count,-1,-2);
@@ -858,6 +864,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         count.setVisibility(View.GONE);
         searchButton.setText("Остановить");
         marketNotice.setVisibility(View.GONE);
+        retryMissingButton.setVisibility(View.GONE);
         progress.setText("Поиск…");
         saveCurrentSearch(true);
         startSearchProtection();
@@ -1182,21 +1189,51 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         }
         resultsHeading.setVisibility(offers.isEmpty()?View.GONE:View.VISIBLE);
     }
-    private void updateMarketplaceNotice(){
-        if(marketNotice==null)return;
-        ArrayList<String> unavailable=new ArrayList<>();
+    private ArrayList<Shop> unresolvedMarkets(){
+        ArrayList<Shop> missing=new ArrayList<>();
         for(Shop shop:lastSelectedMarkets){
             boolean found=false;
             for(ScanEngine.Offer offer:offers)
                 if(offer.shop.id.equals(shop.id)){found=true;break;}
-            if(!found)unavailable.add(shop.name);
+            if(!found)missing.add(shop);
         }
-        if(unavailable.isEmpty()){
+        return missing;
+    }
+    private void retryMissingMarkets(){
+        if(engine==null||engine.isRunning()||activeQuery.isBlank())return;
+        ArrayList<Shop> missing=unresolvedMarkets();
+        if(missing.isEmpty())return;
+        marketNotice.setVisibility(View.GONE);
+        retryMissingButton.setVisibility(View.GONE);
+        marketStates.keySet().removeIf(key->{
+            for(Shop shop:missing)if(shop.id.equals(key))return true;
+            return false;
+        });
+        pendingOffers.clear();
+        aiGeneration++;
+        resumeAttempts=0;
+        progress.setText("Повторный поиск: "+missing.size()+" площадки");
+        searchButton.setText("Остановить");
+        // Keep the previously confirmed WB/Yandex/Ozon cards. Only repeat
+        // sites for which the current search yielded no verified products.
+        saveCurrentSearch(true);
+        startSearchProtection();
+        engine.start(activeQuery,Integer.MAX_VALUE,missing,deliveryPolicy);
+    }
+    private void updateMarketplaceNotice(){
+        if(marketNotice==null)return;
+        ArrayList<Shop> missing=unresolvedMarkets();
+        if(missing.isEmpty()){
             marketNotice.setVisibility(View.GONE);
+            retryMissingButton.setVisibility(View.GONE);
         }else{
-            marketNotice.setText("Не получены предложения: "+
-                String.join(", ",unavailable)+". Причина — в отчёте поиска.");
+            ArrayList<String> reasons=new ArrayList<>();
+            for(Shop shop:missing)
+                reasons.add(shop.name+": "+
+                    StoreResultMessage.summarize(marketStates.get(shop.id)));
+            marketNotice.setText(String.join(" · ",reasons));
             marketNotice.setVisibility(View.VISIBLE);
+            retryMissingButton.setVisibility(View.VISIBLE);
         }
     }
     @Override public void done(){
