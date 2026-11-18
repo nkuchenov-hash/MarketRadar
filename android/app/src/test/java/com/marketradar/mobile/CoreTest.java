@@ -16,8 +16,8 @@ public class CoreTest {
             .put("context","12 620 ₽\n21 ноября")
             .put("deliveryHint","21 ноября"));
         audit.observe(firstCard,Shop.byId("ym"),"Samsung Galaxy A56 256 ГБ");
-        assertTrue(audit.unmatchedLowPrices().contains("10 880 ₽"));
-        assertTrue(audit.summary().contains("12 620 ₽"));
+        assertTrue(audit.unmatchedLowPrices().contains("10880 ₽"));
+        assertTrue(audit.summary().contains("12620 ₽"));
         assertFalse(audit.summary().contains("track=private"));
 
         // A later scroll reveals the initially unlinked lower price.
