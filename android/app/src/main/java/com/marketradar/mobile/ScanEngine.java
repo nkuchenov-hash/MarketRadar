@@ -263,6 +263,7 @@ final class ScanEngine {
     private int lastObservedPoolCount=-1;
     private int stalledScrollChecks=0;
     private boolean awaitingAi=false;
+    private int browserCheckRetries=0;
     private boolean sessionProbeRequested=false;
     private int lastDetailCount=0;
     private long lastSearchGrowthMs=0;
@@ -292,6 +293,12 @@ final class ScanEngine {
     }
     static boolean atPageEnd(long y,long height,long viewport){
         return height>0&&viewport>0&&y+viewport>=height-75;
+    }
+    static boolean browserCheckPage(String title,String body){
+        String text=body==null?"":body.toLowerCase(Locale.ROOT);
+        return text.contains("проверяем браузер") ||
+            text.contains("checking your browser") ||
+            ("...".equals(title) && text.length()<90);
     }
     static boolean exceededIdle(long lastProgress,long now,long idleLimit){
         return now-lastProgress>=idleLimit;
@@ -353,6 +360,7 @@ final class ScanEngine {
         detailHydrationRetries=0;
         retryCount=0;
         awaitingAi=false;
+        browserCheckRetries=0;
         sessionProbeRequested=false;
         lastObservedScrollY=-1;lastObservedScrollHeight=-1;
         lastObservedPoolCount=-1;stalledScrollChecks=0;lastDetailCount=0;
@@ -494,12 +502,40 @@ final class ScanEngine {
             }
             nextMarket();return;
         }
+        if(!details && browserCheckPage(title,body)){
+            // WB often initially returns only "Проверяем браузер"; its
+            // challenge or actual catalog may appear several seconds later.
+            // Do not mistake this placeholder for an empty product search.
+            if(browserCheckRetries++<12){
+                noteProgress();
+                listener.status(shop,"Сайт проверяет браузер · ждём выдачу, а не скрываем товары");
+                final int request=token;
+                handler.postDelayed(()->{
+                    if(!running||request!=token||details)return;
+                    browser.evaluateJavascript(SEARCH_SNAPSHOT,value->{
+                        if(!running||request!=token||details)return;
+                        try{
+                            Object decoded=new JSONTokener(value).nextValue();
+                            JSONObject snapshot=new JSONObject(String.valueOf(decoded));
+                            consume(snapshot);
+                        }catch(Exception e){failPage("Не удалось проверить браузер магазина");}
+                    });
+                },900);
+            }else{
+                coverageIncomplete=true;
+                listener.status(shop,"Магазин не выдал карточки: проверка браузера не завершилась");
+                nextMarket();
+            }
+            return;
+        }
         if(body.contains("подозрительная активность")||
             body.contains("похоже, нет соединения")||
             body.contains("вы не робот")||body.contains("captcha")||
             body.contains("access denied")||title.equals("403")) {
             coverageIncomplete=true;
-            listener.status(shop,"Магазин ограничил доступ");
+            listener.status(shop,shop.id.equals("wb")?
+                "Wildberries ограничил браузерную выдачу · цены не проверены":
+                "Магазин ограничил доступ · цены не проверены");
             nextMarket();return;
         }
         if(details){
