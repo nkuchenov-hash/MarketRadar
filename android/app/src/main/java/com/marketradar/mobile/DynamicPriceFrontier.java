@@ -5,7 +5,8 @@ package com.marketradar.mobile;
  *
  * A short-delivery verified product may lower the global ceiling; a cheap
  * 8-day product may NEVER suppress tomorrow's eligible higher-price product.
- * Unknown-delivery listings remain unpruned until their delivery is resolved.
+ * Unknown-delivery listings priced ABOVE a confirmed timely offer can
+ * safely be deferred: the arrival date cannot make a higher price cheaper.
  */
 final class DynamicPriceFrontier {
     private int observed=Integer.MAX_VALUE;
@@ -70,7 +71,7 @@ final class DynamicPriceFrontier {
         if(!policy.potentiallyEligible(deliveryHint))return true;
         if(listingPrice<=0||confirmed==Integer.MAX_VALUE)return false;
         int days=policy.days(deliveryHint);
-        if(days<0)return false;  // unknown date cannot be safely pruned
+        if(days<0)return listingPrice>confirmed; // price ceiling still applies
         if(days<=policy.maxDays)return listingPrice>confirmed;
         // The optional long-delivery rule is an EXCEPTION and only applies
         // if the late offer is X% cheaper than the best timely offer.
@@ -87,7 +88,8 @@ final class DynamicPriceFrontier {
         if(shopBest==Integer.MAX_VALUE)return false;
         if(!policy.potentiallyEligible(deliveryHint))return true;
         int days=policy.days(deliveryHint);
-        if(days<0||listingPrice<=0)return false;
+        if(listingPrice<=0)return false;
+        if(days<0)return listingPrice>shopBest;
         if(days<=policy.maxDays)return listingPrice>shopBest;
         if(policy.allowSlowDiscount)
             return (long)listingPrice*100 >
