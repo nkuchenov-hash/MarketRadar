@@ -141,6 +141,12 @@ final class CloudSearchClient {
                 job=started.optString("id","");
                 if(job.length()<20)throw new IllegalStateException("Сервер не вернул ID поиска");
             }
+            if(!active(request)){
+                // User pressed Stop while POST was still in flight.
+                try{request("DELETE",baseUrl+"/api/mobile/browser/jobs/"+job,null);}
+                catch(Exception ignored){}
+                return;
+            }
             currentJob=job;
             prefs.edit().putString("cloud_pending_job_id",job)
                 .putString("cloud_pending_query",query)
