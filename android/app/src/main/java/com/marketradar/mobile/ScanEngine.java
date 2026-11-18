@@ -1053,9 +1053,9 @@ final class ScanEngine {
                     note="Цена из данных товара · условия карты и доставки не проверены";
                 else
                     note="Модель совпадает · цена не найдена";
-                String delivery=candidates.get(cardIndex-1).deliveryHint;
-                if(delivery.isBlank())
-                    delivery=readDeliveryHint(data.optString("deliveryHint",""));
+                String listingDelivery=candidates.get(cardIndex-1).deliveryHint;
+                final String delivery=listingDelivery.isBlank()?
+                    readDeliveryHint(data.optString("deliveryHint","")):listingDelivery;
                 String priceCondition=candidates.get(cardIndex-1).priceCondition;
                 String image=data.optString("imageUrl","");
                 if(image.isBlank())image=selected.imageUrl;
