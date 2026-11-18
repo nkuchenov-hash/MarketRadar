@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
     <application
         android:label="MarketRadar"
         android:icon="@drawable/app_icon"
@@ -9,6 +11,10 @@
         android:allowBackup="false"
         android:fullBackupContent="false"
         android:supportsRtl="true">
+        <service
+            android:name=".SearchProtectionService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync"/>
         <activity
             android:name=".MainActivity"
             android:exported="true"
