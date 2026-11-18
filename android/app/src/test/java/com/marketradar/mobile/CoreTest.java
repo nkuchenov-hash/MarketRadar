@@ -142,6 +142,24 @@ public class CoreTest {
                 .put("productName",q).put("source","schema.org/Offer"));
         assertEquals(11900,ScanEngine.readStructuredPrice(prices,q,q));
     }
+    @Test public void blankWebViewStartupIsNotMarketplaceRedirect(){
+        assertTrue(Shop.isTransientDocument(null));
+        assertTrue(Shop.isTransientDocument(""));
+        assertTrue(Shop.isTransientDocument("about:blank"));
+        assertTrue(Shop.isTransientDocument("ABOUT:BLANK"));
+        assertTrue(Shop.isTransientDocument("about:srcdoc"));
+        assertFalse(Shop.isTransientDocument(
+            "https://www.wildberries.ru/catalog/0/search.aspx?search=mini"));
+        for(Shop shop:Shop.ALL){
+            assertFalse(shop.allowed("about:blank"));
+            assertFalse(shop.allowed("about:srcdoc"));
+            assertTrue(shop.allowed(shop.searchUrl("Яндекс Станция Мини 3 Про")));
+        }
+        assertEquals("пустая страница",Shop.safeHost("about:blank"));
+        assertEquals("market.yandex.ru",
+            Shop.safeHost("https://market.yandex.ru/search?text=test&token=secret"));
+        assertEquals("неизвестный адрес",Shop.safeHost("file:///private/path"));
+    }
     @Test public void onlyHttpsMarketplaceProducts() {
         Shop ozon=Shop.byId("ozon");
         assertTrue(ozon.productLink("https://www.ozon.ru/product/yndx-00059-123/"));
