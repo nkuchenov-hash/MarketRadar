@@ -409,7 +409,7 @@ final class ScanEngine {
             (firstRejectionMarket.isEmpty()?"":"; пример: "+firstRejectionMarket);
     }
     private boolean stoppedForFastCheck=false,fullPassFallback=false;
-    private static final int MAX_EXPANDED_LISTING_SNAPSHOTS=80;
+    private static final int MAX_EXPANDED_LISTING_SNAPSHOTS=400;
     private final Set<String> inspectedCandidateKeys=new HashSet<>();
     private boolean plainSearchFallbackAttempted=false;
 
@@ -436,18 +436,19 @@ final class ScanEngine {
     static boolean mustCompleteListingAfterQuickPass(
             Shop shop,boolean stoppedEarly,boolean alreadyExpanded,int timelyVerified){
         if(!stoppedEarly||alreadyExpanded||shop==null)return false;
-        // WB and Yandex may ignore the URL price sort or display personalized
-        // wallet offers later in the grid. A matching on-time product is NOT
-        // proof that the next screens contain no cheaper one.
-        return timelyVerified==0||shop.id.equals("wb")||shop.id.equals("ym");
+        // Every source, including Ozon, can show later matching listings
+        // with lower checkout prices or different payment conditions.
+        // A quick match is not sufficient: inspect the remaining listing.
+        return true;
     }
     static boolean expandedScanLimitReached(boolean expanded,int snapshots){
         return expanded&&snapshots>=MAX_EXPANDED_LISTING_SNAPSHOTS;
     }
     static boolean canPrunePriceCandidate(Shop shop,boolean observedAscending){
-        // Search params alone are not enough; order should be observable
-        // from the marketplace's priced product cards in this search.
-        return shop!=null&&(shop.id.equals("ozon")||observedAscending);
+        // Even a visually ascending listing may mix wallet/checkout prices
+        // and change as the site renders. Skipping a card can miss a cheaper
+        // genuine listing. Retain ALL collected candidates for inspection.
+        return false;
     }
     static boolean settledAtBottom(boolean bottom,long height,long previousHeight,
                                    int count,int previousCount){
@@ -880,9 +881,8 @@ final class ScanEngine {
         if(fastCheckReady(listingSnapshots,firstExactSnapshot,
                           searchPool.size(),fullPassFallback)){
             stoppedForFastCheck=true;
-            // WB/Yandex run an expanded follow-up after the quick check;
-            // only an actual access/scroll failure makes them incomplete.
-            if(shop.id.equals("ozon"))coverageIncomplete=true;
+            // Fast pass never proves a marketplace is fully scanned.
+            // Every selected marketplace receives the expanded follow-up.
             listener.status(shop,"Найдена точная модель в выдаче · сразу проверяем цены");
             finishListingCollection();
             return;
