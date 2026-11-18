@@ -1394,6 +1394,11 @@ final class ScanEngine {
     private static boolean nonPayableAmount(String line,int start,int end){
         String before=line.substring(Math.max(0,start-35),start).trim();
         String after=line.substring(end,Math.min(line.length(),end+30)).trim();
+        // "6×1 948 ₽ в сплит" is an installment, never the payable price.
+        if(before.matches("(?su).*?(?:^|\\s)\\d{1,2}\\s*[×xх*]\\s*"))
+            return true;
+        if(after.matches("(?si)^в\\s+(?:сплит|рассрочку)(?:\\b|\\s).*"))
+            return true;
         if(before.matches("(?s).*(?:к[эе]шб[эе]к|балл(?:ов|а|ы)?|бонус(?:ы|ов)?|скидк[а-я]*|экономи[а-я]*)(?:\\s+(?:до|около))?\\s*:?"))
             return true;
         return after.matches("(?s)^(?:/\\s*мес|в\\s+месяц|к[эе]шб[эе]к|балл(?:ов|а|ы)?|бонус(?:ы|ов)?|рассроч[а-я]*|долями|сплит)(?:\\b|\\s).*");
