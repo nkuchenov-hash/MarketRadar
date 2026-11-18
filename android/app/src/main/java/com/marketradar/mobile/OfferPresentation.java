@@ -41,9 +41,9 @@ final class OfferPresentation {
     static boolean showAlternative(DeliveryPolicy policy,ScanEngine.Offer offer,
                                    int bestTimelyPrice){
         if(offer.price<=0||policy.timely(offer.deliveryHint))return false;
-        // Only offers actually cheaper than the best on-time price add
-        // decision value. Unknown delivery is never presented as on-time.
-        return bestTimelyPrice<=0||offer.price<bestTimelyPrice;
+        // A later item is only useful when the configured discount threshold
+        // is satisfied. "Any amount cheaper" was an incorrect UI shortcut.
+        return policy.lateException(offer.price,offer.deliveryHint,bestTimelyPrice);
     }
 
     static Comparator<ScanEngine.Offer> priorityComparator(
@@ -58,6 +58,12 @@ final class OfferPresentation {
      * All other confirmed offers remain available behind an explicit toggle.
      * The compact view may also include up to three cheaper late alternatives.
      */
+    /**
+     * Keep the decision screen compact without throwing away collected
+     * search evidence. The best ON-TIME offer per marketplace always stays.
+     * Expanded view shows only genuinely competitive extra options and
+     * explicitly eligible late-discount exceptions.
+     */
     static java.util.ArrayList<ScanEngine.Offer> visibleOffers(
             java.util.List<ScanEngine.Offer> all,DeliveryPolicy policy,
             boolean expanded,boolean deliveryFirst){
@@ -68,23 +74,43 @@ final class OfferPresentation {
                 bestTimely=offer.price;
         }
         java.util.ArrayList<ScanEngine.Offer> ordered=new java.util.ArrayList<>(all);
-        ordered.sort(priorityComparator(policy,expanded&&deliveryFirst,bestTimely));
-        java.util.ArrayList<ScanEngine.Offer> visible=new java.util.ArrayList<>();
-        java.util.HashSet<String> deduped=new java.util.HashSet<>();
-        java.util.HashSet<String> featuredMarkets=new java.util.HashSet<>();
-        int lateCount=0;
+        ordered.sort(comparator(policy,false));
+        java.util.LinkedHashMap<String,ScanEngine.Offer> bestByShop=
+            new java.util.LinkedHashMap<>();
         for(ScanEngine.Offer offer:ordered){
-            if(offer.price<=0||!deduped.add(displayKey(offer,policy)))continue;
-            boolean timely=policy.timely(offer.deliveryHint);
-            if(expanded){
+            if(offer.price>0&&policy.timely(offer.deliveryHint))
+                bestByShop.putIfAbsent(offer.shop.id,offer);
+        }
+        java.util.ArrayList<ScanEngine.Offer> visible=
+            new java.util.ArrayList<>(bestByShop.values());
+        java.util.HashSet<String> deduped=new java.util.HashSet<>();
+        for(ScanEngine.Offer item:visible)deduped.add(displayKey(item,policy));
+        if(expanded&&bestTimely>0){
+            java.util.HashMap<String,Integer> extrasPerShop=new java.util.HashMap<>();
+            for(ScanEngine.Offer offer:ordered){
+                if(visible.size()>=12)break;
+                if(offer.price<=0||!policy.timely(offer.deliveryHint))continue;
+                // Avoid showing 100 identical-price variants of the same
+                // speaker; extra offers must be within 5% of the global best.
+                if(offer.price*100L>bestTimely*105L)continue;
+                if(extrasPerShop.getOrDefault(offer.shop.id,0)>=2)continue;
+                String key=displayKey(offer,policy);
+                if(!deduped.add(key))continue;
                 visible.add(offer);
-            }else if(timely){
-                if(featuredMarkets.add(offer.shop.id))visible.add(offer);
-            }else if(showAlternative(policy,offer,bestTimely)&&lateCount<3){
-                visible.add(offer);
-                lateCount++;
+                extrasPerShop.put(offer.shop.id,
+                    extrasPerShop.getOrDefault(offer.shop.id,0)+1);
             }
         }
+        int lateCount=0;
+        for(ScanEngine.Offer offer:ordered){
+            if(lateCount>=2||visible.size()>=14)break;
+            if(!showAlternative(policy,offer,bestTimely))continue;
+            String key=displayKey(offer,policy);
+            if(!deduped.add(key))continue;
+            visible.add(offer);
+            lateCount++;
+        }
+        visible.sort(priorityComparator(policy,deliveryFirst,bestTimely));
         return visible;
     }
 
