@@ -131,8 +131,11 @@ RandomizedDelaySec=15min
 [Install]
 WantedBy=timers.target
 EOF
-    systemctl daemon-reload
-    systemctl enable --now marketradar-backup.timer
+    if systemctl daemon-reload && systemctl enable --now marketradar-backup.timer; then
+        notice "Daily backup timer active."
+    else
+        printf 'WARNING: systemd backup timer was not enabled; deploy/backup.sh remains available manually.\n' >&2
+    fi
 fi
 
 printf '\n======== MarketRadar server setup ========\n'
