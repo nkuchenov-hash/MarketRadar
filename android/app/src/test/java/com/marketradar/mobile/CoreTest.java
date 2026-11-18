@@ -316,6 +316,14 @@ public class CoreTest {
         assertEquals(3,DynamicPriceFrontier.nextUnpruned(candidates,3,frontier));
     }
 
+    @Test public void firstExactPriceIsCheckedBeforeWholeListing(){
+        assertFalse(ScanEngine.fastCheckReady(1,1,3,false));
+        assertFalse(ScanEngine.fastCheckReady(2,1,3,false));
+        assertTrue(ScanEngine.fastCheckReady(3,1,3,false));
+        assertFalse(ScanEngine.fastCheckReady(30,-1,15,false));
+        assertFalse(ScanEngine.fastCheckReady(30,1,15,true));
+        assertFalse(ScanEngine.fastCheckReady(30,1,0,false));
+    }
     @Test public void cheaperListingStillQualifiesAfterTrustedPrice() {
         DynamicPriceFrontier frontier=new DynamicPriceFrontier();
         frontier.observe(12000);
