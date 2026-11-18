@@ -91,7 +91,7 @@ class CloudBrowser:
                 };
             }""")
             text = str(view.get("text", ""))
-            blocked = (response and response.status in (403, 429, 503)) or any(
+            blocked = (response and response.status in (403, 429, 498, 503)) or any(
                 term in text.lower() for term in BLOCK_WORDS)
             return {
                 "state": "blocked" if blocked else "ok",
