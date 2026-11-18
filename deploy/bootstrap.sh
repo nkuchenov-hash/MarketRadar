@@ -95,6 +95,23 @@ for attempt in $(seq 1 36); do
 done
 (( healthy == 1 )) || fail "Backend is not healthy. View logs: cd $APP && docker compose --env-file .env.production -f deploy/compose.vps.yml logs --tail=100"
 
+notice "Checking public HTTPS certificate and mobile endpoint."
+https_ready=0
+for attempt in $(seq 1 18); do
+    if curl -fsS --max-time 7 "https://$DOMAIN/health" 2>/dev/null |
+       python3 -c 'import json,sys;assert json.load(sys.stdin)["ok"]' 2>/dev/null; then
+        https_ready=1
+        break
+    fi
+    sleep 5
+done
+if (( https_ready == 1 )); then
+    notice "Public HTTPS is working."
+else
+    printf 'WARNING: backend is healthy but public HTTPS is not ready.\n' >&2
+    printf 'Check ports 80/443, DNS, and Caddy logs: docker compose --env-file .env.production -f deploy/compose.vps.yml logs caddy\n' >&2
+fi
+
 printf '\n======== MarketRadar server setup ========\n'
 printf 'Public HTTPS address: https://%s\n' "$DOMAIN"
 printf 'Android Settings -> Облачный браузер -> Адрес сервера: https://%s\n' "$DOMAIN"
