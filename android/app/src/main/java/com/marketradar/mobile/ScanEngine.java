@@ -388,6 +388,7 @@ final class ScanEngine {
     private int listingSnapshots=0,firstExactSnapshot=-1;
     private int verifiedMarket=0,verifiedTimelyMarket=0;
     private boolean stoppedForFastCheck=false,fullPassFallback=false;
+    private boolean ozonUnsortedFallbackAttempted=false;
 
     ScanEngine(WebView browser, Handler handler, Listener listener) {
         this.browser=browser;this.handler=handler;this.listener=listener;
@@ -491,6 +492,7 @@ final class ScanEngine {
         lastSearchPageDiagnostics="";
         verifiedMarket=0;verifiedTimelyMarket=0;
         stoppedForFastCheck=false;fullPassFallback=false;
+        ozonUnsortedFallbackAttempted=false;
         listener.status(shop,"Ищем точную модель…");
         load(currentSearchUrl);
     }
@@ -856,6 +858,21 @@ final class ScanEngine {
         candidates.addAll(rankCandidates(searchPool.values(),Integer.MAX_VALUE));
         searchSampling=false;
         if(candidates.isEmpty()){
+            // Ozon can return an empty price-sorted search although ordinary
+            // search contains products. Retry once using its standard URL.
+            // Do not retry explicit HTTP access denials or alter WB/Yandex.
+            if(shop.id.equals("ozon")&&!ozonUnsortedFallbackAttempted){
+                ozonUnsortedFallbackAttempted=true;
+                currentSearchUrl=shop.searchBase+
+                    java.net.URLEncoder.encode(query,java.nio.charset.StandardCharsets.UTF_8);
+                searchPool.clear();seen.clear();visitedSearchPages.clear();
+                stableBottom=0;lastPoolSize=-1;lastHeight=-1;
+                hydrationRetries=0;retryCount=0;
+                searchSampling=false;listingSnapshots=0;firstExactSnapshot=-1;
+                listener.status(shop,"Повторный поиск Ozon в обычном режиме");
+                load(currentSearchUrl);
+                return;
+            }
             coverageIncomplete=true;
             listener.status(shop,"Нет подходящих карточек · "+lastSearchPageDiagnostics+
                 " · полнота выдачи не подтверждена");
