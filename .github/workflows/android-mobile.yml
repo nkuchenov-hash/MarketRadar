@@ -142,17 +142,23 @@ jobs:
           set -euo pipefail
           tag=marketradar-android-0.26.0
           cat > /tmp/notes.md <<'EOF'
-          # MarketRadar Android 0.26.0 — progress and diagnostics
-          - New status line counts completed marketplaces while search runs.
-          - Watchdog prevents an indefinite wait for an offline AI response.
-          - In Stores or Settings, open the diagnostic report while searching.
-          - Copy or share the full text, without taking long screenshots.
-          - Equivalent same-model, price, delivery and payment tiles collapse.
-          - Search results, account sessions, photo and delivery UI are retained.
-          - Foreground search protections and previous filtering remain in place.
-          - No credentials or cookies are included in the diagnostic report.
-          - Device-specific memory and marketplace access require live testing.
-          - Stable package ID and signing certificate; install over 0.24.0.
+          # MarketRadar Android 0.26.0 — search all lower priced matches
+          The previous quick scan of only two extra viewports after its
+          first matching card could miss better prices later in the listing.
+          WB and Yandex now show early verified offers and then scan the
+          remaining available listing, even after finding an on-time product.
+          An expanded listing is re-ranked from candidate index zero, so
+          newly discovered cheaper cards are never accidentally skipped.
+          Already inspected card/price/date variants are not re-verified.
+          A bounded 80-snapshot safety limit avoids endless marketplace
+          infinite-scroll. Reaching that limit is marked incomplete.
+          Ozon's working early-result behaviour is preserved.
+          Regression tests encode screenshot cases: WB 10,824 RUB delivered
+          Nov 21 must beat WB 11,835 RUB; Yandex 11,687 RUB Mini 3 Pro is
+          a match while the 9,757 RUB Mini 3 without Pro is not.
+          Dates, prices and availability remain subject to account, location
+          and checkout differences; these examples are tests, not live quotes.
+          The same signed Android app updates 0.25.0 in place.
           EOF
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release edit "$tag" --repo "$GITHUB_REPOSITORY" \
