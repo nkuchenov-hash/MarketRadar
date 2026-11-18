@@ -319,11 +319,11 @@ public class CoreTest {
         // Only after model + product page verify can the expensive cards be deferred.
         frontier.confirm(12000);
         assertEquals(3,DynamicPriceFrontier.nextUnpruned(candidates,1,frontier));
-        // Delivery is unknown: a site detail page may still reveal a fast
-        // slot, so the optimiser must NOT drop it only because it costs more.
+        // Unknown delivery cannot improve an already confirmed faster AND
+        // cheaper offer, so the extra expensive card is safely deferred.
         candidates.add(new ScanEngine.Candidate(
             "https://www.ozon.ru/product/pro-2000004/",15000,""));
-        assertEquals(3,DynamicPriceFrontier.nextUnpruned(candidates,3,frontier));
+        assertEquals(4,DynamicPriceFrontier.nextUnpruned(candidates,3,frontier));
     }
 
     @Test public void firstExactPriceIsCheckedBeforeWholeListing(){
