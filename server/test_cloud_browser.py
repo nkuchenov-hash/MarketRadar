@@ -1,8 +1,10 @@
 """Offline browser-level regression tests; no simulated live market claims."""
 import asyncio
+import json
+import os
 import unittest
 
-from server.cloud_browser import _DOM_SNAPSHOT, network_products, sorted_search_url
+from server.cloud_browser import CloudBrowser, _DOM_SNAPSHOT, network_products, sorted_search_url
 
 
 class CloudSearchTests(unittest.TestCase):
@@ -59,6 +61,61 @@ class CloudSearchTests(unittest.TestCase):
                     self.assertEqual(1200,by_id["12345680"]["price"])
                 finally:
                     await browser.close()
+        asyncio.run(run())
+
+    def test_complete_chromium_search_with_live_network_interception_fixture(self):
+        """A real Chromium page fetches JSON and paints sibling price labels."""
+        async def run():
+            before = os.environ.get("CLOUD_BROWSER_ENABLED")
+            os.environ["CLOUD_BROWSER_ENABLED"] = "true"
+            engine = CloudBrowser()
+            try:
+                await engine.start()
+                prices = [14670, 12830, 15550]
+                product_data = {
+                    "data": {"products": [
+                        {"name": "Яндекс Станция Мини 3 Про", "url": f"/card/speaker/{10000000+i}",
+                         "price": {"value": amount}}
+                        for i, amount in enumerate(prices)
+                    ]}
+                }
+                html = """<html><body><h1>Результаты поиска</h1><main id='items'></main>
+                  <script>
+                   fetch('/api/search').then(r=>r.json()).then(data=>{
+                     const target=document.querySelector('#items');
+                     for(const item of data.data.products){
+                       const card=document.createElement('article');
+                       const anchor=document.createElement('a');
+                       anchor.href=item.url;anchor.innerText=item.name;
+                       const price=document.createElement('div');
+                       price.innerText=item.price.value.toLocaleString('ru-RU')+' ₽';
+                       card.append(anchor,price);
+                       target.append(card);
+                     }
+                   })
+                  </script></body></html>"""
+                async def route_handler(route):
+                    if "/api/search" in route.request.url:
+                        await route.fulfill(
+                            status=200,content_type="application/json",
+                            body=json.dumps(product_data, ensure_ascii=False))
+                    else:
+                        await route.fulfill(status=200,content_type="text/html",body=html)
+                await engine.context.route("https://market.yandex.ru/**",route_handler)
+                result=await engine.snapshot(
+                    "https://market.yandex.ru/search?text=Яндекс%20Станция%20Мини%203%20Про")
+                self.assertEqual("ok",result["state"])
+                self.assertTrue(result["coverage_complete"])
+                self.assertEqual(3,len(result["links"]))
+                self.assertEqual(12830,result["links"][0]["price"])
+                self.assertEqual(3,result["audit"]["network_products"])
+                self.assertGreaterEqual(result["audit"]["dom_snapshots"],2)
+            finally:
+                await engine.close()
+                if before is None:
+                    os.environ.pop("CLOUD_BROWSER_ENABLED",None)
+                else:
+                    os.environ["CLOUD_BROWSER_ENABLED"]=before
         asyncio.run(run())
 
 
