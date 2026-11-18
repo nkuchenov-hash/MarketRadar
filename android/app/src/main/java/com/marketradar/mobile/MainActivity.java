@@ -1009,7 +1009,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
             .append(Math.max(0,(android.os.SystemClock.elapsedRealtime()-searchStartedAt)/1000))
             .append(" с\n");
         report.append("Подтверждено предложений: ").append(offers.size()).append('\n');
-        report.append("Проверяется локально: ").append(pendingOffers.size()).append('\n');
+        report.append("Передано на локальную проверку: ").append(pendingOffers.size()).append('\n');
         report.append(engine.detailedProgress());
         report.append("\nПоследние сообщения по площадкам:\n");
         for(Shop shop:lastSelectedMarkets){
@@ -1079,8 +1079,9 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
             report.append("\n  Авторизация: ").append(
                 evidence==null?"не проверена":evidence.state.toString()+
                 " ("+evidence.reason+")");
-            report.append(marketStates.containsKey(shop.id)?
-                marketStates.get(shop.id):"магазин не проверялся");
+            report.append("\n  Последний статус: ")
+                .append(marketStates.containsKey(shop.id)?
+                    marketStates.get(shop.id):"магазин не проверялся");
             int candidates=0,confirmed=0;
             for(ScanEngine.Offer o:provisional)
                 if(o.shop.id.equals(shop.id))candidates++;
