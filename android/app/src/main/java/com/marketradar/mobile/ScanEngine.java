@@ -712,8 +712,21 @@ final class ScanEngine {
         if(!shop.allowed(url)){
             // A snapshot may belong to the WebView's initial blank page or
             // an old navigation. It must not finish this marketplace.
-            if(Shop.isTransientDocument(url)||shop.allowed(browser.getUrl()))
+            if(Shop.isTransientDocument(url)||shop.allowed(browser.getUrl())){
+                // Do not leave searchSampling latched: the next valid page
+                // must be allowed to produce a fresh snapshot.
+                searchSampling=false;
+                String current=browser.getUrl();
+                if(shop.allowed(current)){
+                    final int request=token;
+                    handler.postDelayed(()->{
+                        if(running&&request==token&&!details&&
+                           shop.allowed(browser.getUrl()))
+                            onPageFinished(browser.getUrl());
+                    },250);
+                }
                 return;
+            }
             final int request=token;
             handler.postDelayed(()->{
                 if(!running||request!=token)return;
