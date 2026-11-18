@@ -147,7 +147,10 @@ function snapshot(){
  return {url:location.href,title:productTitle,documentTitle:document.title,text,links,priceBlocks:blocks,crossedOutPrices,structuredPrice,delivery,deliveryOptions,mainText:(main?.innerText||text).slice(0,3500)};
 }
 async function read(url,scroll){const id=await tabFor(url);if(scroll){await chrome.scripting.executeScript({target:{tabId:id},func:()=>scrollTo(0,document.body.scrollHeight*.55)});await sleep(700);}const data=await chrome.scripting.executeScript({target:{tabId:id},func:snapshot});const o=data?.[0]?.result;if(!o)throw new Error('Не удалось прочитать данные со страницы');return o;}
-function blocked(snap){const s=(snap.text||'').slice(0,3800).toLowerCase();return ['подозрительная активность','captcha-support@','похоже, нет соединения','докажите, что вы не робот','access denied','вы не робот'].some(x=>s.includes(x));}
+function blocked(snap){
+ const s=[snap?.title,snap?.documentTitle,(snap?.text||'').slice(0,3800)].join(' ').toLowerCase();
+ return ['подозрительная активность','captcha-support@','похоже, нет соединения','докажите, что вы не робот','access denied','вы не робот','проверяем браузер','проверка браузера','checking your browser','just a moment','attention required','cloudflare ray id'].some(x=>s.includes(x));
+}
 function searchQueries(query){
  const q=[query];
  // Alternate manufacturer code for the strict Mini 3 Pro family. Other models are not mixed.
