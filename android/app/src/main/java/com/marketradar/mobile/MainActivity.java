@@ -1210,7 +1210,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
             else alternatives++;
         }
         resultsHeading.setText(showAllOffers?
-            "Все предложения · "+visible.size():
+            "Выгодные варианты · "+visible.size():
             "Лучшие по площадкам · "+eligibleCount);
         resultsHeading.setVisibility(View.VISIBLE);
         boolean otherHeadingAdded=false;
@@ -1219,8 +1219,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
             if(secondary&&!otherHeadingAdded&&eligibleCount>0){
                 otherHeadingAdded=true;
                 gap(results,11);
-                add(results,text((showAllOffers?
-                    "Другие сроки доставки · ":"Дешевле, но позже · ")+alternatives,
+                add(results,text("Позже, но дешевле по условиям · "+alternatives,
                     16,MUTED,true),-1,-2);
                 gap(results,12);
             }
@@ -1270,7 +1269,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         if(concealed>0){
             Button more=button(showAllOffers?
                 "Скрыть дополнительные предложения":
-                "Показать остальные · "+concealed,false);
+                "Показать выгодные варианты · "+concealed,false);
             more.setTextSize(14);
             add(results,more,-1,46);
             more.setOnClickListener(v->{
