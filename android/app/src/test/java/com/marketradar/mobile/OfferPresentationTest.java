@@ -50,6 +50,33 @@ public class OfferPresentationTest {
         assertEquals(2,offers.size()); // Sort never filters or runs a marketplace scan.
     }
 
+    @Test public void eligibleAlwaysRanksAboveCheaperLateAndUnknown(){
+        DeliveryPolicy policy=new DeliveryPolicy(3,false,15,LocalDate.of(2026,11,18));
+        ScanEngine.Offer onTime=item(11479,"20 ноября");
+        ScanEngine.Offer lateCheap=item(10893,"28 ноября");
+        ScanEngine.Offer unknownCheap=item(10000,"");
+        ArrayList<ScanEngine.Offer> offers=new ArrayList<>(
+            Arrays.asList(lateCheap,unknownCheap,onTime));
+        int bestTimely=11479;
+        offers.sort(OfferPresentation.priorityComparator(policy,false,bestTimely));
+        assertSame(onTime,offers.get(0));
+        assertSame(lateCheap,offers.get(1));
+        assertSame(unknownCheap,offers.get(2));
+        offers.sort(OfferPresentation.priorityComparator(policy,true,bestTimely));
+        assertSame(onTime,offers.get(0));
+        assertSame(lateCheap,offers.get(1));
+        assertSame(unknownCheap,offers.get(2));
+    }
+
+    @Test public void explicitlyAllowedLateDiscountIsPrimary(){
+        DeliveryPolicy policy=new DeliveryPolicy(3,true,15,LocalDate.of(2026,11,18));
+        ScanEngine.Offer normal=item(12000,"20 ноября");
+        ScanEngine.Offer discounted=item(9900,"28 ноября");
+        assertEquals(0,OfferPresentation.priority(policy,discounted,12000));
+        assertEquals(0,OfferPresentation.priority(policy,normal,12000));
+        assertEquals(1,OfferPresentation.priority(policy,item(11000,"28 ноября"),12000));
+    }
+
     @Test public void crossYearDateIsUnambiguous(){
         DeliveryPolicy policy=new DeliveryPolicy(5,false,15,LocalDate.of(2026,12,30));
         assertEquals("Доставка до 4 января 2027 · 5 дн.",OfferPresentation.deadline(policy));
