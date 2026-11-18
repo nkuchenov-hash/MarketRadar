@@ -35,7 +35,7 @@ jobs:
               urls = {
                 "Yandex Market": "https://market.yandex.ru/search?text=" + quote(q),
                 "Ozon": "https://www.ozon.ru/search/?text=" + quote(q),
-                "Wildberries": "https://www.wildberries.ru/catalog/0/search.aspx?search=" + quote(q),
+                "Wildberries": "https://www.wildberries.ru/catalog/0/search.aspx?search=" + quote(q) + "&sort=priceup",
               }
               findings = {}
               browser = CloudBrowser()
@@ -55,6 +55,9 @@ jobs:
                         "price_fragment_count": len(snap.get("price_fragments", [])),
                         "sample_product_titles": [x.get("title","")[:160] for x in links[:5]],
                         "sample_price_fragments": snap.get("price_fragments", [])[:8],
+                        "sorted_price_request": name == "Wildberries",
+                        "price_mentions_10772": "10 772" in snap.get("text", ""),
+                        "price_mentions_10893": "10 893" in snap.get("text", ""),
                         "diagnostic": snap.get("diagnostic","")
                       }
                       print(name, json.dumps(findings[name],ensure_ascii=False))
