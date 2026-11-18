@@ -236,20 +236,28 @@ def valid_snapshot(response:dict,requested_url:str)->dict:
     if not isinstance(fragments,list):fragments=[]
     return {'state':state if state in ('ok','blocked','error','timeout') else 'error',
             'url':url,'title':str(response.get('title',''))[:250],
-            'text':text,'links':links[:1600],'price_fragments':fragments[:100]}
+            'text':text,'links':links[:6000],'price_fragments':fragments[:100],
+            'coverage_complete':response.get('coverage_complete',False) is True,
+            'audit':response.get('audit',{}) if isinstance(response.get('audit'),dict) else {}}
 
 def candidates_from(snapshot:dict,market:str)->list[dict]:
-    out=[];seen=set()
+    """Retain all distinct product URLs; put actually observed cheap cards first."""
+    by_url={}
     for x in snapshot.get('links',[]):
         if not isinstance(x,dict):continue
         url=x.get('url','')
         if not is_product_link(market,url):continue
         clean=canonical(url)
-        if clean in seen:continue
-        seen.add(clean)
-        out.append({'url':clean,'title':str(x.get('title',''))[:220],
-                    'context':str(x.get('context',''))[:240]})
-    return out
+        amount=x.get('price',0)
+        amount=amount if type(amount) is int and 100<=amount<=50_000_000 else 0
+        item={'url':clean,'title':str(x.get('title',''))[:220],
+              'context':str(x.get('context',''))[:600], 'price':amount,
+              'source':str(x.get('source',''))[:30]}
+        previous=by_url.get(clean)
+        if previous is None or (amount and (not previous['price'] or amount<previous['price'])):
+            by_url[clean]=item
+    return sorted(by_url.values(),
+        key=lambda x:(x['price']<=0, x['price'] or 10**12,x['url']))
 
 def grounded_offers(query:str,market:str,snapshots:list[dict],extraction:ExtractedPages)->list[dict]:
     by_url={canonical(x['url']):x for x in snapshots if x['state']=='ok'}
@@ -308,13 +316,20 @@ async def run_search(job_id:str,user_id:str,query:str,depth:str,mode:str='device
                     if c['url'] not in seen:
                         seen.add(c['url']);candidates.append(c)
                 state['candidates']=len(candidates)
-                state['message']=f'Найдено {len(candidates)} ссылок'
+                state['coverage_complete']=r.get('coverage_complete',False)
+                state['audit']=r.get('audit',{})
+                state['message']=f'В браузере обнаружено {len(candidates)} разных товаров'
                 update(job_id,statuses,'Поиск карточек')
             if blocked:continue
             if not candidates:
                 state['state']='empty';state['message']='Подтверждённых ссылок на товары не найдено'
                 update(job_id,statuses,'Ничего не найдено')
                 continue
+            # Cheap candidates always enter the verification queue, regardless
+            # of which other links the semantic agent chooses. Sorting a source
+            # response is not equivalent to removing any candidate.
+            candidates.sort(key=lambda x:(x.get('price',0)<=0,
+                x.get('price',0) or 10**12,x['url']))
             selection=await pick(query,market,candidates,card_limit)
             # Additional agent-directed query; not a fixed list of seeds or hardcoded product.
             more=selection.refine_query.strip()[:100]
@@ -326,9 +341,18 @@ async def run_search(job_id:str,user_id:str,query:str,depth:str,mode:str='device
                     for c in candidates_from(r,market):
                         if c['url'] not in seen:seen.add(c['url']);candidates.append(c)
                     selection=await pick(query,market,candidates,card_limit)
+            candidates.sort(key=lambda x:(x.get('price',0)<=0,
+                x.get('price',0) or 10**12,x['url']))
             indices=[]
+            # Cheap, likely exact-model listings cannot disappear just because
+            # the LLM overlooked an index in a long search response.
+            for i,item in enumerate(candidates):
+                if item.get('price',0)>0 and model_match(query,item['title']):
+                    indices.append(i)
+                    if len(indices)>=max(1,card_limit//2):break
             for i in selection.indices:
-                if isinstance(i,int) and i not in indices and 0<=i<len(candidates):indices.append(i)
+                if isinstance(i,int) and i not in indices and 0<=i<len(candidates):
+                    indices.append(i)
             chosen=[candidates[i] for i in indices[:card_limit]]
             # The agent must choose the cards; never fabricate an offer when it chooses none.
             state['candidates']=len(candidates)
