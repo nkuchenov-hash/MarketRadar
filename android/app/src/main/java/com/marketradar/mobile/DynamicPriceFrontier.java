@@ -94,7 +94,7 @@ final class DynamicPriceFrontier {
             return !policy.lateException(price,delivery,globalBest);
         }
         if(siteBest==Integer.MAX_VALUE)return false;
-        return price>siteBest;
+        return price>=siteBest;
     }
 
     synchronized int confirmedFor(Shop shop){
