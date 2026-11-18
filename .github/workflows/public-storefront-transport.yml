@@ -54,6 +54,17 @@ jobs:
                   result["top_level_keys"]=list(data.keys())[:12]
                 else:
                   result["page_title_present"]=b"<title" in payload.lower()
+                  if key=="yandex-search":
+                    lowered=payload.lower()
+                    result["prefix"]=payload[:600].decode("utf-8","replace")
+                    result["contains_product_path"]=lowered.count(b"/product")
+                    result["contains_card_path"]=lowered.count(b"/card")
+                    result["contains_query_cyrillic"]=payload.count("Яндекс Станция".encode("utf-8"))
+                    result["contains_price_ruble"]=payload.count("₽".encode("utf-8"))
+                    result["contains_captcha"]=b"captcha" in lowered
+                    result["contains_deny"]=b"403" in lowered
+                    result["content_encoding"]=response.headers.get("Content-Encoding","")
+                    result["response_url_host"]=urllib.parse.urlparse(response.url).hostname
             except urllib.error.HTTPError as exc:
               result["status"]=exc.code
               result["error"]="HTTP blocked or rejected"
