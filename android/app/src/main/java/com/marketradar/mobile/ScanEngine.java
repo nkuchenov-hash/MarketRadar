@@ -87,7 +87,7 @@ final class ScanEngine {
               const date=/(?:сегодня|завтра|послезавтра|через\\s*\\d{1,2}\\s*(?:дн|сут)|\\d{1,2}\\s*(?:января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря|янв\\.?|фев\\.?|мар\\.?|апр\\.?|июн\\.?|июл\\.?|авг\\.?|сен\\.?|окт\\.?|ноя\\.?|дек\\.?))/i;
               for(let node=a,level=0;node&&node!==body&&level<9;node=node.parentElement,level++){
                 const productLinks=new Set([...node.querySelectorAll(
-                  'a[href*="/catalog/"],a[href*="/product/"],a[href*="/card/"]'
+                  'a[href*="/catalog/"],a[href*="/product/"],a[href*="/product--"],a[href*="/card/"],a[href*="/offer/"]'
                 )].map(link=>{
                   try{const u=new URL(link.href);
                     return u.origin+u.pathname.replace(/\\/$/,'');
@@ -115,7 +115,7 @@ final class ScanEngine {
               let node=semantic||a;
               for(let level=0;level<9&&node&&node!==body;level++,node=node.parentElement){
                 const text=(node.innerText||node.textContent||'').trim();
-                const productLinks=new Set([...node.querySelectorAll('a[href*="/catalog/"],a[href*="/product/"]')].map(link=>{try{const u=new URL(link.href);return u.origin+u.pathname.replace(/\\/$/,'');}catch(e){return link.href;}})).size;
+                const productLinks=new Set([...node.querySelectorAll('a[href*="/catalog/"],a[href*="/product/"],a[href*="/product--"],a[href*="/card/"],a[href*="/offer/"]')].map(link=>{try{const u=new URL(link.href);return u.origin+u.pathname.replace(/\\/$/,'');}catch(e){return link.href;}})).size;
                 if(text.length>=8&&text.length<=1600&&pricePattern.test(text)&&productLinks<=1)
                   return text.slice(0,1300);
               }
@@ -134,7 +134,9 @@ final class ScanEngine {
               const imageAlt=(img?.alt||a.querySelector('picture img')?.alt||'')
                   .trim().slice(0,300);
               const priceCondition=/(?:с\\s+wb\\s+кошельком|wb\\s+кошелек|wb\\s+wallet)/i
-                  .test(context)?'с WB Кошельком':'';
+                  .test(context)?'с WB Кошельком':
+                  /(?:яндекс\\s*п[эе]й|яндекс\\s*pay|\\bpay\\b|\\bп[эе]й\\b)/i.test(context)?
+                  'с Яндекс Пэй':'';
               const rawImage=img?.currentSrc||img?.getAttribute('data-src')||
                    img?.getAttribute('data-original')||img?.src||'';
               let imageUrl='';
@@ -626,6 +628,7 @@ final class ScanEngine {
     void onHttpError(String url,int statusCode){
         if(!running||shop==null||!shop.allowed(url))return;
         if(statusCode==401||statusCode==403||statusCode==429){
+            if(!details&&tryPlainSearchFallback("HTTP "+statusCode))return;
             coverageIncomplete=true;
             token++;
             listener.status(shop,"Магазин ограничил доступ (HTTP "+statusCode+")");
@@ -722,6 +725,7 @@ final class ScanEngine {
                     });
                 },900);
             }else{
+                if(tryPlainSearchFallback("Проверка браузера"))return;
                 coverageIncomplete=true;
                 listener.status(shop,"Магазин не выдал карточки: проверка браузера не завершилась");
                 nextMarket();
@@ -735,6 +739,7 @@ final class ScanEngine {
         JSONArray pageLinks=data.optJSONArray("links");
         if(explicitAccessChallenge(title,body,
             pageLinks==null?0:pageLinks.length())){
+            if(tryPlainSearchFallback("Страница проверки доступа"))return;
             coverageIncomplete=true;
             listener.status(shop,"Магазин показал страницу проверки доступа");
             nextMarket();return;
@@ -1261,11 +1266,15 @@ final class ScanEngine {
         nextCandidate();
     }
     static String priceConditionForCard(String context,String supplied,Shop shop){
-        if(shop==null||!shop.id.equals("wb"))return "";
+        if(shop==null)return "";
         String both=(context==null?"":context)+" "+(supplied==null?"":supplied);
-        return java.util.regex.Pattern.compile(
+        if(shop.id.equals("wb"))return java.util.regex.Pattern.compile(
             "(?iu)(?:с\\s*wb\\s*кошельком|wb\\s*кошелек|wb\\s*wallet)")
             .matcher(both).find()?"с WB Кошельком":"";
+        if(shop.id.equals("ym"))return java.util.regex.Pattern.compile(
+            "(?iu)(?:яндекс\\s*п[эе]й|яндекс\\s*pay|\\bpay\\b|\\bп[эе]й\\b)")
+            .matcher(both).find()?"с Яндекс Пэй":"";
+        return "";
     }
     static String readDeliveryHint(String context){
         if(context==null||context.isBlank())return "";
@@ -1290,7 +1299,8 @@ final class ScanEngine {
         // Explicit WB Wallet conditions explain otherwise extreme differences
         // from standard prices. Financing and cashback amounts are filtered
         // by readCardPrice before reaching this method.
-        if("с WB Кошельком".equals(priceCondition))return listingPrice;
+        if("с WB Кошельком".equals(priceCondition)||
+           "с Яндекс Пэй".equals(priceCondition))return listingPrice;
         return pagePrice>0&&listingPrice<pagePrice*0.65?0:listingPrice;
     }
 
