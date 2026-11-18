@@ -29,7 +29,7 @@ final class ScanEngine {
     }
     static final class Offer {
         final Shop shop;
-        final String url, title, note, deliveryHint, priceCondition;
+        final String url, title, note, deliveryHint, priceCondition, imageUrl;
         final int price;
         Offer(Shop shop,String url,String title,int price,String note) {
             this(shop,url,title,price,note,"","");
@@ -39,22 +39,32 @@ final class ScanEngine {
         }
         Offer(Shop shop,String url,String title,int price,String note,
               String deliveryHint,String priceCondition) {
+            this(shop,url,title,price,note,deliveryHint,priceCondition,"");
+        }
+        Offer(Shop shop,String url,String title,int price,String note,
+              String deliveryHint,String priceCondition,String imageUrl) {
             this.shop=shop;this.url=url;this.title=title;this.price=price;
             this.note=note;this.deliveryHint=deliveryHint;
             this.priceCondition=priceCondition==null?"":priceCondition;
+            this.imageUrl=imageUrl==null?"":imageUrl;
         }
     }
     static final class Candidate {
-        final String url,deliveryHint,priceCondition;
+        final String url,deliveryHint,priceCondition,imageUrl;
         final int listingPrice;
         Candidate(String url,int listingPrice){this(url,listingPrice,"","");}
         Candidate(String url,int listingPrice,String deliveryHint){
             this(url,listingPrice,deliveryHint,"");
         }
         Candidate(String url,int listingPrice,String deliveryHint,String priceCondition){
+            this(url,listingPrice,deliveryHint,priceCondition,"");
+        }
+        Candidate(String url,int listingPrice,String deliveryHint,
+                  String priceCondition,String imageUrl){
             this.url=url;this.listingPrice=listingPrice;
             this.deliveryHint=deliveryHint==null?"":deliveryHint;
             this.priceCondition=priceCondition==null?"":priceCondition;
+            this.imageUrl=imageUrl==null?"":imageUrl;
         }
     }
     // Search and product details use DISTINCT, minimal DOM extraction paths.
@@ -99,8 +109,13 @@ final class ScanEngine {
                   .trim().slice(0,300);
               const priceCondition=/(?:с\\s+wb\\s+кошельком|wb\\s+кошелек|wb\\s+wallet)/i
                   .test(context)?'с WB Кошельком':'';
+              const rawImage=img?.currentSrc||img?.getAttribute('data-src')||
+                   img?.getAttribute('data-original')||img?.src||'';
+              let imageUrl='';
+              try{const u=new URL(rawImage,location.href);
+                  if(u.protocol==='https:')imageUrl=u.href;}catch(e){}
               links.push({url:url.href,title,context:context.slice(0,1300),
-                          imageAlt,priceCondition});
+                          imageAlt,imageUrl,priceCondition});
             }
             // WB's own search XHR can be ready before cards render as DOM.
             // Reuse only the response already seen by this same WebView.
@@ -112,6 +127,7 @@ final class ScanEngine {
                 url:card.url,
                 title:card.title,
                 imageAlt:card.title,
+                imageUrl:card.imageUrl||'',
                 context:card.title+' '+card.price+' ₽',
                 priceCondition:''
               });
@@ -259,11 +275,21 @@ final class ScanEngine {
             if(price&&currency)
               put(price,currency,document.querySelector('h1')?.innerText||'',
                   'product-price-meta');
+            const mainPhoto=document.querySelector(
+              'main img[src], [data-testid*="gallery"] img, img[itemprop="image"]');
+            const rawPhoto=meta('meta[property="og:image"]')||
+                 meta('meta[name="twitter:image"]')||
+                 mainPhoto?.currentSrc||mainPhoto?.getAttribute('data-src')||
+                 mainPhoto?.src||'';
+            let imageUrl='';
+            try{const u=new URL(rawPhoto,location.href);
+                if(u.protocol==='https:')imageUrl=u.href;}catch(e){}
             return JSON.stringify({
               url:location.href,
               title:document.title,
               heading:document.querySelector('h1')?.innerText||'',
               text:(body?.innerText||'').slice(0,1800),
+              imageUrl,
               structuredPrices
             });
           }catch(e){
@@ -884,7 +910,8 @@ final class ScanEngine {
             Candidate previous=unique.get(key);
             if(previous==null || (listingPrice>0 && (previous.listingPrice==0 ||
                listingPrice<previous.listingPrice))){
-                unique.put(key,new Candidate(clean,listingPrice,delivery,priceCondition));
+                unique.put(key,new Candidate(clean,listingPrice,delivery,
+                    priceCondition,item.optString("imageUrl","")));
             }
         }
         return rankCandidates(unique.values(),maxCards);
@@ -988,8 +1015,10 @@ final class ScanEngine {
                     note="Модель совпадает · цена не найдена";
                 String delivery=candidates.get(cardIndex-1).deliveryHint;
                 String priceCondition=candidates.get(cardIndex-1).priceCondition;
+                String image=data.optString("imageUrl","");
+                if(image.isBlank())image=selected.imageUrl;
                 Offer proposal=new Offer(shop,cleanUrl(url),title,price,note,
-                    delivery,priceCondition);
+                    delivery,priceCondition,image);
                 final int request=token;
                 final String candidateUrl=expectedUrl;
                 listener.status(shop,"Проверяем найденный товар локальным ИИ…");
