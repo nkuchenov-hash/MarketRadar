@@ -250,6 +250,7 @@ final class ScanEngine {
     private boolean sessionProbeRequested=false;
     private int lastDetailCount=0;
     private long lastSearchGrowthMs=0;
+    private String lastSearchPageDiagnostics="";
     private int listingSnapshots=0,firstExactSnapshot=-1;
     private int verifiedMarket=0,verifiedTimelyMarket=0;
     private boolean stoppedForFastCheck=false,fullPassFallback=false;
@@ -263,6 +264,11 @@ final class ScanEngine {
     int totalCandidates(){return checked;}
     void setPriceFrontier(DynamicPriceFrontier shared){
         if(shared!=null)frontier=shared;
+    }
+    static boolean fastCheckReady(int snapshotCount,int firstMatchSnapshot,
+                                  int candidateCount,boolean fullFallback){
+        return !fullFallback && firstMatchSnapshot>=0 &&
+            snapshotCount>=firstMatchSnapshot+2 && candidateCount>0;
     }
     static boolean settledAtBottom(boolean bottom,long height,long previousHeight,
                                    int count,int previousCount){
@@ -336,6 +342,7 @@ final class ScanEngine {
         lastObservedPoolCount=-1;stalledScrollChecks=0;lastDetailCount=0;
         lastSearchGrowthMs=android.os.SystemClock.elapsedRealtime();
         listingSnapshots=0;firstExactSnapshot=-1;
+        lastSearchPageDiagnostics="";
         verifiedMarket=0;verifiedTimelyMarket=0;
         stoppedForFastCheck=false;fullPassFallback=false;
         listener.status(shop,"Ищем точную модель…");
@@ -509,6 +516,9 @@ final class ScanEngine {
         // only the first ten DOM links. Each candidate still needs its own
         // product page verification before it can become a visible offer.
         JSONArray visibleLinks=data.optJSONArray("links");
+        lastSearchPageDiagnostics="страница: "+data.optString("title","").replace("\\n"," ")+
+            " · ссылок: "+data.optInt("allAnchors",0)+
+            " · товарных ссылок: "+(visibleLinks==null?0:visibleLinks.length());
         mergeSearchSnapshot(searchPool,visibleLinks,shop,query);
         listingSnapshots++;
         if(firstExactSnapshot<0 && visibleLinks!=null){
@@ -601,9 +611,8 @@ final class ScanEngine {
         // the cheapest candidates immediately. A full crawl is the fallback
         // only when those candidates fail or have no eligible delivery.
         // Until a full crawl, never claim that the global minimum is proven.
-        if(!fullPassFallback && firstExactSnapshot>=0 &&
-           listingSnapshots>=firstExactSnapshot+2 &&
-           searchPool.size()>0){
+        if(fastCheckReady(listingSnapshots,firstExactSnapshot,
+                          searchPool.size(),fullPassFallback)){
             stoppedForFastCheck=true;
             coverageIncomplete=true;
             listener.status(shop,"Найдена точная модель в выдаче · сразу проверяем цены");
@@ -670,9 +679,9 @@ final class ScanEngine {
         candidates.addAll(rankCandidates(searchPool.values(),Integer.MAX_VALUE));
         searchSampling=false;
         if(candidates.isEmpty()){
-            listener.status(shop,coverageIncomplete?
-                "Доступная выдача не была полностью загружена":
-                "Подходящих ссылок нет в доступной выдаче");
+            coverageIncomplete=true;
+            listener.status(shop,"Нет подходящих карточек · "+lastSearchPageDiagnostics+
+                " · полнота выдачи не подтверждена");
             nextMarket();
             return;
         }
