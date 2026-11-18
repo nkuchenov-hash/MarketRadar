@@ -78,15 +78,17 @@ public class OfferPresentationTest {
         assertEquals(1,OfferPresentation.priority(policy,item(11000,"28 ноября"),12000));
     }
 
-    @Test public void onlyCheaperAlternativesShouldBeShown(){
-        DeliveryPolicy policy=new DeliveryPolicy(3,false,15,LocalDate.of(2026,11,18));
-        assertTrue(OfferPresentation.showAlternative(policy,item(10893,"28 ноября"),11479));
-        assertTrue(OfferPresentation.showAlternative(policy,item(11090,""),11479));
-        assertFalse(OfferPresentation.showAlternative(policy,item(11479,"28 ноября"),11479));
-        assertFalse(OfferPresentation.showAlternative(policy,item(11999,"28 ноября"),11479));
-        assertFalse(OfferPresentation.showAlternative(policy,item(12500,""),11479));
-        assertFalse(OfferPresentation.showAlternative(policy,item(11300,"20 ноября"),11479));
-        assertTrue(OfferPresentation.showAlternative(policy,item(12300,"28 ноября"),0));
+    @Test public void lateAlternativeRequiresConfiguredTwentyPercentDiscount(){
+        DeliveryPolicy policy=new DeliveryPolicy(3,true,20,LocalDate.of(2026,11,18));
+        int timelyBest=11479;
+        assertFalse(OfferPresentation.showAlternative(policy,item(10893,"28 ноября"),timelyBest));
+        assertFalse(OfferPresentation.showAlternative(policy,item(11090,""),timelyBest));
+        assertFalse(OfferPresentation.showAlternative(policy,item(11999,"28 ноября"),timelyBest));
+        assertTrue(OfferPresentation.showAlternative(policy,item(9000,"28 ноября"),timelyBest));
+        assertFalse(OfferPresentation.showAlternative(policy,item(9000,"28 ноября"),0));
+        assertFalse(OfferPresentation.showAlternative(policy,item(11300,"20 ноября"),timelyBest));
+        DeliveryPolicy strict=new DeliveryPolicy(3,false,20,LocalDate.of(2026,11,18));
+        assertFalse(OfferPresentation.showAlternative(strict,item(8000,"28 ноября"),timelyBest));
     }
 
     @Test public void equivalentSellerCardsDoNotClutterResults(){
@@ -116,6 +118,9 @@ public class OfferPresentationTest {
         ScanEngine.Offer yandexCheaper=new ScanEngine.Offer(ym,
             "https://market.yandex.ru/card/b/4620658532",
             "Яндекс Станция Мини 3 Про",11687,"","21 ноября","с Яндекс Пэй");
+        ScanEngine.Offer yandexCompetitive=new ScanEngine.Offer(ym,
+            "https://market.yandex.ru/card/d/4620658534",
+            "Яндекс Станция Мини 3 Про",12000,"","21 ноября","");
         ScanEngine.Offer yandexLate=new ScanEngine.Offer(ym,
             "https://market.yandex.ru/card/c/4620658533",
             "Яндекс Станция Мини 3 Про",12103,"","22 ноября","");
@@ -126,7 +131,8 @@ public class OfferPresentationTest {
             "https://www.ozon.ru/product/test-235235223/",
             "Яндекс Станция Мини 3 Про",12990,"","21 ноября","");
         java.util.List<ScanEngine.Offer> all=Arrays.asList(
-            yandexExpensive,yandexLate,wbBest,ozBest,yandexCheaper);
+            yandexExpensive,yandexLate,wbBest,ozBest,yandexCheaper,
+            yandexCompetitive);
         ArrayList<ScanEngine.Offer> compact=OfferPresentation.visibleOffers(
             all,policy,false,false);
         assertEquals(3,compact.size());
@@ -137,9 +143,10 @@ public class OfferPresentationTest {
         assertFalse(compact.contains(yandexLate));
         ArrayList<ScanEngine.Offer> expanded=OfferPresentation.visibleOffers(
             all,policy,true,false);
-        assertEquals(5,expanded.size());
-        assertTrue(expanded.contains(yandexExpensive));
-        assertTrue(expanded.contains(yandexLate));
+        assertEquals(4,expanded.size());
+        assertTrue(expanded.contains(yandexCompetitive));
+        assertFalse(expanded.contains(yandexExpensive));
+        assertFalse(expanded.contains(yandexLate));
     }
 
     @Test public void crossYearDateIsUnambiguous(){
