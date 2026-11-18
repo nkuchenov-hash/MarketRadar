@@ -1183,9 +1183,12 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         // Unshown offers remain in the saved session and can be re-evaluated
         // whenever delivery settings or the discovered best price change.
         ArrayList<ScanEngine.Offer> visible=new ArrayList<>();
+        java.util.HashSet<String> shownProducts=new java.util.HashSet<>();
         int eligibleCount=0;
         int alternatives=0;
         for(ScanEngine.Offer o:offers){
+            if(!shownProducts.add(OfferPresentation.displayKey(o,deliveryPolicy)))
+                continue;
             if(OfferPresentation.priority(deliveryPolicy,o,timelyBest)==0){
                 visible.add(o);
                 eligibleCount++;
