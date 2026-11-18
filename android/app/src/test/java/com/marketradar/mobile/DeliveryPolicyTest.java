@@ -30,7 +30,7 @@ public class DeliveryPolicyTest {
         f.configure(p);
         assertFalse(f.confirm(10772,"25 ноября"));
         assertEquals(0,f.confirmedCeiling());
-        assertTrue(f.deferHigher(10772,"25 ноября"));
+        assertFalse(f.deferHigher(10772,"25 ноября")); // keep late cheapest for absolute price
         assertFalse(f.deferHigher(11542,"Завтра"));
         assertTrue(f.confirm(11316,"20 ноября"));
         assertEquals(11316,f.confirmedCeiling());
@@ -48,7 +48,7 @@ public class DeliveryPolicyTest {
         assertTrue(policy.lateException(9000,"25 ноября",11316));
         assertFalse(policy.eligible(10772,"25 ноября",11316));
         assertTrue(policy.eligible(9000,"25 ноября",11316));
-        assertTrue(f.deferHigher(10772,"25 ноября"));
+        assertFalse(f.deferHigher(10772,"25 ноября")); // late offers remain visible
         assertFalse(f.deferHigher(9000,"25 ноября"));
         assertTrue(f.deferHigher(12000,"")); // known timely offer is cheaper
     }
