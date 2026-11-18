@@ -2,11 +2,45 @@
 
 MarketRadar compares exact product models across Ozon, Wildberries, and Yandex Market. It is an **in-development browser-search test**, not a commercially validated price-comparison service.
 
-## Mobile and cloud mode (1.8 staging)
+## Android cloud Chromium search (v0.35.0)
 
-- The FastAPI site in `web/` now has a **Cloud search** mode that can submit background jobs from Android without a browser extension. It uses server-side headless Playwright plus the server-paid AI model to browse public pages. It cannot access a user's Ozon/WB/Yandex Market app logins or guarantee full marketplace coverage.
-- Set `CLOUD_BROWSER_ENABLED=true`, provision server-side `OPENAI_API_KEY`, install Chromium via Playwright, and deploy the Docker service for this mode. The `render.yaml` is a blueprint, **not proof that a service is deployed**. If absent, the API returns 503 and the UI reports cloud search unavailable.
-- The currently published GitHub Pages address is **only a browser-extension test**. On mobile it must not claim to provide the cloud search. The public GitHub Pages site and the FastAPI site are different deployments until a single production domain is configured.
+The Android app can use the FastAPI server as its primary search engine.
+Open **Settings → Облачный браузер**, enter the *deployed* HTTPS root URL,
+save, then search normally. The UI receives live job progress and verified
+product cards with images, prices and delivery hints. No marketplace login
+is needed. Without a configured server URL the previous on-phone search is
+retained as a fallback.
+
+Server entry points:
+
+- `POST /api/mobile/browser/start`: `{"query":"...","shops":["ym","wb","ozon"]}`
+- `GET /api/mobile/browser/jobs/{id}`: status, per-shop audit and live offers
+- `DELETE /api/mobile/browser/jobs/{id}`: cancel the server search
+
+Jobs run asynchronously in real Playwright Chromium. If Android is destroyed,
+it retains the task ID and attempts to resume the server result when reopened.
+A cancelled job is not resumed. The server runs with one Uvicorn worker, since
+the current live job registry is in-memory, and uses per-IP limits to prevent
+unauthenticated abuse. These public-only mobile endpoints do not require an
+OpenAI API key; actual product-page title matching uses deterministic rules.
+
+Deployment prerequisites:
+
+1. Deploy the FastAPI server with the repository Dockerfile on a server with
+   working storefront connectivity and set `CLOUD_BROWSER_ENABLED=true`.
+2. Optionally use `MARKETRADAR_CHROMIUM_CDP_URL=wss://...` to connect the
+   server to a persistent remote Chromium browser instead of launching the
+   local container Chromium. Store endpoint credentials only server-side.
+3. Check `/health`, then run an actual query and inspect the per-market audit.
+4. Set that service's public HTTPS root URL in Android Settings.
+
+**Live evidence from GitHub-hosted Chromium (Nov 18, 2026):** Yandex Market
+returns HTTP 403, Wildberries HTTP 498, and Ozon HTTP 403. These server
+egress IPs cannot obtain product listings. Successful offline Chromium tests
+prove the extraction path but do not establish real marketplace coverage.
+The Render blueprint is configuration only; it is not evidence of a running
+service. Do not distribute an APK as a successful cloud-search release until
+a deployed service returns actual prices.
 
 ## Web test
 
