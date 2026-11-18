@@ -82,6 +82,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
     private Button retryMissingButton;
     private TextView deadlinePreview;
     private boolean sortByDelivery=false;
+    private boolean showAllOffers=false;
     private final Map<String,String> marketStates=new HashMap<>();
     private final Map<String,SessionProbe.Verdict> accountEvidence=new HashMap<>();
     private final Map<String,CheckBox> marketChoices=new HashMap<>();
@@ -849,6 +850,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         lastSelectedMarkets=chosen;
         setAccountsVisible(false);
         offers.clear();pendingOffers.clear();results.removeAllViews();marketStates.clear();
+        showAllOffers=false;
         summaryPanel.setVisibility(View.VISIBLE);
         resultsHeading.setVisibility(View.GONE);
         sortRow.setVisibility(View.GONE);
@@ -1186,27 +1188,22 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
             deliveryPolicy,sortByDelivery,timelyBest));
         results.removeAllViews();
         updateSummary();
-        // Only keep lower-priced alternatives in the secondary group.
-        // Unshown offers remain in the saved session and can be re-evaluated
-        // whenever delivery settings or the discovered best price change.
-        ArrayList<ScanEngine.Offer> visible=new ArrayList<>();
-        java.util.HashSet<String> shownProducts=new java.util.HashSet<>();
+        // The compact list is a decision aid, not a catalog dump.
+        // Keep one cheapest on-time offer per marketplace; other products
+        // are available only when the user chooses to expand the list.
+        ArrayList<ScanEngine.Offer> visible=OfferPresentation.visibleOffers(
+            offers,deliveryPolicy,showAllOffers,sortByDelivery);
+        int distinctCount=OfferPresentation.visibleOffers(
+            offers,deliveryPolicy,true,sortByDelivery).size();
         int eligibleCount=0;
         int alternatives=0;
-        for(ScanEngine.Offer o:offers){
-            if(!shownProducts.add(OfferPresentation.displayKey(o,deliveryPolicy)))
-                continue;
-            if(OfferPresentation.priority(deliveryPolicy,o,timelyBest)==0){
-                visible.add(o);
-                eligibleCount++;
-            }else if(OfferPresentation.showAlternative(deliveryPolicy,o,timelyBest)
-                     &&alternatives<3){
-                visible.add(o);
-                alternatives++;
-            }
+        for(ScanEngine.Offer offer:visible){
+            if(deliveryPolicy.timely(offer.deliveryHint))eligibleCount++;
+            else alternatives++;
         }
-        resultsHeading.setText(eligibleCount>0?
-            "В срок · "+eligibleCount:"Предложения · "+visible.size());
+        resultsHeading.setText(showAllOffers?
+            "Все предложения · "+visible.size():
+            "Лучшие по площадкам · "+eligibleCount);
         resultsHeading.setVisibility(View.VISIBLE);
         boolean otherHeadingAdded=false;
         for(ScanEngine.Offer o:visible){
@@ -1214,7 +1211,8 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
             if(secondary&&!otherHeadingAdded&&eligibleCount>0){
                 otherHeadingAdded=true;
                 gap(results,11);
-                add(results,text("Дешевле, но позже · "+alternatives,
+                add(results,text((showAllOffers?
+                    "Другие сроки доставки · ":"Дешевле, но позже · ")+alternatives,
                     16,MUTED,true),-1,-2);
                 gap(results,12);
             }
@@ -1258,6 +1256,19 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
             card.setOnClickListener(v->inspectOffer(o));
             add(results,card,-1,-2);
             gap(results,secondary?6:9);
+        }
+        int concealed=Math.max(0,distinctCount-OfferPresentation.visibleOffers(
+            offers,deliveryPolicy,false,false).size());
+        if(concealed>0){
+            Button more=button(showAllOffers?
+                "Скрыть дополнительные предложения":
+                "Показать остальные · "+concealed,false);
+            more.setTextSize(14);
+            add(results,more,-1,46);
+            more.setOnClickListener(v->{
+                showAllOffers=!showAllOffers;
+                renderResults();
+            });
         }
         sortRow.setVisibility(offers.isEmpty()?View.GONE:View.VISIBLE);
     }
