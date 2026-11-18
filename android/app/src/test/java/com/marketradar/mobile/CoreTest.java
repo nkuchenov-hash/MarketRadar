@@ -118,6 +118,26 @@ public class CoreTest {
         assertEquals(11542,ScanEngine.readPrice(snippets));
         assertEquals(0,ScanEngine.readPrice(new JSONArray().put("Нет цены")));
     }
+    @Test public void yandexUnicodeSpacesPreserveTheActualCheaperPrice(){
+        // Actual site typography uses U+2006/U+2009 before digits and
+        // sometimes before the ruble sign; old parser read 687 or zero.
+        int[] separators={0x0020,0x00A0,0x2002,0x2006,0x2009,0x202F};
+        for(int cp:separators){
+            String sep=new String(Character.toChars(cp));
+            String full="11"+sep+"687"+sep+"₽";
+            assertEquals("Wrong U+"+Integer.toHexString(cp),11687,
+                ScanEngine.readCardPrice(full));
+            String card="Умная колонка Яндекс Станция Мини 3 Про\n"+
+                "11"+sep+"687"+sep+"₽ Пэй\n"+
+                "6×1"+sep+"948"+sep+"₽ в сплит\n21 ноября, ПВЗ";
+            assertEquals("Full price vs Split U+"+Integer.toHexString(cp),11687,
+                ScanEngine.readCardPrice(card));
+            assertEquals("Must not fall back to the dearer detail quote",
+                11687,ScanEngine.compareCardAndListingPrice(
+                    12447,ScanEngine.readCardPrice(card),"с Яндекс Пэй"));
+        }
+    }
+
     @Test public void cardPriceIsUsedOnlyWhenNotCashbackOrCredit() {
         String card="Яндекс Станция Мини 3 Про\n11 542 ₽\n16 999 ₽\n" +
             "133 ₽ кешбэк\n1 130 ₽ / мес\nДоставка завтра";
