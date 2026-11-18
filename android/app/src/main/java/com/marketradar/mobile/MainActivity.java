@@ -94,6 +94,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
     private boolean aiChecking=false;
     private int aiGeneration=0;
     private String activeQuery="";
+    private int resumeAttempts=0;
     private static final ExecutorService PHOTO_POOL=Executors.newFixedThreadPool(3);
     private static final LruCache<String,Bitmap> PHOTO_CACHE=new LruCache<String,Bitmap>(24*1024*1024){
         @Override protected int sizeOf(String url,Bitmap bitmap){return bitmap.getByteCount();}
@@ -733,18 +734,35 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
                 Integer.parseInt(field.getText().toString().trim())));
         }catch(Exception ignored){return fallback;}
     }
+    private void startSearchProtection(){
+        try{
+            android.content.Intent intent=new android.content.Intent(
+                this,SearchProtectionService.class);
+            startForegroundService(intent);
+        }catch(Exception e){
+            // Search and persisted session still work if the OS denies a service.
+            android.util.Log.w("MarketRadar","Foreground protection unavailable",e);
+        }
+    }
+    private void stopSearchProtection(){
+        stopService(new android.content.Intent(this,SearchProtectionService.class));
+    }
     private void saveCurrentSearch(boolean searching){
         if(prefs==null||deliveryPolicy==null)return;
         String query=activeQuery;
         if(query.isBlank())return;
         SearchSessionStore.save(prefs,query,deliveryPolicy,offers,searching,
-            progress==null?"":progress.getText().toString());
+            progress==null?"":progress.getText().toString(),
+            lastSelectedMarkets,resumeAttempts);
     }
     private void restoreSavedSearch(){
         SearchSessionStore.Snapshot snapshot=SearchSessionStore.load(prefs);
         if(snapshot==null)return;
         activeQuery=snapshot.query;
         deliveryPolicy=snapshot.policy;
+        lastSelectedMarkets=snapshot.markets.isEmpty()?
+            new ArrayList<>(Shop.ALL):snapshot.markets;
+        resumeAttempts=snapshot.resumeAttempts;
         queryInput.setText(snapshot.query);
         offers.clear();
         offers.addAll(snapshot.offers);
@@ -752,10 +770,35 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         renderResults();
         searchButton.setText("Найти лучшую цену");
         updateDeadlineButton();
-        if(snapshot.interrupted){
-            progress.setText(snapshot.offers.isEmpty()?
-                "Поиск прерван системой. Можно запустить снова.":
-                "Результаты сохранены. Поиск был прерван системой.");
+        if(snapshot.interrupted&&SearchSessionStore.canAutoResume(snapshot)){
+            // Android may reclaim the Activity/WebViews when the user switches apps.
+            // Restart only the scan workers, not the UI or the saved offers.
+            resumeAttempts++;
+            searchButton.setText("Остановить");
+            progress.setText(offers.isEmpty()?
+                "Автоматически возобновляем поиск…":
+                "Предыдущие предложения сохранены · продолжаем поиск…");
+            // Mark the recovery attempt BEFORE launching browsers, preventing
+            // crash/restart loops on devices with extremely low memory.
+            saveCurrentSearch(true);
+            ui.post(()->{
+                if(isFinishing()||isDestroyed()||engine==null||engine.isRunning())return;
+                try{
+                    startSearchProtection();
+                    engine.start(activeQuery,Integer.MAX_VALUE,lastSelectedMarkets,
+                        deliveryPolicy);
+                }catch(Exception error){
+                    stopSearchProtection();
+                    progress.setText("Не удалось продолжить поиск автоматически");
+                    searchButton.setText("Найти лучшую цену");
+                    saveCurrentSearch(false);
+                }
+            });
+        }else if(snapshot.interrupted){
+            progress.setText(offers.isEmpty()?
+                "Не удалось восстановить поиск. Нажмите «Найти лучшую цену».":
+                "Предыдущие предложения сохранены · поиск можно повторить");
+            searchButton.setText("Найти лучшую цену");
         }else{
             progress.setText(snapshot.message.isBlank()?
                 "Восстановлены результаты предыдущего поиска":snapshot.message);
@@ -766,6 +809,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
             aiGeneration++;
             aiChecking=false;
             engine.stop();
+            stopSearchProtection();
             // Stopping an unfinished scan must not discard the offers already found.
             pendingOffers.clear();
             searchButton.setText("Найти лучшую цену");
@@ -802,6 +846,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         updateDeadlineButton();
         bestPriceLabel.setText("Самая низкая найденная цена");
         ++aiGeneration;
+        resumeAttempts=0;
         lastSelectedMarkets=chosen;
         setAccountsVisible(false);
         offers.clear();pendingOffers.clear();results.removeAllViews();marketStates.clear();
@@ -815,6 +860,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         marketNotice.setVisibility(View.GONE);
         progress.setText("Поиск…");
         saveCurrentSearch(true);
+        startSearchProtection();
         engine.start(q,Integer.MAX_VALUE,chosen,deliveryPolicy);
     }
     @Override public void status(Shop shop,String state){
@@ -1175,6 +1221,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
                     "Предварительные цены найдены · корзина и персональные скидки не проверены");
             }
             saveCurrentSearch(false);
+            stopSearchProtection();
         });
     }
     @Override public void onBackPressed(){
@@ -1186,7 +1233,8 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
             new AlertDialog.Builder(this).setMessage("Остановить поиск?")
                 .setNegativeButton("Продолжить",null)
                 .setPositiveButton("Остановить",(d,w)->{
-                    engine.stop();searchButton.setText("Найти предложения");
+                    engine.stop();stopSearchProtection();
+                    searchButton.setText("Найти предложения");
                     progress.setText("Поиск остановлен · результаты сохранены");
                     saveCurrentSearch(false);
                 }).show();
@@ -1209,6 +1257,10 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
     }
     @Override protected void onDestroy(){
         saveCurrentSearch(engine!=null&&engine.isRunning());
+        // The service protects an active search across onPause/onStop.
+        // Configuration replacement destroys these WebViews, so the next
+        // Activity automatically resumes from the persisted snapshot.
+        if(engine==null||!engine.isRunning())stopSearchProtection();
         aiGeneration++;
         if(engine!=null)engine.destroy();
         browser.destroy();
