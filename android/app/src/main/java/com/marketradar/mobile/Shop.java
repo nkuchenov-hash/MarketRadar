@@ -20,6 +20,9 @@ final class Shop {
         if(id.equals("ozon"))return searchBase+encoded+"&sorting=price";
         return searchBase+encoded;
     }
+    String plainSearchUrl(String query){
+        return searchBase+URLEncoder.encode(query,StandardCharsets.UTF_8);
+    }
     boolean priceAscendingRequested(String currentUrl){
         if(!allowed(currentUrl))return false;
         try{
