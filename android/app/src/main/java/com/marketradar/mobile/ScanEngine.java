@@ -85,7 +85,7 @@ final class ScanEngine {
             // Only inspect ancestors containing one distinct product URL.
             const tileDelivery=a=>{
               const date=/(?:сегодня|завтра|послезавтра|через\\s*\\d{1,2}\\s*(?:дн|сут)|\\d{1,2}\\s*(?:января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря|янв\\.?|фев\\.?|мар\\.?|апр\\.?|июн\\.?|июл\\.?|авг\\.?|сен\\.?|окт\\.?|ноя\\.?|дек\\.?))/i;
-              for(let node=a;node&&node!==body;node=node.parentElement){
+              for(let node=a,level=0;node&&node!==body&&level<9;node=node.parentElement,level++){
                 const productLinks=new Set([...node.querySelectorAll(
                   'a[href*="/catalog/"],a[href*="/product/"],a[href*="/card/"]'
                 )].map(link=>{
@@ -1096,13 +1096,15 @@ final class ScanEngine {
     }
     static String readDeliveryHint(String context){
         if(context==null||context.isBlank())return "";
-        // Delivery information is taken ONLY from the matching marketplace
-        // listing. It is an estimate, not a verified checkout slot.
+        // Parse only a date captured from this product's own listing or
+        // delivery widget. Abbreviations are common on mobile marketplaces.
         java.util.regex.Pattern p=java.util.regex.Pattern.compile(
-            "(?iu)(?:за\\s+час|сегодня|завтра|послезавтра|"+
+            "(?iu)(?:за\\s+час|сегодня|послезавтра|завтра|"+
+            "через\\s*\\d{1,2}\\s*(?:дн(?:я|ей|ь)|сут(?:ок|ки))|"+
             "(?:в\\s+)?(?:понедельник|вторник|среду|четверг|пятницу|субботу|воскресенье)|"+
-            "\\d{1,2}\\s+(?:января|февраля|марта|апреля|мая|июня|июля|августа|"+
-            "сентября|октября|ноября|декабря)|самовывоз)");
+            "\\d{1,2}\\s*(?:января|февраля|марта|апреля|мая|июня|июля|августа|"+
+            "сентября|октября|ноября|декабря|янв\\.?|фев\\.?|мар\\.?|апр\\.?|"+
+            "июн\\.?|июл\\.?|авг\\.?|сен\\.?|окт\\.?|ноя\\.?|дек\\.?)|самовывоз)");
         Matcher match=p.matcher(context);
         return match.find()?match.group().trim():"";
     }
