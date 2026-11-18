@@ -388,6 +388,26 @@ final class ScanEngine {
     private String lastSearchPageDiagnostics="";
     private int listingSnapshots=0,firstExactSnapshot=-1;
     private int verifiedMarket=0,verifiedTimelyMarket=0;
+    private int wrongModelMarket=0,missingPriceMarket=0,aiRejectedMarket=0;
+    private int redirectedMarket=0,listingCandidatesMarket=0;
+    private String firstRejectionMarket="";
+    private void recordRejection(String cause,String title){
+        if(!firstRejectionMarket.isEmpty())return;
+        String safe=(title==null?"":title).replaceAll("[\\r\\n\\t]"," ").trim();
+        firstRejectionMarket=cause+(safe.isEmpty()?"":" · "+safe.substring(0,Math.min(100,safe.length())));
+    }
+    String resultBreakdown(){
+        return "товарных кандидатов из выдачи: "+listingCandidatesMarket+
+            "; открыто карточек: "+checkedMarket+
+            "; модель не совпала: "+wrongModelMarket+
+            "; цена не извлечена: "+missingPriceMarket+
+            "; отклонено ИИ: "+aiRejectedMarket+
+            "; передано в предложения: "+verifiedMarket+
+            "; дорогих отложено: "+skippedAboveBest+
+            "; сортировка: "+sortEvidence.description(
+                shop!=null&&shop.priceAscendingRequested(currentSearchUrl))+
+            (firstRejectionMarket.isEmpty()?"":"; пример: "+firstRejectionMarket);
+    }
     private boolean stoppedForFastCheck=false,fullPassFallback=false;
     private static final int MAX_EXPANDED_LISTING_SNAPSHOTS=80;
     private final Set<String> inspectedCandidateKeys=new HashSet<>();
@@ -521,6 +541,8 @@ final class ScanEngine {
         listingSnapshots=0;firstExactSnapshot=-1;
         lastSearchPageDiagnostics="";
         verifiedMarket=0;verifiedTimelyMarket=0;
+        wrongModelMarket=0;missingPriceMarket=0;aiRejectedMarket=0;
+        redirectedMarket=0;listingCandidatesMarket=0;firstRejectionMarket="";
         stoppedForFastCheck=false;fullPassFallback=false;
         plainSearchFallbackAttempted=false;
         listener.status(shop,"Ищем точную модель…");
@@ -743,6 +765,7 @@ final class ScanEngine {
             " · сетевых товаров WB: "+data.optInt("networkCandidates",0)+
             " · прокрутка: "+data.optString("scrollKind","не определена");
         mergeSearchSnapshot(searchPool,visibleLinks,shop,query);
+        listingCandidatesMarket=Math.max(listingCandidatesMarket,searchPool.size());
         sortEvidence.observe(visibleLinks,shop);
         listingSnapshots++;
         if(firstExactSnapshot<0 && visibleLinks!=null){
@@ -1053,7 +1076,15 @@ final class ScanEngine {
         if(!running)return;
         // Do not let a cheaper Ozon quote suppress WB candidates whose
         // personalized WB-app prices may differ from website snippets.
-        int next=DynamicPriceFrontier.nextUnpruned(candidates,cardIndex,frontier,shop);
+        // Only prune by scraped listing price when this session actually
+        // demonstrates stable ascending order. In personalized WB/Yandex
+        // listings the same item may be cheaper under an account condition.
+        // A URL parameter by itself is not sufficient evidence.
+        boolean safeToPrune=shop!=null&&
+            (shop.id.equals("ozon")||sortEvidence.ascendingObserved());
+        int next=safeToPrune?
+            DynamicPriceFrontier.nextUnpruned(candidates,cardIndex,frontier,shop):
+            cardIndex;
         skippedAboveBest+=next-cardIndex;
         cardIndex=next;
         if(cardIndex>=candidates.size()){
@@ -1158,6 +1189,12 @@ final class ScanEngine {
                 String priceCondition=candidates.get(cardIndex-1).priceCondition;
                 String image=data.optString("imageUrl","");
                 if(image.isBlank())image=selected.imageUrl;
+                if(price<=0){
+                    missingPriceMarket++;
+                    recordRejection("Цена товара отсутствует",title);
+                    nextCandidate();
+                    return;
+                }
                 Offer proposal=new Offer(shop,cleanUrl(url),title,price,note,
                     delivery,priceCondition,image);
                 final int request=token;
@@ -1185,6 +1222,7 @@ final class ScanEngine {
                     noteProgress();
                     if(verdict==null){
                         coverageIncomplete=true;
+                        recordRejection("Ошибка локальной ИИ-проверки",title);
                         listener.status(shop,"Локальный ИИ не подтвердил проверку");
                     }else if(verdict.booleanValue()){
                         verifiedMarket++;
@@ -1192,11 +1230,20 @@ final class ScanEngine {
                         if(price>0&&frontier.confirm(price,delivery,shop))
                             listener.status(shop,"Новый минимум с подходящей доставкой: "+price+" ₽");
                         listener.offer(proposal);
+                    }else{
+                        aiRejectedMarket++;
+                        recordRejection("ИИ отклонил модель",title);
                     }
                     nextCandidate();
                 }));
                 return;
+            }else{
+                wrongModelMarket++;
+                recordRejection("Название не соответствует модели",title);
             }
+        }else{
+            redirectedMarket++;
+            recordRejection("Карточка перенаправлена",url);
         }
         listener.status(shop,"Карточек проверено: "+checkedMarket+" / "+candidates.size());
         nextCandidate();
