@@ -68,9 +68,17 @@ class MobileBrowserSearch(BaseModel):
     query:str=Field(min_length=3,max_length=180)
     shops:list[str]=Field(min_length=1,max_length=3)
 
+def mobile_access(request:Request):
+    """VPS deployment enables a private per-install access key."""
+    expected=os.getenv("MARKETRADAR_MOBILE_ACCESS_KEY","").strip()
+    if expected and not hmac.compare_digest(
+            request.headers.get("x-marketradar-key",""),expected):
+        raise HTTPException(401,"Неверный код доступа MarketRadar")
+
 @app.post('/api/mobile/browser/start',status_code=202)
 async def mobile_browser_start(request:Request,data:MobileBrowserSearch):
     """Launch a real public Chromium search without exposing shop credentials."""
+    mobile_access(request)
     limit(request,'mobile-browser-minute',2,60)
     limit(request,'mobile-browser-day',12,86400)
     ready,reason=cloud_browser.available()
@@ -85,6 +93,7 @@ async def mobile_browser_start(request:Request,data:MobileBrowserSearch):
 
 @app.get('/api/mobile/browser/jobs/{job_id}')
 async def mobile_browser_result(request:Request,job_id:str):
+    mobile_access(request)
     limit(request,'mobile-browser-poll',100,60)
     result=mobile_cloud.job_status(job_id)
     if result is None:raise HTTPException(404,'Поиск не найден')
@@ -92,6 +101,7 @@ async def mobile_browser_result(request:Request,job_id:str):
 
 @app.delete('/api/mobile/browser/jobs/{job_id}')
 async def mobile_browser_stop(request:Request,job_id:str):
+    mobile_access(request)
     limit(request,'mobile-browser-cancel',10,60)
     if not mobile_cloud.cancel_job(job_id):
         raise HTTPException(404,'Поиск не найден')
