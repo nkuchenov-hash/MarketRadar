@@ -824,8 +824,13 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
                         detail.contains("Ошибка загрузки"))
                     states.append("поиск прерван: нет ответа");
                 else if(detail.contains("ограничил доступ")||
+                        detail.contains("ограничил браузерную выдачу")||
+                        detail.contains("не выдал карточки")||
+                        detail.contains("проверка браузера не завершилась")||
                         detail.contains("Переадресация"))
-                    states.append("доступ ограничен");
+                    states.append("браузерный доступ ограничен · цены не проверены");
+                else if(detail.contains("проверяет браузер"))
+                    states.append("ожидаем проверку браузера");
                 else if(detail.contains("прокрутить полностью"))
                     states.append("выдача не загрузилась полностью");
                 else if(detail.contains("отложено дорогих"))
