@@ -313,8 +313,8 @@ def fetch_public_search_html(url: str) -> dict:
             # A failed page is not evidence that pagination is exhausted.
             # Continue probing the next bounded batch rather than silently
             # losing potentially cheaper products after a transient denial.
-            if newly_added == 0 and not any(not info for info in batch):
-                break
+            # Overlapping or empty batches do not prove pagination ended.
+            # Probe every configured page; report incomplete coverage in audit.
 
     links=sorted(products.values(),key=lambda item: (
         item["price"]<=0,item["price"] or 10**12,item["url"]))
