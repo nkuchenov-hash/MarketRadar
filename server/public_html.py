@@ -310,7 +310,10 @@ def fetch_public_search_html(url: str) -> dict:
                     elif item["price"] and (
                          not prior["price"] or item["price"]<prior["price"]):
                         products[item["url"]]=item
-            if newly_added==0:
+            # A failed page is not evidence that pagination is exhausted.
+            # Continue probing the next bounded batch rather than silently
+            # losing potentially cheaper products after a transient denial.
+            if newly_added == 0 and not any(not info for info in batch):
                 break
 
     links=sorted(products.values(),key=lambda item: (
