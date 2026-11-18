@@ -151,31 +151,54 @@ async def run_market(job: dict, shop_id: str):
                 return_exceptions=True)
             for candidate,page in zip(batch,pages):
                 state["checked"] += 1
-                if isinstance(page,BaseException) or page.get("state") != "ok":
-                    continue
-                title = page.get("heading") or page.get("title") or ""
-                if not exact_product(job["query"], title):
-                    continue
+                detail_accessible = (
+                    isinstance(page,dict) and page.get("state")=="ok")
+                detail_title = ((page.get("heading") or page.get("title") or "")
+                                if detail_accessible else "")
+                detail_match = detail_accessible and exact_product(
+                    job["query"],detail_title)
                 listing_price = int(candidate.get("price") or 0)
-                structured = int(page.get("primary_price") or 0)
+                listing_match = exact_product(
+                    job["query"],candidate.get("title",""))
+                # The fallback is a real public storefront listing with its
+                # own price and product link. If the detail page is denied,
+                # retain the offer as LISTING-ONLY, clearly not verified by
+                # the detail page. Never do this for unrelated DOM snapshots.
+                listing_only = (
+                    not detail_accessible and
+                    candidate.get("source")=="public_ssr" and
+                    listing_match and listing_price>0)
+                if not (detail_match or listing_only):
+                    continue
+                structured = (int(page.get("primary_price") or 0)
+                              if detail_accessible else 0)
                 if listing_price <= 0 and structured <= 0:
                     continue
                 price = min(p for p in (listing_price, structured) if p > 0)
-                image = candidate.get("image_url") or page.get("primary_image") or ""
+                image = candidate.get("image_url") or (
+                    page.get("primary_image") if detail_accessible else "") or ""
                 if not image.startswith("https://"):
                     image = ""
                 link=candidate["url"]
                 if link in verified_urls:
                     continue
                 verified_urls.add(link)
+                if listing_only:
+                    state["listing_only"] = state.get("listing_only",0)+1
                 job["offers"].append({
-                    "market_id": shop_id, "title": title[:240],
-                    "url": link, "price": price,
-                    "image_url": image[:900],
-                    "delivery": str(candidate.get("delivery_hint",""))[:100],
-                    "condition": "", "note": (
+                    "market_id":shop_id,
+                    "title":(detail_title if detail_match
+                              else candidate.get("title",""))[:240],
+                    "url":link, "price":price,
+                    "image_url":image[:900],
+                    "delivery":str(candidate.get("delivery_hint",""))[:100],
+                    "verified_detail":not listing_only,
+                    "condition":"",
+                    "note":(
+                        "Цена из выдачи; страница товара не открылась"
+                        if listing_only else
                         "Цена из публичной выдачи; модель сверена по странице"
-                        if listing_price and (not structured or listing_price < structured)
+                        if listing_price and (not structured or listing_price<structured)
                         else "Цена из данных страницы товара"),
                 })
                 if best == 0 or price < best:
