@@ -47,6 +47,7 @@ final class ParallelScanCoordinator {
     // renderer eviction on budget Android devices while scanning every site.
     private static final int MAX_PARALLEL=2;
     private final ArrayList<Shop> pendingMarkets=new ArrayList<>();
+    private final Map<String,String> completedBreakdown=new HashMap<>();
     private int nextMarketIndex=0;
     private String activeQuery="";
 
@@ -89,6 +90,7 @@ final class ParallelScanCoordinator {
             completed++;
             wasTimeLimited|=scan.wasTimeLimited();
             coverageIncomplete|=scan.coverageIncomplete();
+            completedBreakdown.put(shop.id,scan.resultBreakdown());
             long duration=(android.os.SystemClock.elapsedRealtime()-startedAt)/1000L;
             String diagnostic=(scan.coverageIncomplete()?
                 "Выдача проверена не полностью":"Доступная выдача просмотрена")+
@@ -122,6 +124,9 @@ final class ParallelScanCoordinator {
     boolean isRunning(){return running;}
     boolean wasTimeLimited(){return wasTimeLimited;}
     boolean coverageIncomplete(){return coverageIncomplete;}
+    String marketBreakdown(String id){
+        return completedBreakdown.getOrDefault(id,"Этапы поиска ещё не завершены");
+    }
     String progressSummary(){
         if(!running)return "Поиск завершён";
         int active=0;
@@ -186,6 +191,7 @@ final class ParallelScanCoordinator {
         workersInSearch=markets.size();
         wasTimeLimited=false;
         coverageIncomplete=false;
+        completedBreakdown.clear();
         frontier.configure(delivery);
         activeQuery=query;
         pendingMarkets.clear();
