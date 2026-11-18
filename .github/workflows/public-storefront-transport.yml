@@ -75,7 +75,7 @@ jobs:
                     result["escaped_product_path_mentions"]=unescaped.count("/product/")
                     result["escaped_offer_path_mentions"]=unescaped.count("/offer/")
                     result["product_link_examples"]=list(dict.fromkeys(
-                      re.findall(r'href=["\\']([^"\\']{0,300}(?:product|offer|card)[^"\\']*)',unescaped,re.I)
+                      re.findall(r"href=['\"]([^'\"]{0,300}(?:product|offer|card)[^'\"]*)",unescaped,re.I)
                     ))[:6]
                     for keyword in ("Яндекс Станция Мини","₽","u20bd","/product/"):
                       ix=unescaped.find(keyword)
