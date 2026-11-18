@@ -90,8 +90,12 @@ function snapshot(){
  const productTitle=(document.querySelector('h1')?.innerText||document.querySelector('meta[property="og:title"]')?.content||document.title||'').replace(/\s+/g,' ').slice(0,320);
  const anchors=Array.from(document.querySelectorAll('a[href]')).slice(0,2600);
  const links=anchors.map(a=>{
-  const ancestor=a.closest('article,li,[data-index],[data-card-index],[data-widget="searchResultsV2"]')||a.parentElement;
-  return {url:a.href,title:(a.getAttribute('aria-label')||a.innerText||a.querySelector('img')?.alt||'').replace(/\s+/g,' ').slice(0,220),context:(ancestor?.innerText||a.parentElement?.innerText||'').replace(/\s+/g,' ').slice(0,360)};
+  // Keep the price and name within the same product tile. A search-results
+  // container can contain many products and must never become one card's price.
+  const ancestor=a.closest('[data-nm-id],[data-product-id],[data-card-index],[data-index],article,li,[class*="product-card" i],[class*="productCard" i],[class*="catalog-card" i]');
+  const tile=ancestor&&ancestor.querySelectorAll('a[href]').length<=8?ancestor:a.parentElement;
+  const title=(a.getAttribute('aria-label')||a.querySelector('img[alt]')?.alt||a.innerText||'').replace(/\s+/g,' ').slice(0,220);
+  return {url:a.href,title,context:(tile?.innerText||'').replace(/\s+/g,' ').slice(0,360)};
  });
  const selectors=['[data-widget*="webPrice" i]','[data-widget*="price" i]','[class*="product-price" i]','[itemprop="offers"]','[itemprop="price"]'];
  const items=new Set();const blocks=[];
@@ -170,7 +174,8 @@ async function scan(query,market){
   searchPages++;
   for(const a of listing.links){
    if(!productURL(market,a.url))continue;
-   const title=(a.title+' '+a.context).trim();const score=scoreMatch(query,title);
+   // A neighbouring card's model name must not validate this link.
+   const title=(a.title||a.context).trim();const score=scoreMatch(query,title);
    // For manufacturer-code searches some cards show only an SKU and no model name.
    const compatibleSku=/YNDX[-\s]?00059[A-Z0-9]*/i.test(title)&&/мини\s*3\s*про|mini\s*3\s*pro/i.test(query);
    if(score<72&&!compatibleSku)continue;
