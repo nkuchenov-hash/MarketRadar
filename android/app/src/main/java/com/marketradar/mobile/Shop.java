@@ -20,6 +20,19 @@ final class Shop {
         if(id.equals("ozon"))return searchBase+encoded+"&sorting=price";
         return searchBase+encoded;
     }
+    boolean priceAscendingRequested(String currentUrl){
+        if(!allowed(currentUrl))return false;
+        try{
+            String raw=new java.net.URI(currentUrl).getRawQuery();
+            if(raw==null)return false;
+            String parameters=java.net.URLDecoder.decode(raw,StandardCharsets.UTF_8)
+                .toLowerCase(java.util.Locale.ROOT);
+            if(id.equals("wb"))return parameters.contains("sort=priceup");
+            if(id.equals("ym"))return parameters.contains("how=aprice");
+            if(id.equals("ozon"))return parameters.contains("sorting=price");
+            return false;
+        }catch(Exception ignored){return false;}
+    }
     static final List<Shop> ALL=Arrays.asList(
         new Shop("ozon","Ozon","ozon.ru","https://www.ozon.ru/",
             "https://www.ozon.ru/search/?text=",0xFF3684F6),
