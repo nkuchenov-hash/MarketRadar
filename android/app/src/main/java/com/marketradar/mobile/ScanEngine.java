@@ -202,7 +202,7 @@ final class ScanEngine {
             // map, the problem is in tile extraction rather than in AI.
             const pageText=(body?.innerText||'').slice(0,120000);
             const allPrices=[];
-            const amountPattern=/(\d{1,3}(?:[\s\u00a0\u202f]\d{3})+)\s*(?:₽|руб)/gi;
+            const amountPattern=/(\\d{1,3}(?:[\\s\\u00a0\\u202f]\\d{3})+)\\s*(?:₽|руб)/gi;
             for(const hit of pageText.matchAll(amountPattern)){
               const amount=Number(hit[1].replace(/[^0-9]/g,''));
               if(amount>=100&&amount<=50000000)allPrices.push(amount);
