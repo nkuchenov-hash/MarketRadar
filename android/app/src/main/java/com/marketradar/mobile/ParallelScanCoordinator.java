@@ -43,6 +43,12 @@ final class ParallelScanCoordinator {
     private boolean coverageIncomplete=false;
     private int generation=0;
     private int completed=0;
+    // Two WebViews, not three simultaneously: reduce memory pressure and
+    // renderer eviction on budget Android devices while scanning every site.
+    private static final int MAX_PARALLEL=2;
+    private final ArrayList<Shop> pendingMarkets=new ArrayList<>();
+    private int nextMarketIndex=0;
+    private String activeQuery="";
 
     private final class Worker implements ScanEngine.Listener {
         final WebView view;
@@ -90,6 +96,8 @@ final class ParallelScanCoordinator {
             if(completed==workersInSearch){
                 running=false;
                 listener.done();
+            }else if(nextMarketIndex<pendingMarkets.size()){
+                startNextMarket(this);
             }
         }
     }
@@ -132,19 +140,29 @@ final class ParallelScanCoordinator {
         wasTimeLimited=false;
         coverageIncomplete=false;
         frontier.configure(delivery);
-        ensureWorkers(markets.size());
-        // Launch all shop searches without waiting for another store to finish.
-        for(int index=0;index<markets.size();index++){
-            Worker worker=workers.get(index);
-            worker.shop=markets.get(index);
-            worker.generation=generation;
-            worker.finished=false;
-            worker.lastStatus="";
-            worker.startedAt=android.os.SystemClock.elapsedRealtime();
-            worker.scan.setPriceFrontier(frontier);
-            worker.scan.start(query,maxCards,
-                java.util.Collections.singletonList(worker.shop));
-        }
+        activeQuery=query;
+        pendingMarkets.clear();
+        pendingMarkets.addAll(markets);
+        // Working WB and Yandex results should not be blocked behind a
+        // challenge-heavy Ozon WebView. Order affects start only, not ranking.
+        pendingMarkets.sort(java.util.Comparator.comparingInt(
+            shop->shop.id.equals("wb")?0:shop.id.equals("ym")?1:2));
+        nextMarketIndex=0;
+        int workerCount=Math.min(MAX_PARALLEL,pendingMarkets.size());
+        ensureWorkers(workerCount);
+        for(int index=0;index<workerCount;index++)
+            startNextMarket(workers.get(index));
+    }
+    private void startNextMarket(Worker worker){
+        if(!running||nextMarketIndex>=pendingMarkets.size())return;
+        worker.shop=pendingMarkets.get(nextMarketIndex++);
+        worker.generation=generation;
+        worker.finished=false;
+        worker.lastStatus="";
+        worker.startedAt=android.os.SystemClock.elapsedRealtime();
+        worker.scan.setPriceFrontier(frontier);
+        worker.scan.start(activeQuery,Integer.MAX_VALUE,
+            java.util.Collections.singletonList(worker.shop));
     }
     void onPageFinished(WebView view,String url){
         Worker worker=byBrowser.get(view);
@@ -161,6 +179,8 @@ final class ParallelScanCoordinator {
     void stop(){
         generation++;
         running=false;
+        pendingMarkets.clear();
+        nextMarketIndex=0;
         for(Worker worker:workers){
             worker.scan.stop();
             worker.finished=true;
@@ -179,6 +199,14 @@ final class ParallelScanCoordinator {
         byBrowser.clear();
     }
     private void ensureWorkers(int count){
+        while(workers.size()>count){
+            Worker unused=workers.remove(workers.size()-1);
+            byBrowser.remove(unused.view);
+            if(unused.view!=primaryBrowser){
+                root.removeView(unused.view);
+                unused.view.destroy();
+            }
+        }
         while(workers.size()<count){
             WebView view=new WebView(activity);
             view.setBackgroundColor(Color.WHITE);
