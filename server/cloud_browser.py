@@ -111,7 +111,7 @@ _DOM_SNAPSHOT = r"""() => {
             [...node.querySelectorAll('a[href]')].filter(a=>{
                 try{return path.test(new URL(a.href).pathname);}catch(e){return false;}
             }).map(a=>{
-                try{const u=new URL(a.href);return u.origin+u.pathname.replace(/\\/$/,'');}
+                try{const u=new URL(a.href);return u.origin+u.pathname.replace(/\/$/,'');}
                 catch(e){return a.href;}
             })
         ).size;
