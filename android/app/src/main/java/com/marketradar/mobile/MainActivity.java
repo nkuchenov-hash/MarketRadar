@@ -91,7 +91,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
     private ParallelScanCoordinator engine;
     private EditText queryInput;
     private Button searchButton;
-    private EditText deliveryDaysInput, discountPercentInput;
+    private EditText deliveryDaysInput, discountPercentInput, cloudUrlInput;
     private CheckBox allowLateDiscount;
     private DeliveryPolicy deliveryPolicy=DeliveryPolicy.standard();
     private TextView progress, count, loginCaption;
@@ -370,6 +370,27 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         add(settingsPage,appearance,-1,-2);
         gap(settingsPage,22);
 
+        add(settingsPage,text("Облачный браузер",19,TEXT,true),-1,34);
+        LinearLayout cloudPanel=panel();
+        add(cloudPanel,text("Поиск выполняет серверный Chromium",14,TEXT,true),-1,26);
+        add(cloudPanel,text("Укажи адрес развернутого сервера MarketRadar. После сохранения приложение будет искать товары через сервер, а не скрытый браузер телефона.",12,MUTED,false),-1,-2);
+        gap(cloudPanel,10);
+        cloudUrlInput=new EditText(this);
+        cloudUrlInput.setSingleLine(true);
+        cloudUrlInput.setTextSize(14);
+        cloudUrlInput.setTextColor(TEXT);
+        cloudUrlInput.setHintTextColor(MUTED);
+        cloudUrlInput.setInputType(android.text.InputType.TYPE_CLASS_TEXT|
+            android.text.InputType.TYPE_TEXT_VARIATION_URI);
+        cloudUrlInput.setBackground(bg(SURFACE,13,BORDER));
+        cloudUrlInput.setPadding(dp(13),0,dp(13),0);
+        cloudUrlInput.setHint("https://адрес-твоего-сервера");
+        cloudUrlInput.setText(prefs.getString("cloud_browser_url",""));
+        add(cloudPanel,cloudUrlInput,-1,52);
+        add(cloudPanel,text("Пока сервер не указан, доступен прежний поиск на телефоне. Вход в аккаунты маркетплейсов для облачного поиска не требуется.",12,MUTED,false),-1,-2);
+        add(settingsPage,cloudPanel,-1,-2);
+        gap(settingsPage,20);
+
         add(settingsPage,text("Поиск и доставка",19,TEXT,true),-1,34);
         filterPanel=panel();
         add(filterPanel,text("Выбрать магазины",14,TEXT,true),-1,24);
@@ -438,6 +459,11 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         Button saveOptions=button("Сохранить настройки",true);
         add(settingsPage,saveOptions,-1,51);
         saveOptions.setOnClickListener(v->{
+            String raw=cloudUrlInput.getText().toString().trim();
+            if(!raw.isEmpty()&&CloudSearchClient.validBase(raw).isEmpty()){
+                cloudUrlInput.setError("Укажи корневой HTTPS-адрес облачного сервера");
+                return;
+            }
             persistSearchOptions();
             showScreen(SCREEN_SEARCH);
         });
@@ -529,7 +555,10 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         boolean allowSlow=allowLateDiscount.isChecked();
         deliveryDaysInput.setText(Integer.toString(days));
         discountPercentInput.setText(Integer.toString(discount));
+        String cloudRaw=cloudUrlInput==null?"":cloudUrlInput.getText().toString().trim();
+        String cloudBase=cloudRaw.isEmpty()?"":CloudSearchClient.validBase(cloudRaw);
         prefs.edit()
+            .putString("cloud_browser_url",cloudBase)
             .putInt("delivery_days",days)
             .putInt("late_discount_percent",discount)
             .putBoolean("delivery_late_discount",allowSlow)
