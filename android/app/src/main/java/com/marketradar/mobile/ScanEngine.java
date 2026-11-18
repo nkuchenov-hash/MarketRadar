@@ -692,6 +692,11 @@ final class ScanEngine {
                     "Поиск перенаправлен на форму авторизации"));
                 listener.status(shop,"Требуется повторно войти в аккаунт магазина");
             }else{
+                // The price-sorted URL can redirect to a generic landing page.
+                // Attempt the site's own ordinary search URL once before
+                // declaring this marketplace unavailable.
+                if(tryPlainSearchFallback("Неожиданная переадресация сайта"))
+                    return;
                 listener.status(shop,"Неожиданная переадресация сайта");
             }
             nextMarket();return;
