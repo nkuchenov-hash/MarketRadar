@@ -361,6 +361,7 @@ final class ScanEngine {
     // snapshots before applying the candidate limit; otherwise an exact,
     // cheaper listing below the first fold can never enter the comparison.
     private final Map<String,Candidate> searchPool=new LinkedHashMap<>();
+    private final PriceOrderProbe sortEvidence=new PriceOrderProbe();
     // Multiple delivery choices can lead to the same product URL. Open the
     // page once and reuse its verified product metadata for each choice.
     private final Map<String,JSONObject> detailCache=new LinkedHashMap<>();
@@ -501,6 +502,7 @@ final class ScanEngine {
         }
         shop=activeMarkets.get(marketIndex++);
         candidates.clear();seen.clear();inspectedCandidateKeys.clear();
+        sortEvidence.reset();
         cardIndex=0;details=false;checkedMarket=0;expectedUrl="";
         searchSampling=false;searchPool.clear();detailCache.clear();
         stableBottom=0;lastPoolSize=-1;lastHeight=-1;
@@ -741,6 +743,7 @@ final class ScanEngine {
             " · сетевых товаров WB: "+data.optInt("networkCandidates",0)+
             " · прокрутка: "+data.optString("scrollKind","не определена");
         mergeSearchSnapshot(searchPool,visibleLinks,shop,query);
+        sortEvidence.observe(visibleLinks,shop);
         listingSnapshots++;
         if(firstExactSnapshot<0 && visibleLinks!=null){
             for(int i=0;i<visibleLinks.length();i++){
@@ -922,6 +925,7 @@ final class ScanEngine {
             stableBottom=0;lastPoolSize=-1;lastHeight=-1;loadMoreAttempts=0;
             lastObservedScrollY=-1;lastObservedScrollHeight=-1;
             lastObservedPoolCount=-1;stalledScrollChecks=0;
+            sortEvidence.reset();
             hydrationRetries=0;retryCount=0;browserCheckRetries=0;
             searchSampling=false;listingSnapshots=0;firstExactSnapshot=-1;
             listener.status(shop,"Повторяем поиск без сортировки по цене");
@@ -935,6 +939,9 @@ final class ScanEngine {
         if(details)return;
         candidates.clear();
         candidates.addAll(rankCandidates(searchPool.values(),Integer.MAX_VALUE));
+        listener.status(shop,sortEvidence.description(
+            shop.priceAscendingRequested(currentSearchUrl))+
+            " · просмотрено цен: "+sortEvidence.inspected());
         // The expanded crawl can change the ascending price order. Starting
         // at the old cardIndex skipped all newly found CHEAPER candidates.
         cardIndex=0;
