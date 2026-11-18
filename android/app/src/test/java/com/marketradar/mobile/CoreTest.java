@@ -5,6 +5,27 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 public class CoreTest {
+    @Test public void yandex11687AuditDistinguishesUnparsedAndRejectedCards()
+            throws Exception {
+        SearchEvidenceAudit audit=new SearchEvidenceAudit();
+        audit.observeDomPrices(new JSONArray().put(9757).put(11687).put(12447));
+        assertTrue(audit.probePrice(11687).contains("в тексте выдачи есть"));
+        assertTrue(audit.probePrice(11687).contains("карточкам 0"));
+        String url="https://market.yandex.ru/card/yandex-stantsiya-mini-3-pro/4620658531?track=private";
+        JSONArray data=new JSONArray().put(new org.json.JSONObject()
+            .put("url",url)
+            .put("title","Умная колонка Яндекс Станция Мини 3 Про")
+            .put("context","11 687 ₽ Пэй\n21 ноября\nУмная колонка Яндекс Станция Мини 3 Про")
+            .put("deliveryHint","21 ноября")
+            .put("imageAlt","Яндекс Станция Мини 3 Про"));
+        audit.observe(data,Shop.byId("ym"),"Яндекс Станция Мини 3 Про");
+        assertTrue(audit.probePrice(11687).contains("карточкам 1"));
+        assertTrue(audit.probePrice(11687).contains("отобрано для проверки 1"));
+        audit.stage(url,"отклонена ИИ");
+        assertTrue(audit.probePrice(11687).contains("отклонена ИИ"));
+        assertFalse(audit.summary().contains("track=private"));
+    }
+
     @Test public void exactMiniThreeProRejectsOtherModels() {
         String q="Яндекс Станция Мини 3 Про";
         assertTrue(ScanEngine.exact(q, "Яндекс Станция Мини 3 Про, синий"));
