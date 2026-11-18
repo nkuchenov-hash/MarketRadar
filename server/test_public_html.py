@@ -74,8 +74,12 @@ class SSRExtractionTests(unittest.TestCase):
             def read(self,size):return self.value.encode()
             def __enter__(self):return self
             def __exit__(self,*args):pass
+        attempts={}
         def fake_fetch(request,timeout):
             page=int(parse_qs(urlparse(request.full_url).query).get("page",["1"])[0])
+            attempts[page]=attempts.get(page,0)+1
+            if page==2 and attempts[page]==1:
+                raise OSError("One temporary missing search page")
             return FakeResponse(html_pages.get(page,"<html></html>"))
         with patch("urllib.request.urlopen",side_effect=fake_fetch):
             with patch.dict("os.environ",{"CLOUD_SSR_PAGES":"6"}):
@@ -85,6 +89,7 @@ class SSRExtractionTests(unittest.TestCase):
         self.assertEqual([11900,12500,13400],
                          sorted(p["price"] for p in r["links"]))
         self.assertEqual([1,2,3],r["audit"]["pages_visited"])
+        self.assertIn(2,r["audit"]["pages_recovered_after_retry"])
         self.assertFalse(r["coverage_complete"])
 
     def test_shared_price_is_never_attributed_to_each_product(self):
