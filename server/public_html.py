@@ -319,10 +319,12 @@ def extract_public_html(html: str, origin: str) -> dict:
         price = min(raw_prices) if raw_prices else 0
         if price:
             priced += 1
+        pay_condition = ("Яндекс Пэй" if re.search(
+            r"цена\s+с\s+картой\s+яндекс\s+пэй",context,re.I) else "")
         proposal = {
             "url":url, "title":title.strip()[:240],
             "price":price, "context":context[:1100],
-            "delivery_hint":delivery,
+            "delivery_hint":delivery, "price_condition":pay_condition,
             "image_url":_image(_snippet(anchor) or card,origin),
             "source":"public_ssr"
         }
