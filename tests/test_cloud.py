@@ -25,3 +25,8 @@ def test_remote_render_domain_enables_secure_cookies():
     p=subprocess.run([sys.executable,'-c',script],env=env,capture_output=True,text=True,timeout=20)
     assert p.returncode == 0, p.stderr
     assert 'https://example-market-radar.onrender.com True' in p.stdout
+
+def test_wb_browser_challenge_is_not_an_empty_catalogue():
+    from server.core import BLOCK_WORDS
+    assert "проверяем браузер" in BLOCK_WORDS
+    assert any(word in "Проверяем браузер".lower() for word in BLOCK_WORDS)
