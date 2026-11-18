@@ -81,7 +81,20 @@ jobs:
                     ))
                     result["href_count"]=len(hrefs)
                     result["candidate_product_link_count"]=len(candidates)
-                    result["candidate_links"]=candidates[:10]
+                    # Avoid long tracking tokens: expose only canonical public paths.
+                    result["candidate_links"]=[urllib.parse.urlparse(
+                      urllib.parse.urljoin("https://market.yandex.ru",item)).path
+                      for item in candidates[:10]]
+                    result["product_anchor_samples"]=[]
+                    for idx,link in enumerate(candidates[:3]):
+                      stem=urllib.parse.urlparse(link).path.split("/")[-1]
+                      anchor=re.search(r'<a\b[^>]*href="[^"]*'+re.escape(stem)+r'[^"]*"',content,re.I)
+                      if anchor:
+                        near=html.unescape(content[max(0,anchor.start()-700):anchor.end()+1200])
+                        near=re.sub(r'\b(?:do-waremd5|cpc|show-uid|showUid|cc)=[^&"\\s]+','token=omitted',near)
+                        result["product_anchor_samples"].append(near[:1000])
+                      else:
+                        result["product_anchor_samples"].append("no anchor for "+stem)
                     for link in candidates[:3]:
                       index=content.find(link)
                       result["product_context_"+str(candidates.index(link))]=(
