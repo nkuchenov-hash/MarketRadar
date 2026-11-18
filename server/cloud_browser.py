@@ -224,7 +224,7 @@ _DOM_SNAPSHOT = r"""() => {
 
 class CloudBrowser:
     """Limited parallel Chromium workers, full listing scans and evidence ledger."""
-    _slots = asyncio.Semaphore(2)
+    _slots = asyncio.Semaphore(max(1, min(int(os.getenv("CLOUD_BROWSER_PARALLEL","2")), 3)))
 
     def __init__(self):
         self.playwright = self.browser = self.context = None
