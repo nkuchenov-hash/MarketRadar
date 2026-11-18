@@ -57,6 +57,7 @@ final class ParallelScanCoordinator {
         int generation;
         boolean finished;
         long startedAt;
+        long lastStatusAt;
         String lastStatus="";
 
         Worker(WebView view){
@@ -66,6 +67,7 @@ final class ParallelScanCoordinator {
         @Override public void status(Shop market,String text){
             if(isCurrent(this)){
                 lastStatus=text;
+                lastStatusAt=android.os.SystemClock.elapsedRealtime();
                 listener.status(market,text);
             }
         }
@@ -120,6 +122,51 @@ final class ParallelScanCoordinator {
     boolean isRunning(){return running;}
     boolean wasTimeLimited(){return wasTimeLimited;}
     boolean coverageIncomplete(){return coverageIncomplete;}
+    String progressSummary(){
+        if(!running)return "Поиск завершён";
+        int active=0;
+        long oldestActivity=0;
+        long now=android.os.SystemClock.elapsedRealtime();
+        String market="";
+        for(Worker worker:workers){
+            if(isCurrent(worker)){
+                active++;
+                long when=worker.lastStatusAt>0?worker.lastStatusAt:worker.startedAt;
+                oldestActivity=Math.max(oldestActivity,now-when);
+                if(market.isEmpty()&&worker.shop!=null)market=worker.shop.name;
+            }
+        }
+        if(active==0&&nextMarketIndex<workersInSearch)return "Подключаем магазины…";
+        String text="Проверено площадок: "+completed+"/"+workersInSearch;
+        if(!market.isEmpty())text+=" · "+market;
+        if(oldestActivity>45000)text+=" · ожидание ответа";
+        return text;
+    }
+    String detailedProgress(){
+        StringBuilder report=new StringBuilder();
+        long now=android.os.SystemClock.elapsedRealtime();
+        report.append("Площадки: завершено ").append(completed)
+            .append(" из ").append(workersInSearch).append('\n');
+        for(Shop shop:pendingMarkets){
+            Worker found=null;
+            for(Worker worker:workers){
+                if(worker.shop==shop){found=worker;break;}
+            }
+            report.append(shop.name).append(": ");
+            if(found==null)report.append("ожидает очереди");
+            else{
+                report.append(found.finished?"завершён":"в работе");
+                if(!found.lastStatus.isEmpty())
+                    report.append(" · ").append(found.lastStatus);
+                report.append(" · последнее обновление ")
+                    .append(Math.max(0,(now-(found.lastStatusAt>0?
+                        found.lastStatusAt:found.startedAt))/1000))
+                    .append(" с назад");
+            }
+            report.append('\n');
+        }
+        return report.toString();
+    }
     void start(String query,int maxCards,List<Shop> markets){
         start(query,maxCards,markets,DeliveryPolicy.standard());
     }
@@ -160,6 +207,7 @@ final class ParallelScanCoordinator {
         worker.finished=false;
         worker.lastStatus="";
         worker.startedAt=android.os.SystemClock.elapsedRealtime();
+        worker.lastStatusAt=worker.startedAt;
         worker.scan.setPriceFrontier(frontier);
         worker.scan.start(activeQuery,Integer.MAX_VALUE,
             java.util.Collections.singletonList(worker.shop));
