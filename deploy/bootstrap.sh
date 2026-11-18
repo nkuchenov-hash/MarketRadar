@@ -112,6 +112,29 @@ else
     printf 'Check ports 80/443, DNS, and Caddy logs: docker compose --env-file .env.production -f deploy/compose.vps.yml logs caddy\n' >&2
 fi
 
+if [[ -d /run/systemd/system ]] && command -v systemctl >/dev/null 2>&1; then
+    notice "Scheduling daily SQLite backups on the VPS."
+    cat > /etc/systemd/system/marketradar-backup.service <<EOF
+[Unit]
+Description=MarketRadar daily database backup
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/env bash /opt/marketradar/deploy/backup.sh
+EOF
+    cat > /etc/systemd/system/marketradar-backup.timer <<EOF
+[Unit]
+Description=Daily MarketRadar database backup
+[Timer]
+OnCalendar=*-*-* 04:00:00
+Persistent=true
+RandomizedDelaySec=15min
+[Install]
+WantedBy=timers.target
+EOF
+    systemctl daemon-reload
+    systemctl enable --now marketradar-backup.timer
+fi
+
 printf '\n======== MarketRadar server setup ========\n'
 printf 'Public HTTPS address: https://%s\n' "$DOMAIN"
 printf 'Android Settings -> Облачный браузер -> Адрес сервера: https://%s\n' "$DOMAIN"
