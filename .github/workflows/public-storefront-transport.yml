@@ -74,6 +74,19 @@ jobs:
                     result["ruble_unicode_escapes"]=content.count("u20bd")
                     result["escaped_product_path_mentions"]=unescaped.count("/product/")
                     result["escaped_offer_path_mentions"]=unescaped.count("/offer/")
+                    hrefs=[html.unescape(match.group(2)) for match in
+                      re.finditer(r'<a\\b[^>]*\\bhref=(["\\x27])([^"\\x27]+)\\1',content,re.I)]
+                    candidates=list(dict.fromkeys(href for href in hrefs
+                      if re.search(r'/(?:product|card|offer)/|/product--',href,re.I)
+                    ))
+                    result["href_count"]=len(hrefs)
+                    result["candidate_product_link_count"]=len(candidates)
+                    result["candidate_links"]=candidates[:10]
+                    for link in candidates[:3]:
+                      index=content.find(link)
+                      result["product_context_"+str(candidates.index(link))]=(
+                        html.unescape(content[max(0,index-200):index+350])
+                        if index>=0 else "")
                     result["product_link_examples"]=list(dict.fromkeys(
                       re.findall(r"href=['\"]([^'\"]{0,300}(?:product|offer|card)[^'\"]*)",unescaped,re.I)
                     ))[:6]
