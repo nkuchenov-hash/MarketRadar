@@ -326,6 +326,12 @@ public class CoreTest {
         assertEquals(4,DynamicPriceFrontier.nextUnpruned(candidates,3,frontier));
     }
 
+    @Test public void browserVerificationCannotBeReportedAsNoProducts(){
+        assertTrue(ScanEngine.browserCheckPage("...","Проверяем браузер"));
+        assertTrue(ScanEngine.browserCheckPage("...",""));
+        assertTrue(ScanEngine.browserCheckPage("Store","Checking your browser"));
+        assertFalse(ScanEngine.browserCheckPage("Wildberries","Яндекс Станция Мини 3 Про 10 772 ₽"));
+    }
     @Test public void firstExactPriceIsCheckedBeforeWholeListing(){
         assertFalse(ScanEngine.fastCheckReady(1,1,3,false));
         assertFalse(ScanEngine.fastCheckReady(2,1,3,false));
