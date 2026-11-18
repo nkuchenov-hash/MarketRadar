@@ -1,0 +1,79 @@
+name: Backend Docker deployment smoke
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'Dockerfile'
+      - 'requirements.txt'
+      - 'server/**'
+      - 'render.yaml'
+      - 'railway.json'
+      - '.github/workflows/backend-container-smoke.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: marketradar-backend-docker-smoke
+  cancel-in-progress: true
+jobs:
+  docker-health:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build deployable Chromium backend
+        run: docker build -t marketradar-backend:smoke .
+      - name: Launch actual FastAPI container
+        run: |
+          docker run --detach --rm --name marketradar-backend-smoke \
+            --publish 127.0.0.1:18765:10000 \
+            --env PORT=10000 --env CLOUD_BROWSER_ENABLED=true \
+            marketradar-backend:smoke
+          for retry in $(seq 1 55); do
+            if curl -fsS --max-time 4 http://127.0.0.1:18765/health; then
+              echo "FastAPI cloud backend booted"
+              break
+            fi
+            sleep 2
+          done
+          curl -fsS --max-time 10 http://127.0.0.1:18765/health | \
+            python -c 'import json,sys; p=json.load(sys.stdin); assert p["ok"] and p["cloud_available"], p'
+      - name: Verify real Android REST job contract
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json, urllib.request, time
+          base="http://127.0.0.1:18765"
+          payload=json.dumps({"query":"Яндекс Станция Мини 3 Про",
+                              "shops":["ym"]},ensure_ascii=False).encode()
+          request=urllib.request.Request(base+"/api/mobile/browser/start",data=payload,
+                headers={"Content-Type":"application/json"},method="POST")
+          with urllib.request.urlopen(request,timeout=15) as response:
+              assert response.status==202,response.status
+              job=json.load(response)
+          job_id=job["id"]
+          print("Created live browser search job",job_id[:8],"status",job["state"])
+          result=None
+          for _ in range(14):
+              with urllib.request.urlopen(base+"/api/mobile/browser/jobs/"+job_id,timeout=10) as r:
+                  result=json.load(r)
+              if result["state"]!="running":break
+              time.sleep(2)
+          assert isinstance(result["markets"].get("ym"),dict),result
+          assert isinstance(result["offers"],list),result
+          print("Cloud API job contract",json.dumps({
+              "state":result["state"],
+              "market_state":result["markets"]["ym"]["state"],
+              "candidate_count":result["markets"]["ym"]["candidates"],
+              "offer_count":len(result["offers"])},ensure_ascii=False))
+          if result["state"]=="running":
+              urllib.request.urlopen(urllib.request.Request(
+                  base+"/api/mobile/browser/jobs/"+job_id,method="DELETE"),timeout=10)
+          # This is deployment/API smoke only. Market access is a separate
+          # live acceptance gate and can still be HTTP 403/498 in GitHub CI.
+          PY
+      - name: Show logs and stop server
+        if: always()
+        run: |
+          docker logs --tail=100 marketradar-backend-smoke || true
+          docker stop marketradar-backend-smoke || true
