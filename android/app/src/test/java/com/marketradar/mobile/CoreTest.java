@@ -5,25 +5,33 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 public class CoreTest {
-    @Test public void yandex11687AuditDistinguishesUnparsedAndRejectedCards()
-            throws Exception {
+    @Test public void auditFollowsChangingPricesForAnyProduct() throws Exception {
         SearchEvidenceAudit audit=new SearchEvidenceAudit();
-        audit.observeDomPrices(new JSONArray().put(9757).put(11687).put(12447));
-        assertTrue(audit.probePrice(11687).contains("в тексте выдачи есть"));
-        assertTrue(audit.probePrice(11687).contains("карточкам 0"));
-        String url="https://market.yandex.ru/card/yandex-stantsiya-mini-3-pro/4620658531?track=private";
-        JSONArray data=new JSONArray().put(new org.json.JSONObject()
-            .put("url",url)
-            .put("title","Умная колонка Яндекс Станция Мини 3 Про")
-            .put("context","11 687 ₽ Пэй\n21 ноября\nУмная колонка Яндекс Станция Мини 3 Про")
-            .put("deliveryHint","21 ноября")
-            .put("imageAlt","Яндекс Станция Мини 3 Про"));
-        audit.observe(data,Shop.byId("ym"),"Яндекс Станция Мини 3 Про");
-        assertTrue(audit.probePrice(11687).contains("карточкам 1"));
-        assertTrue(audit.probePrice(11687).contains("отобрано для проверки 1"));
-        audit.stage(url,"отклонена ИИ");
-        assertTrue(audit.probePrice(11687).contains("отклонена ИИ"));
+        // Values are test fixtures; production has no amount or model constant.
+        audit.observeDomPrices(new JSONArray().put(10880).put(12620));
+        String first="https://market.yandex.ru/card/phone/4620658531?track=private";
+        JSONArray firstCard=new JSONArray().put(new org.json.JSONObject()
+            .put("url",first)
+            .put("title","Смартфон Samsung Galaxy A56 256 ГБ")
+            .put("context","12 620 ₽\n21 ноября")
+            .put("deliveryHint","21 ноября"));
+        audit.observe(firstCard,Shop.byId("ym"),"Samsung Galaxy A56 256 ГБ");
+        assertTrue(audit.unmatchedLowPrices().contains("10 880 ₽"));
+        assertTrue(audit.summary().contains("12 620 ₽"));
         assertFalse(audit.summary().contains("track=private"));
+
+        // A later scroll reveals the initially unlinked lower price.
+        String second="https://market.yandex.ru/card/phone/4620658532";
+        JSONArray cheaper=new JSONArray().put(new org.json.JSONObject()
+            .put("url",second)
+            .put("title","Смартфон Samsung Galaxy A56 256 ГБ")
+            .put("context","10 880 ₽\n21 ноября")
+            .put("deliveryHint","21 ноября"));
+        audit.observe(cheaper,Shop.byId("ym"),"Samsung Galaxy A56 256 ГБ");
+        audit.stage(second,"отклонена ИИ");
+        assertEquals("Нет непривязанных ценников дешевле найденных кандидатов",
+            audit.unmatchedLowPrices());
+        assertTrue(audit.summary().contains("отклонена ИИ"));
     }
 
     @Test public void exactMiniThreeProRejectsOtherModels() {
