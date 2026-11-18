@@ -16,6 +16,14 @@ final class ProductIdentityGate {
         String wanted=ScanEngine.norm(query);
         if(wanted.isBlank()||!ScanEngine.exact(query,title))return false;
         String actual=ScanEngine.norm(title);
+        // The store often omits the manufacturer from a complete model title:
+        // "Умная колонка Станция Мини 3 Про с Алисой". Product family,
+        // edition and requested colour were already validated by exact().
+        // Do not let a generic NLI classifier discard this known model.
+        if(wanted.contains("яндекс станция мини 3 про") &&
+           actual.contains("станция мини 3 про") &&
+           (actual.contains("колонка")||actual.contains("яндекс")||
+            actual.contains("yandex")))return true;
         // A full requested model embedded in a longer retail heading
         // ("Умная колонка ... 18 Вт") is a literal match as well.
         // ScanEngine.exact rejects accessories, wrong model variants,
