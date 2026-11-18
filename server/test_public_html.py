@@ -1,6 +1,8 @@
 """Realistic HTML card extraction tests: no nearest-price leakage."""
 import unittest
-from server.public_html import extract_public_html
+from unittest.mock import patch
+from urllib.parse import urlparse,parse_qs
+from server.public_html import extract_public_html,fetch_public_search_html
 
 class SSRExtractionTests(unittest.TestCase):
     ORIGIN = "https://market.yandex.ru/search?text=phone"
@@ -54,6 +56,36 @@ class SSRExtractionTests(unittest.TestCase):
         r=extract_public_html(html,self.ORIGIN)
         self.assertEqual(1,r["unique_products"])
         self.assertIn("Яндекс Станция Мини 3 Про",r["links"][0]["title"])
+
+    def test_ssr_pagination_preserves_distinct_cards(self):
+        def page_html(n,amount):
+            return (f'<article><a href="/card/phone/{n}">'
+                    f'Phone Product {n}</a><div>{amount} ₽</div></article>')
+        html_pages={
+            1:page_html(12345678,"11 900"),
+            2:page_html(12345678,"11 900")+page_html(12345679,"12 500"),
+            3:page_html(12345680,"13 400"),
+        }
+        class FakeResponse:
+            status=200
+            headers={"Content-Type":"text/html; charset=utf-8"}
+            url="https://market.yandex.ru/search?text=phone"
+            def __init__(self,value):self.value=value
+            def read(self,size):return self.value.encode()
+            def __enter__(self):return self
+            def __exit__(self,*args):pass
+        def fake_fetch(request,timeout):
+            page=int(parse_qs(urlparse(request.full_url).query).get("page",["1"])[0])
+            return FakeResponse(html_pages.get(page,"<html></html>"))
+        with patch("urllib.request.urlopen",side_effect=fake_fetch):
+            with patch.dict("os.environ",{"CLOUD_SSR_PAGES":"6"}):
+                r=fetch_public_search_html(self.ORIGIN)
+        self.assertEqual("ok",r["state"])
+        self.assertEqual(3,len(r["links"]))
+        self.assertEqual([11900,12500,13400],
+                         sorted(p["price"] for p in r["links"]))
+        self.assertEqual([1,2,3],r["audit"]["pages_visited"])
+        self.assertFalse(r["coverage_complete"])
 
     def test_shared_price_is_never_attributed_to_each_product(self):
         html = """
