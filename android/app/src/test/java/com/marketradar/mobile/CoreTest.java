@@ -19,12 +19,12 @@ public class CoreTest {
         Shop wb=Shop.byId("wb"),ym=Shop.byId("ym");
         assertTrue(ScanEngine.mustCompleteListingAfterQuickPass(wb,true,false,1));
         assertTrue(ScanEngine.mustCompleteListingAfterQuickPass(ym,true,false,1));
-        assertFalse(ScanEngine.mustCompleteListingAfterQuickPass(
+        assertTrue(ScanEngine.mustCompleteListingAfterQuickPass(
             Shop.byId("ozon"),true,false,1));
         assertFalse(ScanEngine.mustCompleteListingAfterQuickPass(wb,true,true,1));
-        assertTrue(ScanEngine.expandedScanLimitReached(true,80));
-        assertFalse(ScanEngine.expandedScanLimitReached(true,79));
-        assertFalse(ScanEngine.expandedScanLimitReached(false,80));
+        assertTrue(ScanEngine.expandedScanLimitReached(true,400));
+        assertFalse(ScanEngine.expandedScanLimitReached(true,399));
+        assertFalse(ScanEngine.expandedScanLimitReached(false,400));
         String before="Умная колонка Яндекс Станция Мини 3 Про с Алисой Zigbee";
         JSONArray first=new JSONArray().put(new org.json.JSONObject()
             .put("url","https://www.wildberries.ru/catalog/223500000/detail.aspx")
@@ -78,10 +78,10 @@ public class CoreTest {
     @Test public void unverifiedMarketplaceSortingMustNotPruneMoreExpensiveCards(){
         assertFalse(ScanEngine.canPrunePriceCandidate(Shop.byId("wb"),false));
         assertFalse(ScanEngine.canPrunePriceCandidate(Shop.byId("ym"),false));
-        assertTrue(ScanEngine.canPrunePriceCandidate(Shop.byId("wb"),true));
-        assertTrue(ScanEngine.canPrunePriceCandidate(Shop.byId("ym"),true));
-        // Keep Ozon's previously working early-pruning strategy for now.
-        assertTrue(ScanEngine.canPrunePriceCandidate(Shop.byId("ozon"),false));
+        assertFalse(ScanEngine.canPrunePriceCandidate(Shop.byId("wb"),true));
+        assertFalse(ScanEngine.canPrunePriceCandidate(Shop.byId("ym"),true));
+        assertFalse(ScanEngine.canPrunePriceCandidate(Shop.byId("ozon"),false));
+        assertFalse(ScanEngine.canPrunePriceCandidate(Shop.byId("ozon"),true));
     }
 
     @Test public void genericNumericModelMustMatch() {
