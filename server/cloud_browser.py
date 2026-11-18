@@ -253,11 +253,15 @@ class CloudBrowser:
         async def parse_response(response):
             nonlocal network_count
             try:
-                if response.status in (403, 429, 498, 503):
+                resource = response.request.resource_type
+                if response.status in (403, 429, 498, 503) and (
+                    resource == "document" or (market_of(response.url) == market_of(target)
+                    and resource in ("xhr", "fetch") and
+                    any(part in response.url.lower() for part in
+                        ("search", "catalog", "products", "feed")))):
                     blocked_http.append(response.status)
                 if not search or market_of(response.url) != market_of(target):
                     return
-                resource = response.request.resource_type
                 if resource not in ("xhr", "fetch"):
                     return
                 headers = response.headers
@@ -372,8 +376,9 @@ class CloudBrowser:
                 await page.wait_for_timeout(600)
             if network_tasks:
                 await asyncio.wait(network_tasks, timeout=4)
-            blocked = bool(blocked_http) or any(t in page_text.lower() for t in BLOCK_WORDS)
             all_products = list(ledger.values())
+            blocked = ((bool(blocked_http) and not all_products) or
+                any(t in page_text.lower() for t in BLOCK_WORDS))
             all_products.sort(key=lambda c:(c["price"] <= 0,
                                       c["price"] if c["price"] else 10**12,c["url"]))
             links = all_products
