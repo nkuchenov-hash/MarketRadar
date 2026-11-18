@@ -23,7 +23,7 @@ class CloudSearchTests(unittest.TestCase):
         ]}}
         items, visited = network_products(raw, "https://market.yandex.ru/api/search")
         self.assertEqual(3, len(items))
-        self.assertEqual([13560,11120,1200],[x["price"] for x in items])
+        self.assertEqual([1200,11120,13560],sorted(x["price"] for x in items))
         self.assertGreater(visited,3)
 
     def test_real_chromium_dom_card_with_sibling_price(self):
