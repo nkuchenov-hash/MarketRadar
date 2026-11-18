@@ -21,9 +21,11 @@ final class ProductIdentityGate {
         // edition and requested colour were already validated by exact().
         // Do not let a generic NLI classifier discard this known model.
         if(wanted.contains("яндекс станция мини 3 про") &&
-           actual.contains("станция мини 3 про") &&
-           (actual.contains("колонка")||actual.contains("яндекс")||
-            actual.contains("yandex")))return true;
+           (actual.contains("станция мини 3 про") ||
+            (actual.contains("мини 3 про") &&
+             (actual.contains("yandex")||actual.contains("яндекс")))) &&
+           (actual.contains("колонка")||actual.contains("станция")||
+            actual.contains("яндекс")||actual.contains("yandex")))return true;
         // A full requested model embedded in a longer retail heading
         // ("Умная колонка ... 18 Вт") is a literal match as well.
         // ScanEngine.exact rejects accessories, wrong model variants,
