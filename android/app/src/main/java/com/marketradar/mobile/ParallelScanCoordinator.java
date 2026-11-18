@@ -148,7 +148,13 @@ final class ParallelScanCoordinator {
     boolean wasTimeLimited(){return wasTimeLimited;}
     boolean coverageIncomplete(){return coverageIncomplete;}
     String marketBreakdown(String id){
-        return completedBreakdown.getOrDefault(id,"Этапы поиска ещё не завершены");
+        String completedReport=completedBreakdown.get(id);
+        if(completedReport!=null)return completedReport;
+        for(Worker worker:workers)
+            if(worker.shop!=null&&worker.shop.id.equals(id)&&
+                worker.generation==generation)
+                return worker.scan.resultBreakdown();
+        return "Этапы поиска ещё не начались";
     }
     String progressSummary(){
         StringBuilder report=new StringBuilder(running?
