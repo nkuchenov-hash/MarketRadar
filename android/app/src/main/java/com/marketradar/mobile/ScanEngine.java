@@ -388,6 +388,8 @@ final class ScanEngine {
     private int listingSnapshots=0,firstExactSnapshot=-1;
     private int verifiedMarket=0,verifiedTimelyMarket=0;
     private boolean stoppedForFastCheck=false,fullPassFallback=false;
+    private static final int MAX_EXPANDED_LISTING_SNAPSHOTS=80;
+    private final Set<String> inspectedCandidateKeys=new HashSet<>();
     private boolean plainSearchFallbackAttempted=false;
 
     ScanEngine(WebView browser, Handler handler, Listener listener) {
@@ -409,6 +411,17 @@ final class ScanEngine {
                                   int candidateCount,boolean fullFallback){
         return !fullFallback && firstMatchSnapshot>=0 &&
             snapshotCount>=firstMatchSnapshot+2 && candidateCount>0;
+    }
+    static boolean mustCompleteListingAfterQuickPass(
+            Shop shop,boolean stoppedEarly,boolean alreadyExpanded,int timelyVerified){
+        if(!stoppedEarly||alreadyExpanded||shop==null)return false;
+        // WB and Yandex may ignore the URL price sort or display personalized
+        // wallet offers later in the grid. A matching on-time product is NOT
+        // proof that the next screens contain no cheaper one.
+        return timelyVerified==0||shop.id.equals("wb")||shop.id.equals("ym");
+    }
+    static boolean expandedScanLimitReached(boolean expanded,int snapshots){
+        return expanded&&snapshots>=MAX_EXPANDED_LISTING_SNAPSHOTS;
     }
     static boolean settledAtBottom(boolean bottom,long height,long previousHeight,
                                    int count,int previousCount){
@@ -487,7 +500,7 @@ final class ScanEngine {
             return;
         }
         shop=activeMarkets.get(marketIndex++);
-        candidates.clear();seen.clear();
+        candidates.clear();seen.clear();inspectedCandidateKeys.clear();
         cardIndex=0;details=false;checkedMarket=0;expectedUrl="";
         searchSampling=false;searchPool.clear();detailCache.clear();
         stableBottom=0;lastPoolSize=-1;lastHeight=-1;
@@ -819,6 +832,15 @@ final class ScanEngine {
         // the cheapest candidates immediately. A full crawl is the fallback
         // only when those candidates fail or have no eligible delivery.
         // Until a full crawl, never claim that the global minimum is proven.
+        if(expandedScanLimitReached(fullPassFallback,listingSnapshots)){
+            // The marketplace may be infinite-scroll. Fail as incomplete
+            // rather than running indefinitely or claiming the global minimum.
+            coverageIncomplete=true;
+            listener.status(shop,"Расширенный поиск достиг предела прокрутки · "+
+                searchPool.size()+" кандидатов");
+            finishListingCollection();
+            return;
+        }
         if(fastCheckReady(listingSnapshots,firstExactSnapshot,
                           searchPool.size(),fullPassFallback)){
             stoppedForFastCheck=true;
@@ -913,6 +935,9 @@ final class ScanEngine {
         if(details)return;
         candidates.clear();
         candidates.addAll(rankCandidates(searchPool.values(),Integer.MAX_VALUE));
+        // The expanded crawl can change the ascending price order. Starting
+        // at the old cardIndex skipped all newly found CHEAPER candidates.
+        cardIndex=0;
         searchSampling=false;
         if(candidates.isEmpty()){
             if(tryPlainSearchFallback("Пустая выдача"))return;
@@ -1025,8 +1050,8 @@ final class ScanEngine {
         skippedAboveBest+=next-cardIndex;
         cardIndex=next;
         if(cardIndex>=candidates.size()){
-            if(stoppedForFastCheck && !fullPassFallback &&
-               verifiedTimelyMarket==0){
+            if(mustCompleteListingAfterQuickPass(shop,stoppedForFastCheck,
+                fullPassFallback,verifiedTimelyMarket)){
                 // Do not stop after a wrongly identified item or only a
                 // slow-delivery quote: retry with the complete listing.
                 fullPassFallback=true;
@@ -1037,7 +1062,7 @@ final class ScanEngine {
                 lastObservedScrollY=-1;lastObservedScrollHeight=-1;
                 lastObservedPoolCount=-1;stalledScrollChecks=0;
                 listingSnapshots=0;firstExactSnapshot=-1;
-                listener.status(shop,"Быстрая проверка не дала подходящей доставки · расширяем поиск");
+                listener.status(shop,"Проверяем оставшуюся выдачу на более дешёвые товары");
                 load(currentSearchUrl);
                 return;
             }
@@ -1047,7 +1072,14 @@ final class ScanEngine {
                 (skippedAboveBest>0?" · отложено дорогих: "+skippedAboveBest:""));
             nextMarket();return;
         }
-        expectedUrl=candidates.get(cardIndex++).url;
+        Candidate current=candidates.get(cardIndex++);
+        String key=current.url+"\u0001"+current.listingPrice+
+            "\u0001"+current.deliveryHint+"\u0001"+current.priceCondition;
+        if(!inspectedCandidateKeys.add(key)){
+            nextCandidate();
+            return;
+        }
+        expectedUrl=current.url;
         detailHydrationRetries=0;
         retryCount=0;
         JSONObject cached=detailCache.get(expectedUrl);
