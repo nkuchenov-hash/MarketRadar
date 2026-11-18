@@ -53,3 +53,12 @@ assert.ok(choices.includes('Завтра'),JSON.stringify(choices));
 assert.ok(choices.includes('Сегодня с 19:40'),JSON.stringify(choices));
 assert.ok(choices.includes('Завтра, 17 ноября'),JSON.stringify(choices));
 console.log('Delivery button and courier/pickup date tests passed');
+
+// Browser challenges must never be reported as a valid empty product listing.
+for(const challenge of [
+ {documentTitle:'Проверяем браузер',text:''},
+ {title:'Just a moment...',text:'Checking your browser before accessing Wildberries'},
+ {text:'Cloudflare Ray ID: 1234'},
+])assert.equal(run(`blocked(${JSON.stringify(challenge)})`),true,JSON.stringify(challenge));
+assert.equal(run(`blocked({title:'Яндекс Станция Мини 3 Про',text:'Товары и цены'})`),false);
+console.log('Browser challenge classification checks passed');
