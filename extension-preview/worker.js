@@ -175,12 +175,24 @@ async function scan(query,market){
    const compatibleSku=/YNDX[-\s]?00059[A-Z0-9]*/i.test(title)&&/мини\s*3\s*про|mini\s*3\s*pro/i.test(query);
    if(score<72&&!compatibleSku)continue;
    const url=canonical(a.url),prev=candidateByURL.get(url);
-   if(!prev||prev.score<score)candidateByURL.set(url,{url,title:a.title||a.context,score:compatibleSku?90:score});
+   const listingPrices=priceFragments(a.context||'').map(p=>p.price);
+   const listingPrice=listingPrices.length?Math.min(...listingPrices):null;
+   if(!prev)candidateByURL.set(url,{url,title:a.title||a.context,score:compatibleSku?90:score,listingPrice});
+   else{
+    if(score>prev.score){prev.score=score;prev.title=a.title||a.context;}
+    if(listingPrice!==null&&(prev.listingPrice===null||listingPrice<prev.listingPrice))prev.listingPrice=listingPrice;
+   }
   }
   if(candidateByURL.size>=15)break;
  }
  if(searchPages===0)return {state:'blocked',offers:[],diagnostic:'Магазин не открыл поисковую выдачу. Проверьте сайт в обычной вкладке.'};
- const candidates=[...candidateByURL.values()].sort((a,b)=>b.score-a.score).slice(0,13);
+ // Listing cards can expose a payable price before their product page opens.
+// Visit the lowest observed listing price first; an unknown price is never
+// interpreted as expensive and is still eligible for inspection.
+ const candidates=[...candidateByURL.values()].sort((a,b)=>{
+  const ap=a.listingPrice??Infinity,bp=b.listingPrice??Infinity;
+  return ap-bp||b.score-a.score;
+ }).slice(0,25);
  if(!candidates.length)return {state:'no_matches',offers:[],diagnostic:'Не обнаружены карточки точной модели в просмотренных результатах. Полнота поиска не подтверждена.'};
  let blockedCount=0,readCount=0,wrongModel=0;
  for(const c of candidates){
