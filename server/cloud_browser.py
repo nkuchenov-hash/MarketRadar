@@ -369,6 +369,12 @@ class CloudBrowser:
         page.on("response", on_response)
         try:
             response = await page.goto(target, wait_until="domcontentloaded", timeout=35000)
+            if (search and market_of(target) == "Яндекс Маркет" and response
+                    and response.status in (403,429,498,503)):
+                from .public_html import fetch_public_search_html
+                fallback = await asyncio.to_thread(fetch_public_search_html,target)
+                if fallback:
+                    return fallback
             await page.wait_for_timeout(1800)
             if not host_allowed(page.url) or market_of(page.url) != market_of(url):
                 return {"state": "error", "url": url, "title": "", "text": "",
@@ -463,6 +469,11 @@ class CloudBrowser:
             all_products = list(ledger.values())
             blocked = ((bool(blocked_http) and not all_products) or
                 any(t in page_text.lower() for t in BLOCK_WORDS))
+            if blocked and search and market_of(target) == "Яндекс Маркет":
+                from .public_html import fetch_public_search_html
+                fallback = await asyncio.to_thread(fetch_public_search_html,target)
+                if fallback:
+                    return fallback
             all_products.sort(key=lambda c:(c["price"] <= 0,
                                       c["price"] if c["price"] else 10**12,c["url"]))
             links = all_products
