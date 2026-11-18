@@ -117,6 +117,56 @@ def _image(node: _Node, origin: str) -> str:
     return ""
 
 
+def fetch_public_search_html(url: str) -> dict:
+    """Normal public HTTPS transport, used if Chromium is denied.
+
+    No accounts, credentials, CAPTCHA solving, or proxy. Preserve every
+    visible search-card URL and mark the page as a partial snapshot.
+    """
+    import urllib.request
+    from .core import host_allowed
+    if not host_allowed(url):
+        raise ValueError("Storefront URL required")
+    request = urllib.request.Request(url, headers={
+        "User-Agent":("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                      "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"),
+        "Accept":"text/html,application/xhtml+xml;q=0.9,*/*;q=0.8",
+        "Accept-Language":"ru-RU,ru;q=0.9"
+    })
+    try:
+        with urllib.request.urlopen(request,timeout=18) as response:
+            if response.status != 200 or not host_allowed(response.url):
+                return {}
+            if "text/html" not in response.headers.get("Content-Type","").lower():
+                return {}
+            raw = response.read(8_000_001)
+            if len(raw) > 8_000_000:
+                return {}
+            parsed = extract_public_html(raw.decode("utf-8","replace"),response.url)
+            if not parsed["links"]:
+                return {}
+            return {
+                "state":"ok", "url":response.url,
+                "title":"Публичная выдача",
+                "links":parsed["links"],
+                "price_fragments":parsed["price_fragments"],
+                "text":"Публичная поисковая выдача магазина",
+                "coverage_complete":False,
+                "diagnostic":"HTML-выдача: список товаров, охват неполный",
+                "audit":{
+                    "source":"public_html","http_status":200,
+                    "raw_seen":parsed["observed_product_anchors"],
+                    "unique_products":parsed["unique_products"],
+                    "priced_products":sum(x["price"]>0 for x in parsed["links"]),
+                    "dom_snapshots":0,
+                    "sort_requested":True,
+                    "coverage_complete":False,
+                }
+            }
+    except (OSError,ValueError,UnicodeError):
+        return {}
+
+
 def extract_public_html(html: str, origin: str) -> dict:
     """Return unique, auditable product links and locally-associated prices."""
     market = market_of(origin)
