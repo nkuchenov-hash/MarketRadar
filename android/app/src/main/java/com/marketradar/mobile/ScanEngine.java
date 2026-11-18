@@ -135,7 +135,7 @@ final class ScanEngine {
                   .trim().slice(0,300);
               const priceCondition=/(?:с\\s+wb\\s+кошельком|wb\\s+кошелек|wb\\s+wallet)/i
                   .test(context)?'с WB Кошельком':
-                  /(?:яндекс\\s*п[эе]й|яндекс\\s*pay|\\bpay\\b|\\bп[эе]й\\b)/i.test(context)?
+                  /(?:яндекс\\s*п[эе]й|яндекс\\s*pay|\\bpay\\b|(?:^|[^а-яё])п[эе]й(?=$|[^а-яё]))/i.test(context)?
                   'с Яндекс Пэй':'';
               const rawImage=img?.currentSrc||img?.getAttribute('data-src')||
                    img?.getAttribute('data-original')||img?.src||'';
@@ -1290,7 +1290,7 @@ final class ScanEngine {
             "(?iu)(?:с\\s*wb\\s*кошельком|wb\\s*кошелек|wb\\s*wallet)")
             .matcher(both).find()?"с WB Кошельком":"";
         if(shop.id.equals("ym"))return java.util.regex.Pattern.compile(
-            "(?iu)(?:яндекс\\s*п[эе]й|яндекс\\s*pay|\\bpay\\b|\\bп[эе]й\\b)")
+            "(?iu)(?:яндекс\\s*п[эе]й|яндекс\\s*pay|\\bpay\\b|(?<!\\p{L})п[эе]й(?!\\p{L}))")
             .matcher(both).find()?"с Яндекс Пэй":"";
         return "";
     }
