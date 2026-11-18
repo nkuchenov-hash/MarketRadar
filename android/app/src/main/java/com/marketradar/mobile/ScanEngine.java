@@ -866,7 +866,10 @@ final class ScanEngine {
                 currentSearchUrl=shop.searchBase+
                     java.net.URLEncoder.encode(query,java.nio.charset.StandardCharsets.UTF_8);
                 searchPool.clear();seen.clear();visitedSearchPages.clear();
-                stableBottom=0;lastPoolSize=-1;lastHeight=-1;
+                visitedSearchPages.add(currentSearchUrl);
+                stableBottom=0;lastPoolSize=-1;lastHeight=-1;loadMoreAttempts=0;
+                lastObservedScrollY=-1;lastObservedScrollHeight=-1;
+                lastObservedPoolCount=-1;stalledScrollChecks=0;
                 hydrationRetries=0;retryCount=0;
                 searchSampling=false;listingSnapshots=0;firstExactSnapshot=-1;
                 listener.status(shop,"Повторный поиск Ozon в обычном режиме");
