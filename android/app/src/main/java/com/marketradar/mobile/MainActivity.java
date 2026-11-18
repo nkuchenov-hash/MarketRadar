@@ -91,7 +91,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
     private ParallelScanCoordinator engine;
     private EditText queryInput;
     private Button searchButton;
-    private EditText deliveryDaysInput, discountPercentInput, cloudUrlInput;
+    private EditText deliveryDaysInput, discountPercentInput, cloudUrlInput, cloudAccessInput;
     private CheckBox allowLateDiscount;
     private DeliveryPolicy deliveryPolicy=DeliveryPolicy.standard();
     private TextView progress, count, loginCaption;
@@ -387,7 +387,20 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         cloudUrlInput.setHint("https://адрес-твоего-сервера");
         cloudUrlInput.setText(prefs.getString("cloud_browser_url",""));
         add(cloudPanel,cloudUrlInput,-1,52);
-        add(cloudPanel,text("Пока сервер не указан, доступен прежний поиск на телефоне. Вход в аккаунты маркетплейсов для облачного поиска не требуется.",12,MUTED,false),-1,-2);
+        gap(cloudPanel,8);
+        cloudAccessInput=new EditText(this);
+        cloudAccessInput.setSingleLine(true);
+        cloudAccessInput.setTextSize(14);
+        cloudAccessInput.setTextColor(TEXT);
+        cloudAccessInput.setHintTextColor(MUTED);
+        cloudAccessInput.setInputType(android.text.InputType.TYPE_CLASS_TEXT|
+            android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        cloudAccessInput.setBackground(bg(SURFACE,13,BORDER));
+        cloudAccessInput.setPadding(dp(13),0,dp(13),0);
+        cloudAccessInput.setHint("Код доступа к серверу");
+        cloudAccessInput.setText(prefs.getString("cloud_access_key",""));
+        add(cloudPanel,cloudAccessInput,-1,52);
+        add(cloudPanel,text("Код выдаётся при первом запуске сервера. Он защищает поиск от чужих запросов. Без адреса сервера работает прежний поиск на телефоне.",12,MUTED,false),-1,-2);
         add(settingsPage,cloudPanel,-1,-2);
         gap(settingsPage,20);
 
@@ -559,6 +572,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         String cloudBase=cloudRaw.isEmpty()?"":CloudSearchClient.validBase(cloudRaw);
         prefs.edit()
             .putString("cloud_browser_url",cloudBase)
+            .putString("cloud_access_key",cloudAccessInput==null?"":cloudAccessInput.getText().toString().trim())
             .putInt("delivery_days",days)
             .putInt("late_discount_percent",discount)
             .putBoolean("delivery_late_discount",allowSlow)
