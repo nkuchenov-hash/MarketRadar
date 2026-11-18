@@ -955,8 +955,7 @@ final class ScanEngine {
         if(running&&!details&&searchPool.isEmpty()&&
            !plainSearchFallbackAttempted&&shop!=null&&
            (shop.id.equals("ozon")||shop.id.equals("ym"))){
-            String plain=shop.searchBase+
-                java.net.URLEncoder.encode(query,java.nio.charset.StandardCharsets.UTF_8);
+            String plain=shop.plainSearchUrl(query);
             if(plain.equals(currentSearchUrl))return false;
             plainSearchFallbackAttempted=true;
             currentSearchUrl=plain;
@@ -1117,7 +1116,26 @@ final class ScanEngine {
                 lastObservedScrollY=-1;lastObservedScrollHeight=-1;
                 lastObservedPoolCount=-1;stalledScrollChecks=0;
                 listingSnapshots=0;firstExactSnapshot=-1;
-                listener.status(shop,"Проверяем оставшуюся выдачу на более дешёвые товары");
+                if(shop.id.equals("ym")&&!plainSearchFallbackAttempted){
+                    // A sort-by-price search can hide relevant discounted
+                    // Yandex Pay offers that are visible in ordinary results.
+                    // Merge the original quick-pass candidates with a FULL
+                    // natural-relevance pass instead of scanning only one
+                    // ranking a second time.
+                    String plain=shop.plainSearchUrl(query);
+                    if(!plain.equals(currentSearchUrl)){
+                        currentSearchUrl=plain;
+                        visitedSearchPages.clear();
+                        visitedSearchPages.add(plain);
+                        sortEvidence.reset();
+                        hydrationRetries=0;
+                        browserCheckRetries=0;
+                        listener.status(shop,
+                            "Сравниваем с обычной выдачей Яндекс Маркета");
+                    }
+                }else{
+                    listener.status(shop,"Проверяем оставшуюся выдачу на более дешёвые товары");
+                }
                 load(currentSearchUrl);
                 return;
             }
