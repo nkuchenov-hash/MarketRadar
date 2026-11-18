@@ -46,7 +46,9 @@ def model_match(query:str, title:str)->bool:
     """Hard block obvious different models. AI must also mark an exact match."""
     q,t=normalize(query),normalize(title)
     forbidden=('чехол','защитное стекло','подставка','кронштейн','модуль','кабель',
-               'адаптер','наклейка','пульт','держатель','аксессуар')
+               'адаптер','наклейка','пульт','держатель','аксессуар',
+               'зарядное устройство','блок питания','сменный корпус','сумка для',
+               'совместим с','совместимый с')
     if any(w in t for w in forbidden) and not any(w in q for w in forbidden):return False
     if 'мини 3 про' in q or 'mini 3 pro' in q or 'yndx 00059' in q:
         return bool(re.search(r'(?:мини|mini)\s*3\s*(?:про|pro)\b', t) or
