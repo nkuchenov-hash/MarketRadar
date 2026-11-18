@@ -1,0 +1,14 @@
+# HTTPS + automatic certificate renewal for the configured public hostname.
+# Prevent accidental exposure of the web admin, billing and extension endpoints.
+{$MARKETRADAR_DOMAIN} {
+    encode gzip
+
+    @mobile path /health /api/mobile/browser/*
+    handle @mobile {
+        reverse_proxy backend:10000
+    }
+
+    handle {
+        respond "Not Found" 404
+    }
+}
