@@ -4,6 +4,16 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.graphics.Color;
 import android.graphics.Typeface;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.widget.ImageView;
+import android.util.LruCache;
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.content.res.Configuration;
@@ -78,6 +88,10 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
     private boolean aiChecking=false;
     private int aiGeneration=0;
     private String activeQuery="";
+    private static final ExecutorService PHOTO_POOL=Executors.newFixedThreadPool(3);
+    private static final LruCache<String,Bitmap> PHOTO_CACHE=new LruCache<String,Bitmap>(24*1024*1024){
+        @Override protected int sizeOf(String url,Bitmap bitmap){return bitmap.getByteCount();}
+    };
 
     private Shop currentShop;
     private ScanEngine.Offer inspectedOffer;
@@ -280,9 +294,8 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         add(summaryPanel,bestPrice,-1,47);
         priceSummary=text("",12,MUTED,false);
         priceSummary.setVisibility(View.GONE);
-        gap(summaryPanel,8);
+        add(summaryPanel,priceSummary,-1,-2);
         marketProgress=text("",14,TEXT,false);
-        add(summaryPanel,marketProgress,-1,-2);
         add(page,summaryPanel,-1,-2);
         gap(page,12);
 
@@ -768,77 +781,25 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         return deliveryPolicy.eligible(o.price,o.deliveryHint,timelyBest);
     }
     private void updateSummary(){
-        int timelyBest=bestTimelyPrice();
         ScanEngine.Offer cheapest=null;
-        int bestEligible=Integer.MAX_VALUE;
         for(ScanEngine.Offer o:offers){
-            if(o.price<=0)continue;
-            if(cheapest==null||o.price<cheapest.price)cheapest=o;
-            if(qualifies(o,timelyBest))bestEligible=Math.min(bestEligible,o.price);
+            if(o.price>0&&(cheapest==null||o.price<cheapest.price))cheapest=o;
         }
-        bestPrice.setText(cheapest==null?"Пока нет найденных цен":rubles(cheapest.price));
-        bestPrice.setTextSize(cheapest==null?16:31);
-        StringBuilder priceDetails=new StringBuilder();
-        priceDetails.append("С доставкой до ").append(deliveryPolicy.maxDays)
-            .append(" дн.: ").append(bestEligible==Integer.MAX_VALUE?
-                "пока не найдена":rubles(bestEligible));
-        if(cheapest!=null){
-            priceDetails.append("\nСамое дешёвое: ").append(cheapest.shop.name);
-            if(!cheapest.priceCondition.isBlank())
-                priceDetails.append(" · ").append(cheapest.priceCondition);
-            int deliveryDays=deliveryPolicy.days(cheapest.deliveryHint);
-            if(deliveryDays<0)priceDetails.append(" · срок доставки неизвестен");
-            else if(deliveryDays>deliveryPolicy.maxDays)
-                priceDetails.append(" · доставка позже выбранного срока");
-            else priceDetails.append(" · доставка из выдачи: ")
-                .append(cheapest.deliveryHint);
-            priceDetails.append(" · цена без проверки корзины");
+        bestPriceLabel.setText("Лучшая найденная цена");
+        bestPrice.setText(cheapest==null?"Ищем…":rubles(cheapest.price));
+        bestPrice.setTextSize(cheapest==null?21:31);
+        if(cheapest==null){
+            priceSummary.setText("");
+            priceSummary.setVisibility(View.GONE);
+        }else{
+            String delivery=cheapest.deliveryHint.isBlank()?
+                "доставка уточняется":"доставка "+cheapest.deliveryHint;
+            String wallet=cheapest.priceCondition.isBlank()?"":
+                " · "+cheapest.priceCondition;
+            priceSummary.setText(cheapest.shop.name+" · "+delivery+wallet);
+            priceSummary.setVisibility(View.VISIBLE);
         }
-        priceSummary.setText(priceDetails.toString());
-        priceSummary.setVisibility(View.VISIBLE);
-        StringBuilder states=new StringBuilder();
-        for(Shop shop:lastSelectedMarkets){
-            ScanEngine.Offer shopCheapest=null;
-            int shopTimely=Integer.MAX_VALUE;
-            for(ScanEngine.Offer o:offers)if(o.shop.id.equals(shop.id)&&o.price>0){
-                if(shopCheapest==null||o.price<shopCheapest.price)shopCheapest=o;
-                if(qualifies(o,timelyBest))
-                    shopTimely=Math.min(shopTimely,o.price);
-            }
-            if(states.length()>0)states.append("\n");
-            states.append(shop.name).append("   ");
-            if(shopCheapest!=null){
-                states.append(rubles(shopCheapest.price));
-                if(!shopCheapest.priceCondition.isBlank())
-                    states.append(" ").append(shopCheapest.priceCondition);
-                if(shopTimely==Integer.MAX_VALUE)
-                    states.append(" · подходящая доставка не подтверждена");
-                else if(shopTimely>shopCheapest.price)
-                    states.append(" · до ").append(deliveryPolicy.maxDays)
-                        .append(" дн.: ").append(rubles(shopTimely));
-            }else{
-                String detail=marketStates.get(shop.id);
-                if(detail==null)states.append("не проверен");
-                else if(detail.contains("Нет прогресса")||
-                        detail.contains("не ответила")||
-                        detail.contains("Ошибка загрузки"))
-                    states.append("поиск прерван: нет ответа");
-                else if(detail.contains("ограничил доступ")||
-                        detail.contains("ограничил браузерную выдачу")||
-                        detail.contains("не выдал карточки")||
-                        detail.contains("проверка браузера не завершилась")||
-                        detail.contains("Переадресация"))
-                    states.append("браузерный доступ ограничен · цены не проверены");
-                else if(detail.contains("проверяет браузер"))
-                    states.append("ожидаем проверку браузера");
-                else if(detail.contains("прокрутить полностью"))
-                    states.append("выдача не загрузилась полностью");
-                else if(detail.contains("отложено дорогих"))
-                    states.append("нет подтверждённой цены · см. отчёт");
-                else states.append("нет подтверждённых предложений");
-            }
-        }
-        marketProgress.setText(states.toString());
+        // Diagnostic states are retained only in the saved search report.
         resultsHeading.setVisibility(offers.isEmpty()?View.GONE:View.VISIBLE);
         count.setVisibility(View.GONE);
     }
@@ -881,57 +842,121 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         }
         prefs.edit().putString("last_search_diagnostics",report.toString()).apply();
     }
+    private String compactTitle(String original){
+        String clean=(original==null?"":original).replaceAll(
+            "(?iu)\\s+(?:купить\\s+за|в\\s+интернет-магазине|заказать\\s+за)\\b.*$","");
+        clean=clean.replaceAll("(?iu)\\s+\\d[\\d\\s]*\\s*₽.*$","").trim();
+        return clean.isEmpty()?"Товар":clean;
+    }
+    private Bitmap downloadPhoto(String source){
+        try{
+            URL url=new URL(source);
+            if(!"https".equalsIgnoreCase(url.getProtocol()))return null;
+            for(int redirect=0;redirect<3;redirect++){
+                HttpURLConnection connection=(HttpURLConnection)url.openConnection();
+                connection.setConnectTimeout(5000);
+                connection.setReadTimeout(6000);
+                connection.setInstanceFollowRedirects(false);
+                connection.setRequestProperty("Accept","image/avif,image/webp,image/jpeg,image/png");
+                try{
+                    int code=connection.getResponseCode();
+                    if(code>=300&&code<400){
+                        String location=connection.getHeaderField("Location");
+                        if(location==null)return null;
+                        url=new URL(url,location);
+                        if(!"https".equalsIgnoreCase(url.getProtocol()))return null;
+                        continue;
+                    }
+                    if(code!=200||!connection.getContentType().toLowerCase(Locale.ROOT).startsWith("image/"))
+                        return null;
+                    try(InputStream stream=connection.getInputStream();
+                        ByteArrayOutputStream data=new ByteArrayOutputStream()){
+                        byte[] chunk=new byte[8192];int n;
+                        while((n=stream.read(chunk))!=-1){
+                            if(data.size()+n>3*1024*1024)return null;
+                            data.write(chunk,0,n);
+                        }
+                        byte[] bytes=data.toByteArray();
+                        BitmapFactory.Options options=new BitmapFactory.Options();
+                        options.inJustDecodeBounds=true;
+                        BitmapFactory.decodeByteArray(bytes,0,bytes.length,options);
+                        options.inSampleSize=1;
+                        while(options.outWidth/options.inSampleSize>360||
+                              options.outHeight/options.inSampleSize>360)
+                            options.inSampleSize*=2;
+                        options.inJustDecodeBounds=false;
+                        return BitmapFactory.decodeByteArray(bytes,0,bytes.length,options);
+                    }
+                }finally{connection.disconnect();}
+            }
+        }catch(Exception ignored){}
+        return null;
+    }
+    private View photo(ScanEngine.Offer offer){
+        if(offer.imageUrl.isBlank()){
+            TextView placeholder=text("Нет фото",11,MUTED,false);
+            placeholder.setGravity(Gravity.CENTER);
+            placeholder.setBackground(bg(BG,12,BORDER));
+            return placeholder;
+        }
+        ImageView image=new ImageView(this);
+        image.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        image.setPadding(dp(4),dp(4),dp(4),dp(4));
+        image.setBackground(bg(BG,12,BORDER));
+        String source=offer.imageUrl;
+        image.setTag(source);
+        Bitmap cached=PHOTO_CACHE.get(source);
+        if(cached!=null)image.setImageBitmap(cached);
+        else PHOTO_POOL.execute(()->{
+            Bitmap bitmap=downloadPhoto(source);
+            if(bitmap!=null)PHOTO_CACHE.put(source,bitmap);
+            runOnUiThread(()->{
+                if(!isDestroyed()&&source.equals(image.getTag())&&bitmap!=null)
+                    image.setImageBitmap(bitmap);
+            });
+        });
+        return image;
+    }
     private void renderResults(){
-        final int timelyBest=bestTimelyPrice();
-        // Cheapest always first, even when delivery or payment conditions differ.
         offers.sort(Comparator.comparingInt(
             (ScanEngine.Offer o)->o.price<=0?Integer.MAX_VALUE:o.price));
         results.removeAllViews();
         updateSummary();
-        int displayed=0;
         for(ScanEngine.Offer o:offers){
-            displayed++;
             LinearLayout card=panel();
-            LinearLayout heading=linear(LinearLayout.HORIZONTAL);
-            heading.setGravity(Gravity.CENTER_VERTICAL);
-            TextView shopName=text(o.shop.name,13,ACCENT,true);
-            heading.addView(shopName,new LinearLayout.LayoutParams(0,dp(32),1));
-            TextView price=text(o.price>0?rubles(o.price):"Цена неизвестна",21,TEXT,true);
-            add(heading,price,-2,37);
-            add(card,heading,-1,-2);
-            gap(card,4);
-            TextView title=text(o.title,14,TEXT,false);
-            title.setMaxLines(3);
+            LinearLayout row=linear(LinearLayout.HORIZONTAL);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            View picture=photo(o);
+            row.addView(picture,new LinearLayout.LayoutParams(dp(104),dp(111)));
+            LinearLayout details=linear(LinearLayout.VERTICAL);
+            LinearLayout.LayoutParams layout=new LinearLayout.LayoutParams(0,-2,1);
+            layout.leftMargin=dp(13);
+            row.addView(details,layout);
+            add(details,text(o.shop.name,12,ACCENT,true),-1,-2);
+            gap(details,3);
+            add(details,text(o.price>0?rubles(o.price):"Цена уточняется",
+                23,TEXT,true),-1,-2);
+            gap(details,4);
+            TextView title=text(compactTitle(o.title),13,TEXT,false);
+            title.setMaxLines(2);
             title.setEllipsize(android.text.TextUtils.TruncateAt.END);
-            add(card,title,-1,-2);
+            add(details,title,-1,-2);
+            gap(details,5);
+            add(details,text(o.deliveryHint.isBlank()?
+                "Доставка: уточняется":"Доставка: "+o.deliveryHint,
+                12,MUTED,false),-1,-2);
             if(!o.priceCondition.isBlank()){
-                gap(card,5);
-                add(card,text(o.priceCondition+" · требуется соответствующий способ оплаты",
-                    12,ACCENT,false),-1,-2);
+                gap(details,4);
+                add(details,text(o.priceCondition,11,ACCENT,false),-1,-2);
             }
-            gap(card,5);
-            String deliveryState=deliveryPolicy.days(o.deliveryHint)<0?
-                "Дата доставки неизвестна":
-                ("Доставка из выдачи: "+o.deliveryHint);
-            if(!qualifies(o,timelyBest))
-                deliveryState+=" · не включено в минимум";
-            else deliveryState+=" · уточнить в магазине";
-            add(card,text(deliveryState,12,MUTED,false),-1,-2);
-            gap(card,5);
-            String origin=o.note.startsWith("Цена из выдачи")?
-                "Цена из поиска · без проверки корзины":
-                (o.note.startsWith("Цена из данных товара")?
-                    "Цена со страницы товара · без проверки корзины":
-                    "Источник цены не подтверждён");
-            add(card,text(origin,11,MUTED,false),-1,-2);
-            gap(card,10);
-            Button inspect=button("Открыть товар",false);
-            add(card,inspect,-1,42);
-            inspect.setOnClickListener(v->inspectOffer(o));
+            add(card,row,-1,-2);
+            card.setClickable(true);
+            card.setOnClickListener(v->inspectOffer(o));
             add(results,card,-1,-2);
             gap(results,9);
         }
-        resultsHeading.setVisibility(displayed==0?View.GONE:View.VISIBLE);
+        resultsHeading.setText("Предложения · "+offers.size());
+        resultsHeading.setVisibility(offers.isEmpty()?View.GONE:View.VISIBLE);
     }
     @Override public void done(){
         runOnUiThread(()->{
