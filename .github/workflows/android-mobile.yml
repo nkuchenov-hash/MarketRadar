@@ -122,7 +122,7 @@ jobs:
             echo "::error::Signing fingerprint does not match persistent backup."; exit 1;
           }
           "$aapt" dump badging dist/MarketRadar-Android-0.29.0.apk > /tmp/badging.txt
-          grep -Fq "package: name='com.marketradar.mobile.next' versionCode='28' versionName='0.29.0'" /tmp/badging.txt
+          grep -Fq "package: name='com.marketradar.mobile.next' versionCode='29' versionName='0.29.0'" /tmp/badging.txt
           if gh release view marketradar-android-0.4.0 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release download marketradar-android-0.4.0 \
               --repo "$GITHUB_REPOSITORY" \
