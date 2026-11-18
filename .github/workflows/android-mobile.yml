@@ -109,10 +109,10 @@ jobs:
             --ks /tmp/market-signing/marketradar-release.jks \
             --ks-key-alias marketradar-v2 --ks-pass env:MR_SIGNING_PASS \
             --key-pass env:MR_SIGNING_PASS \
-            --out dist/MarketRadar-Android-0.33.0.apk \
+            --out dist/MarketRadar-Android-0.34.0.apk \
             android/app/build/outputs/apk/release/app-release-unsigned.apk
           "$signer" verify --verbose --print-certs \
-            dist/MarketRadar-Android-0.33.0.apk > /tmp/signature.txt
+            dist/MarketRadar-Android-0.34.0.apk > /tmp/signature.txt
           current="$(grep -i 'sha-256 digest' /tmp/signature.txt | head -1 | sed -E 's/.*digest:[[:space:]]*//' | tr '[:upper:]' '[:lower:]' | tr -dc '0-9a-f')"
           expected="$(keytool -exportcert \
             -keystore /tmp/market-signing/marketradar-release.jks \
@@ -121,8 +121,8 @@ jobs:
           [[ -n "$current" && "$current" == "$expected" ]] || {
             echo "::error::Signing fingerprint does not match persistent backup."; exit 1;
           }
-          "$aapt" dump badging dist/MarketRadar-Android-0.33.0.apk > /tmp/badging.txt
-          grep -Fq "package: name='com.marketradar.mobile.next' versionCode='33' versionName='0.33.0'" /tmp/badging.txt
+          "$aapt" dump badging dist/MarketRadar-Android-0.34.0.apk > /tmp/badging.txt
+          grep -Fq "package: name='com.marketradar.mobile.next' versionCode='34' versionName='0.34.0'" /tmp/badging.txt
           if gh release view marketradar-android-0.4.0 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release download marketradar-android-0.4.0 \
               --repo "$GITHUB_REPOSITORY" \
@@ -132,7 +132,7 @@ jobs:
               echo "::error::Published v2 signing certificate mismatch"; exit 1;
             }
           fi
-          (cd dist && sha256sum MarketRadar-Android-0.33.0.apk > SHA256SUMS.txt)
+          (cd dist && sha256sum MarketRadar-Android-0.34.0.apk > SHA256SUMS.txt)
 
       - name: Publish isolated stable-signed MarketRadar v2 APK
         shell: bash
@@ -140,35 +140,31 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          tag=marketradar-android-0.33.0
+          tag=marketradar-android-0.34.0
           cat > /tmp/notes.md <<'EOF'
-          # MarketRadar Android 0.33.0 — find why a low Yandex price disappears
-          - The copyable search diagnostics now include per-marketplace
-            live candidate evidence, not just completed shop totals.
-          - Track visible DOM price labels independently from product links.
-            Specifically report whether 11 687 RUB appears in the
-            Yandex Market search page for Mini 3 Pro.
-          - Record whether each low-price card was parsed, prefiltered,
-            opened, rejected by product ID, rejected by model identity,
-            rejected for price or confirmed as an offer.
-          - Log only public product IDs, titles, prices and delivery,
-            not cookies, authentication tokens or query-string secrets.
-          - Faster per-shop price frontier, fewer repeated product pages,
-            compact competitive offers and the configured late discount.
-          - A diagnostic release: actual 11 687 RUB discovery still
-            requires an on-device search report before claiming a fix.
-          - Install over 0.32.0 with unchanged signing certificate.
+          # MarketRadar Android 0.34.0 — dynamic lowest-price audit
+          - Audit all currently observed marketplace prices, with no
+            hard-coded amount or product-specific branch.
+          - Compare low DOM price labels to their extracted product
+            cards and show suspicious orphaned values for inspection.
+          - Record card selection, model verification, rejection reason,
+            delivery and public product ID in live and final diagnostics.
+          - Avoid claiming that unrelated or installment price labels
+            represent real offers until the matching product is verified.
+          - Preserve concurrent marketplace search, price pruning,
+            deduplication and strict late-discount result filtering.
+          - Install over 0.33.0 with the same signing certificate.
           EOF
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release edit "$tag" --repo "$GITHUB_REPOSITORY" \
-              --title "MarketRadar Android 0.33.0 — stable-signing preview" \
+              --title "MarketRadar Android 0.34.0 — stable-signing preview" \
               --notes-file /tmp/notes.md --prerelease
             gh release upload "$tag" --repo "$GITHUB_REPOSITORY" \
-              dist/MarketRadar-Android-0.33.0.apk dist/SHA256SUMS.txt --clobber
+              dist/MarketRadar-Android-0.34.0.apk dist/SHA256SUMS.txt --clobber
           else
             gh release create "$tag" --repo "$GITHUB_REPOSITORY" \
-              dist/MarketRadar-Android-0.33.0.apk dist/SHA256SUMS.txt \
-              --title "MarketRadar Android 0.33.0 — stable-signing preview" \
+              dist/MarketRadar-Android-0.34.0.apk dist/SHA256SUMS.txt \
+              --title "MarketRadar Android 0.34.0 — stable-signing preview" \
               --notes-file /tmp/notes.md --prerelease
           fi
           gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets \
