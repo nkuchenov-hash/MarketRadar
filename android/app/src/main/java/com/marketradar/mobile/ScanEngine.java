@@ -998,29 +998,28 @@ final class ScanEngine {
     }
     static int readCardPrice(String context){
         if(context==null||context.isBlank()||context.length()>1400)return 0;
-        JSONArray priceLines=new JSONArray();
-        for(String line:context.split("\\R")){
-            String lower=line.toLowerCase(Locale.ROOT);
-            if(lower.contains("кэшбэк")||lower.contains("кешбэк")||
-               lower.contains("балл")||lower.contains("бонус")||
-               lower.contains("рассроч")||lower.contains("кредит")||
-               lower.contains("долями")||lower.contains("сплит")||
-               lower.contains("/ мес")||lower.contains("в месяц")||
-               lower.contains("доставка"))continue;
-            priceLines.put(line);
-        }
-        return readPrice(priceLines);
+        // A single WB card line can contain BOTH sale and crossed-out prices,
+        // a cashback mention and the delivery slot. Never discard the whole
+        // line merely because one non-payable amount appears on it.
+        JSONArray lines=new JSONArray();
+        for(String line:context.split("\\R"))lines.put(line);
+        return readPrice(lines);
+    }
+    private static boolean nonPayableAmount(String line,int start,int end){
+        String before=line.substring(Math.max(0,start-35),start).trim();
+        String after=line.substring(end,Math.min(line.length(),end+30)).trim();
+        if(before.matches("(?s).*(?:к[эе]шб[эе]к|балл(?:ов|а|ы)?|бонус(?:ы|ов)?|скидк[а-я]*|экономи[а-я]*)(?:\\s+(?:до|около))?\\s*:?"))
+            return true;
+        return after.matches("(?s)^(?:/\\s*мес|в\\s+месяц|к[эе]шб[эе]к|балл(?:ов|а|ы)?|бонус(?:ы|ов)?|рассроч[а-я]*|долями|сплит)(?:\\b|\\s).*");
     }
     static int readPrice(JSONArray snippets){
         if(snippets==null)return 0;
         int best=Integer.MAX_VALUE;
         for(int i=0;i<snippets.length();i++){
             String line=snippets.optString(i,"").toLowerCase(Locale.ROOT);
-            if(line.contains("мес")||line.contains("в месяц")||
-                line.contains("рассроч")||line.contains("кешбэк")||
-                line.contains("кэшбэк")||line.contains("балл"))continue;
             Matcher match=PRICE.matcher(line);
-            if(match.find()){
+            while(match.find()){
+                if(nonPayableAmount(line,match.start(),match.end()))continue;
                 try{
                     int value=Integer.parseInt(match.group(1).replaceAll("[^0-9]",""));
                     if(value>=100&&value<=50000000)best=Math.min(best,value);
