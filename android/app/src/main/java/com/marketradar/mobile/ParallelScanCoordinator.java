@@ -43,11 +43,19 @@ final class ParallelScanCoordinator {
     private boolean coverageIncomplete=false;
     private int generation=0;
     private int completed=0;
-    // Two WebViews, not three simultaneously: reduce memory pressure and
-    // renderer eviction on budget Android devices while scanning every site.
-    private static final int MAX_PARALLEL=2;
+    // Start all three selected marketplaces at once. Each uses a separate
+    // WebView and the shared Android cookie jar, not a serial queue.
+    private static final int MAX_PARALLEL=3;
     private final ArrayList<Shop> pendingMarkets=new ArrayList<>();
     private final Map<String,String> completedBreakdown=new HashMap<>();
+    // Track shops separately from reusable WebView workers: a finished shop
+    // must never disappear or be shown as waiting when its worker is reused.
+    private final Map<String,MarketProgress> marketProgress=new HashMap<>();
+    private static final class MarketProgress {
+        boolean started,finished,incomplete;
+        String status="";
+        long startedAt,updatedAt;
+    }
     private int nextMarketIndex=0;
     private String activeQuery="";
 
@@ -69,6 +77,11 @@ final class ParallelScanCoordinator {
             if(isCurrent(this)){
                 lastStatus=text;
                 lastStatusAt=android.os.SystemClock.elapsedRealtime();
+                MarketProgress record=marketProgress.get(market.id);
+                if(record!=null){
+                    record.status=text;
+                    record.updatedAt=lastStatusAt;
+                }
                 listener.status(market,text);
             }
         }
@@ -88,14 +101,23 @@ final class ParallelScanCoordinator {
             if(!isCurrent(this)||finished)return;
             finished=true;
             completed++;
+            boolean incomplete=scan.coverageIncomplete();
             wasTimeLimited|=scan.wasTimeLimited();
-            coverageIncomplete|=scan.coverageIncomplete();
+            coverageIncomplete|=incomplete;
             completedBreakdown.put(shop.id,scan.resultBreakdown());
-            long duration=(android.os.SystemClock.elapsedRealtime()-startedAt)/1000L;
-            String diagnostic=(scan.coverageIncomplete()?
+            long now=android.os.SystemClock.elapsedRealtime();
+            long duration=(now-startedAt)/1000L;
+            String diagnostic=(incomplete?
                 "Выдача проверена не полностью":"Доступная выдача просмотрена")+
                 " · "+duration+" с";
             if(!lastStatus.isBlank())diagnostic+=" · "+lastStatus;
+            MarketProgress record=marketProgress.get(shop.id);
+            if(record!=null){
+                record.finished=true;
+                record.incomplete=incomplete;
+                record.status=diagnostic;
+                record.updatedAt=now;
+            }
             listener.status(shop,diagnostic);
             if(completed==workersInSearch){
                 running=false;
@@ -129,43 +151,44 @@ final class ParallelScanCoordinator {
     }
     String progressSummary(){
         if(!running)return "Поиск завершён";
-        int active=0;
-        long oldestActivity=0;
+        StringBuilder report=new StringBuilder("Поиск идёт · обработано площадок: ")
+            .append(completed).append("/").append(workersInSearch);
         long now=android.os.SystemClock.elapsedRealtime();
-        String market="";
-        for(Worker worker:workers){
-            if(isCurrent(worker)){
-                active++;
-                long when=worker.lastStatusAt>0?worker.lastStatusAt:worker.startedAt;
-                oldestActivity=Math.max(oldestActivity,now-when);
-                if(market.isEmpty()&&worker.shop!=null)market=worker.shop.name;
+        for(Shop shop:pendingMarkets){
+            MarketProgress record=marketProgress.get(shop.id);
+            report.append("\n").append(shop.name).append(": ");
+            if(record==null||!record.started){
+                report.append("подключаемся");
+            }else if(record.finished){
+                report.append(record.incomplete?"выдача неполна":"завершено");
+            }else if(now-record.updatedAt>45000){
+                report.append("ожидаем ответ магазина");
+            }else if(record.status.isBlank()){
+                report.append("ищем товары");
+            }else{
+                String status=record.status.replace('\n',' ').trim();
+                report.append(status.length()>76?status.substring(0,76)+"…":status);
             }
         }
-        if(active==0&&nextMarketIndex<workersInSearch)return "Подключаем магазины…";
-        String text="Проверено площадок: "+completed+"/"+workersInSearch;
-        if(!market.isEmpty())text+=" · "+market;
-        if(oldestActivity>45000)text+=" · ожидание ответа";
-        return text;
+        return report.toString();
     }
     String detailedProgress(){
         StringBuilder report=new StringBuilder();
         long now=android.os.SystemClock.elapsedRealtime();
-        report.append("Площадки: завершено ").append(completed)
+        report.append("Площадки: обработано ").append(completed)
             .append(" из ").append(workersInSearch).append('\n');
         for(Shop shop:pendingMarkets){
-            Worker found=null;
-            for(Worker worker:workers){
-                if(worker.shop==shop){found=worker;break;}
-            }
+            MarketProgress record=marketProgress.get(shop.id);
             report.append(shop.name).append(": ");
-            if(found==null)report.append("ожидает очереди");
+            if(record==null||!record.started)report.append("ещё не запущена");
             else{
-                report.append(found.finished?"завершён":"в работе");
-                if(!found.lastStatus.isEmpty())
-                    report.append(" · ").append(found.lastStatus);
+                report.append(record.finished?
+                    (record.incomplete?"завершена с ограничениями":"завершена"):
+                    "в работе");
+                if(!record.status.isBlank())
+                    report.append(" · ").append(record.status);
                 report.append(" · последнее обновление ")
-                    .append(Math.max(0,(now-(found.lastStatusAt>0?
-                        found.lastStatusAt:found.startedAt))/1000))
+                    .append(Math.max(0,(now-record.updatedAt)/1000))
                     .append(" с назад");
             }
             report.append('\n');
@@ -196,6 +219,9 @@ final class ParallelScanCoordinator {
         activeQuery=query;
         pendingMarkets.clear();
         pendingMarkets.addAll(markets);
+        marketProgress.clear();
+        for(Shop market:pendingMarkets)
+            marketProgress.put(market.id,new MarketProgress());
         // Working WB and Yandex results should not be blocked behind a
         // challenge-heavy Ozon WebView. Order affects start only, not ranking.
         pendingMarkets.sort(java.util.Comparator.comparingInt(
@@ -214,6 +240,15 @@ final class ParallelScanCoordinator {
         worker.lastStatus="";
         worker.startedAt=android.os.SystemClock.elapsedRealtime();
         worker.lastStatusAt=worker.startedAt;
+        MarketProgress record=marketProgress.get(worker.shop.id);
+        if(record!=null){
+            record.started=true;
+            record.finished=false;
+            record.incomplete=false;
+            record.status="Ищем точную модель…";
+            record.startedAt=worker.startedAt;
+            record.updatedAt=worker.startedAt;
+        }
         worker.scan.setPriceFrontier(frontier);
         worker.scan.start(activeQuery,Integer.MAX_VALUE,
             java.util.Collections.singletonList(worker.shop));
