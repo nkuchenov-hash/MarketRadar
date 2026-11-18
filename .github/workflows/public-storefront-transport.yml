@@ -19,7 +19,7 @@ jobs:
       - name: Check real first-party search endpoints without authentication
         run: |
           python - <<'PY'
-          import json, urllib.request, urllib.error, urllib.parse, socket
+          import json, urllib.request, urllib.error, urllib.parse, socket, re, html
           from pathlib import Path
 
           q=urllib.parse.quote("Яндекс Станция Мини 3 Про")
@@ -42,7 +42,7 @@ jobs:
             result={"url_host":urllib.parse.urlparse(url).hostname}
             try:
               with urllib.request.urlopen(req,timeout=14) as response:
-                payload=response.read(1000000)
+                payload=response.read(8500000 if key=='yandex-search' else 1000000)
                 result["status"]=response.status
                 result["content_type"]=response.headers.get("Content-Type","")
                 result["bytes"]=len(payload)
@@ -65,6 +65,22 @@ jobs:
                     result["contains_deny"]=b"403" in lowered
                     result["content_encoding"]=response.headers.get("Content-Encoding","")
                     result["response_url_host"]=urllib.parse.urlparse(response.url).hostname
+                    content=payload.decode("utf-8","replace")
+                    unescaped=html.unescape(content)
+                    result["total_read_bytes"]=len(payload)
+                    result["html_anchor_count"]=content.count("<a ")
+                    result["html_price_mentions"]=content.count("₽")
+                    result["json_price_key_mentions"]=content.count('"price"')
+                    result["ruble_unicode_escapes"]=content.count("u20bd")
+                    result["escaped_product_path_mentions"]=unescaped.count("/product/")
+                    result["escaped_offer_path_mentions"]=unescaped.count("/offer/")
+                    result["product_link_examples"]=list(dict.fromkeys(
+                      re.findall(r'href=["\\']([^"\\']{0,300}(?:product|offer|card)[^"\\']*)',unescaped,re.I)
+                    ))[:6]
+                    for keyword in ("Яндекс Станция Мини","₽","u20bd","/product/"):
+                      ix=unescaped.find(keyword)
+                      result["sample_"+keyword.replace("/","_").replace(" ","_")]=(
+                        unescaped[max(0,ix-110):ix+220] if ix>=0 else "")
             except urllib.error.HTTPError as exc:
               result["status"]=exc.code
               result["error"]="HTTP blocked or rejected"
