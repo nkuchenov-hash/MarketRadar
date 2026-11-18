@@ -197,13 +197,25 @@ final class ScanEngine {
                 kind:isDocument?'document':'container'
               };
             })();
+            // Cross-check every visible price label independently of links:
+            // if a low price appears here but is missing from the candidate
+            // map, the problem is in tile extraction rather than in AI.
+            const pageText=(body?.innerText||'').slice(0,120000);
+            const allPrices=[];
+            const amountPattern=/(\d{1,3}(?:[\s\u00a0\u202f]\d{3})+)\s*(?:₽|руб)/gi;
+            for(const hit of pageText.matchAll(amountPattern)){
+              const amount=Number(hit[1].replace(/[^0-9]/g,''));
+              if(amount>=100&&amount<=50000000)allPrices.push(amount);
+              if(allPrices.length>=2500)break;
+            }
             return JSON.stringify({
               url:location.href,
               title:document.title,
               networkResponses:window.__marketRadarNetworkResponses||0,
               networkCandidates:networkCards.length,
               allAnchors:document.querySelectorAll('a[href]').length,
-              text:(body?.innerText||'').slice(0,1800),
+              text:pageText.slice(0,1800),
+              visiblePrices:[...new Set(allPrices)].sort((a,b)=>a-b).slice(0,80),
               links,
               scrollY:scrolling.y,
               scrollHeight:scrolling.height,
@@ -411,7 +423,10 @@ final class ScanEngine {
             "; сортировка: "+sortEvidence.description(
                 shop!=null&&shop.priceAscendingRequested(currentSearchUrl))+
             (firstRejectionMarket.isEmpty()?"":"; пример: "+firstRejectionMarket)+
-            "\n"+searchAudit.summary();
+            "\n"+searchAudit.summary()+
+            (shop!=null&&shop.id.equals("ym")&&
+                ScanEngine.norm(query).contains("станция мини 3 про")?
+                "\n"+searchAudit.probePrice(11687):"");
     }
     private boolean stoppedForFastCheck=false,fullPassFallback=false;
     private static final int MAX_EXPANDED_LISTING_SNAPSHOTS=400;
@@ -821,6 +836,7 @@ final class ScanEngine {
             " · сетевых товаров WB: "+data.optInt("networkCandidates",0)+
             " · прокрутка: "+data.optString("scrollKind","не определена");
         searchAudit.observe(visibleLinks,shop,query);
+        searchAudit.observeDomPrices(data.optJSONArray("visiblePrices"));
         mergeSearchSnapshot(searchPool,visibleLinks,shop,query);
         listingCandidatesMarket=Math.max(listingCandidatesMarket,searchPool.size());
         sortEvidence.observe(visibleLinks,shop);
