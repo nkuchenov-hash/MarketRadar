@@ -136,9 +136,10 @@ final class ParallelScanCoordinator {
         this.primaryBrowser=primaryBrowser;
         this.handler=handler;
         this.listener=listener;
-        Worker first=new Worker(primaryBrowser);
-        workers.add(first);
-        byBrowser.put(primaryBrowser,first);
+        // Do not reuse the login/product-inspection browser as a scanner.
+        // Its old load callbacks and navigations can race the active search,
+        // producing immediate false redirects for unrelated marketplaces.
+        // ensureWorkers() creates three isolated search WebViews instead.
     }
     private boolean isCurrent(Worker worker){
         return running&&!worker.finished&&worker.generation==generation;
@@ -150,8 +151,9 @@ final class ParallelScanCoordinator {
         return completedBreakdown.getOrDefault(id,"Этапы поиска ещё не завершены");
     }
     String progressSummary(){
-        if(!running)return "Поиск завершён";
-        StringBuilder report=new StringBuilder("Поиск идёт · обработано площадок: ")
+        StringBuilder report=new StringBuilder(running?
+            "Поиск идёт · обработано площадок: ":
+            "Поиск завершён · обработано площадок: ")
             .append(completed).append("/").append(workersInSearch);
         long now=android.os.SystemClock.elapsedRealtime();
         for(Shop shop:pendingMarkets){
@@ -273,16 +275,14 @@ final class ParallelScanCoordinator {
         for(Worker worker:workers){
             worker.scan.stop();
             worker.finished=true;
-            if(worker.view!=primaryBrowser)worker.view.stopLoading();
+            worker.view.stopLoading();
         }
     }
     void destroy(){
         stop();
         for(Worker worker:workers){
-            if(worker.view!=primaryBrowser){
-                root.removeView(worker.view);
-                worker.view.destroy();
-            }
+            root.removeView(worker.view);
+            worker.view.destroy();
         }
         workers.clear();
         byBrowser.clear();
@@ -291,10 +291,8 @@ final class ParallelScanCoordinator {
         while(workers.size()>count){
             Worker unused=workers.remove(workers.size()-1);
             byBrowser.remove(unused.view);
-            if(unused.view!=primaryBrowser){
-                root.removeView(unused.view);
-                unused.view.destroy();
-            }
+            root.removeView(unused.view);
+            unused.view.destroy();
         }
         while(workers.size()<count){
             WebView view=new WebView(activity);
