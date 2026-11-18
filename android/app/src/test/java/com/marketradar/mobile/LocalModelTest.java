@@ -21,6 +21,12 @@ public final class LocalModelTest {
         assertTrue(ProductIdentityGate.literalMatch(
             "Яндекс Станция Мини 3 Про",
             "Умная колонка Станция Мини 3 Про с Алисой, Zigbee 18 Вт"));
+        assertTrue(ProductIdentityGate.literalMatch(
+            "Яндекс Станция Мини 3 Про",
+            "Yandex Mini 3 Pro умная колонка с Алисой"));
+        assertTrue(ProductIdentityGate.literalMatch(
+            "Яндекс Станция Мини 3 Про",
+            "Умная колонка Яндекс мини 3 про Zigbee 18 Вт"));
         assertFalse(ProductIdentityGate.literalMatch(
             "Яндекс Станция Мини 3 Про",
             "Подставка для Станции Мини 3 Про"));
