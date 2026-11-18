@@ -1257,10 +1257,10 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
     }
     @Override protected void onDestroy(){
         saveCurrentSearch(engine!=null&&engine.isRunning());
-        // The service protects an active search across onPause/onStop.
-        // Configuration replacement destroys these WebViews, so the next
-        // Activity automatically resumes from the persisted snapshot.
-        if(engine==null||!engine.isRunning())stopSearchProtection();
+        // onPause/onStop keep the running search protected. If the Activity
+        // actually dies, its WebViews are being destroyed, so avoid leaving
+        // a foreground service with no worker behind.
+        stopSearchProtection();
         aiGeneration++;
         if(engine!=null)engine.destroy();
         browser.destroy();
