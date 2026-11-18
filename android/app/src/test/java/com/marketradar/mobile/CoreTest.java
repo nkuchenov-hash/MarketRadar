@@ -428,9 +428,9 @@ public class CoreTest {
         // WB page checks: WB may have an account-specific discounted price.
         assertEquals(1,DynamicPriceFrontier.nextUnpruned(wbOffers,1,frontier,wb));
         assertTrue(frontier.confirm(11316,"20 ноября",wb));
-        // Candidate #1 is more expensive; candidate #2 arrives too late.
-        // Both are skipped under the configured three-day delivery policy.
-        assertEquals(3,DynamicPriceFrontier.nextUnpruned(wbOffers,1,frontier,wb));
+        // Candidate #1 is more expensive, but candidate #2 is a cheaper
+        // late-delivery offer. Preserve it for the absolute price minimum.
+        assertEquals(2,DynamicPriceFrontier.nextUnpruned(wbOffers,1,frontier,wb));
         assertFalse(frontier.deferHigher(11316,"20 ноября",wb));
         assertTrue(frontier.deferHigher(13100,"20 ноября",wb));
     }
