@@ -168,7 +168,17 @@ _DOM_SNAPSHOT = r"""() => {
             tile?.querySelector('img')?.alt || '').trim().slice(0,300);
         price.lastIndex = 0;
         const matches = [...context.matchAll(price)];
-        const prices = matches.map(m => Number(m[1].replace(/\D/g,'')))
+        // Instalment labels such as "6×1 949 ₽ в Сплит" are NOT the
+        // one-time purchase price. Do not promote a monthly instalment to
+        // the cheapest offer when reading a Yandex Market product tile.
+        const upfront = matches.filter(m => {
+            const before = context.slice(Math.max(0, m.index - 28), m.index);
+            const after = context.slice(m.index + m[0].length,
+                                        m.index + m[0].length + 32);
+            return !/[\d]{1,2}\s*[×xх*]\s*$/i.test(before) &&
+                   !/^\s*(?:в\s+сплит|сплит|в\s+рассрочку)/i.test(after);
+        });
+        const prices = upfront.map(m => Number(m[1].replace(/\D/g,'')))
             .filter(n => n >= 100 && n <= 50000000);
         // Product images may be lazy-loaded, protocol-relative or stored
         // in <picture> source/srcset rather than a populated <img src>.
