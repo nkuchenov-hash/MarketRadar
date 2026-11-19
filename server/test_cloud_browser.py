@@ -4,6 +4,8 @@ import json
 import os
 import unittest
 
+from unittest.mock import patch
+
 from server.cloud_browser import CloudBrowser, _DOM_SNAPSHOT, network_products, sorted_search_url
 
 
@@ -169,6 +171,53 @@ class CloudSearchTests(unittest.TestCase):
                 else:
                     os.environ["CLOUD_BROWSER_ENABLED"]=before
         asyncio.run(run())
+
+
+    def test_blocked_wb_ozon_can_use_genuine_public_html_results(self):
+        """A blocked browser may still recover real storefront SSR without inventing prices."""
+        async def run():
+            with patch.dict(os.environ,{
+                "CLOUD_BROWSER_ENABLED":"true",
+                "CLOUD_BROWSER_HUMAN_FLOW":"false",
+                "CLOUD_BROWSER_PERSISTENT":"false",
+                "CLOUD_BROWSER_HEADFUL":"false",
+                "CLOUD_SEARCH_SCROLLS":"0",
+            }):
+                engine=CloudBrowser()
+                await engine.start()
+                try:
+                    async def blocked(route):
+                        status=498 if "wildberries.ru" in route.request.url else 403
+                        await route.fulfill(status=status, content_type="text/html",
+                                            body="<html><body>Проверяем браузер</body></html>")
+                    await engine.context.route("https://www.wildberries.ru/**",blocked)
+                    await engine.context.route("https://www.ozon.ru/**",blocked)
+                    wb_url="https://www.wildberries.ru/catalog/0/search.aspx?search=test"
+                    ozon_url="https://www.ozon.ru/search/?text=test"
+                    def genuine_ssr(url):
+                        product=("https://www.wildberries.ru/catalog/123456789/detail.aspx"
+                                 if "wildberries" in url else
+                                 "https://www.ozon.ru/product/test-123456789/")
+                        return {"state":"ok","url":url,"title":"Публичная выдача",
+                                "text":"","links":[{"url":product,"price":11200,
+                                "title":"Яндекс Станция Мини 3 Про",
+                                "source":"public_ssr"}],"coverage_complete":False,
+                                "audit":{"source":"public_html"}}
+                    with patch("server.public_html.fetch_public_search_html",
+                               side_effect=genuine_ssr) as fallback:
+                        wb=await engine.snapshot(wb_url)
+                        ozon=await engine.snapshot(ozon_url)
+                    self.assertEqual("ok",wb["state"])
+                    self.assertEqual("ok",ozon["state"])
+                    self.assertEqual(11200,wb["links"][0]["price"])
+                    self.assertEqual(11200,ozon["links"][0]["price"])
+                    self.assertFalse(wb["coverage_complete"])
+                    self.assertFalse(ozon["coverage_complete"])
+                    self.assertEqual(2,fallback.call_count)
+                finally:
+                    await engine.close()
+        asyncio.run(run())
+
 
 
 if __name__=="__main__":
