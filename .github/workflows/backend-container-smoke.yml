@@ -52,6 +52,10 @@ jobs:
           docker run --detach --rm --name marketradar-backend-smoke \
             --publish 127.0.0.1:18765:10000 \
             --env PORT=10000 --env CLOUD_BROWSER_ENABLED=true \
+            --env CLOUD_BROWSER_HEADFUL=true \
+            --env CLOUD_BROWSER_PERSISTENT=true \
+            --env CLOUD_BROWSER_HUMAN_FLOW=true \
+            --env CLOUD_BROWSER_PARALLEL=1 \
             --env MARKETRADAR_MOBILE_ACCESS_KEY=ci-only-example \
             marketradar-backend:smoke
           for retry in $(seq 1 55); do
@@ -63,6 +67,26 @@ jobs:
           done
           curl -fsS --max-time 10 http://127.0.0.1:18765/health | \
             python -c 'import json,sys; p=json.load(sys.stdin); assert p["ok"] and p["cloud_available"], p'
+      - name: Verify full headed Chromium boots with persistent profile in Docker
+        shell: bash
+        run: |
+          docker exec -i marketradar-backend-smoke python - <<'PY'
+          import asyncio,os
+          from server.cloud_browser import CloudBrowser
+          async def run():
+              b=CloudBrowser(market="Wildberries")
+              await b.start()
+              try:
+                  p=await b.context.new_page()
+                  await p.set_content("<html><title>headed chrome ready</title><body>ok</body></html>")
+                  assert await p.title()=="headed chrome ready"
+                  print("Xvfb headed Chrome and persistent profile OK",b.headful,b.persistent)
+                  assert b.headful and b.persistent
+                  await p.close()
+              finally:
+                  await b.close()
+          asyncio.run(run())
+          PY
       - name: Verify real Android REST job contract
         shell: bash
         run: |
