@@ -411,6 +411,22 @@ class CloudBrowser:
                 fallback = await asyncio.to_thread(fetch_public_search_html,target)
                 if fallback:
                     return fallback
+                # A marketplace can deny a URL with a price-sort parameter
+                # while still serving the regular search. Preserve genuine
+                # first-party cards and sort observed prices in our ledger.
+                # Do not claim complete coverage or confirmed store sorting.
+                if (market_of(target) in ("Wildberries","Ozon")
+                        and url != target):
+                    try:
+                        plain = await page.goto(
+                            url,wait_until="domcontentloaded",timeout=22000)
+                        navigation["plain_search_fallback"] = True
+                        navigation["plain_search_http_status"] = (
+                            plain.status if plain else None)
+                        if plain:
+                            response = plain
+                    except Exception as exc:
+                        navigation["plain_search_error"] = type(exc).__name__
             await page.wait_for_timeout(1800)
             if not host_allowed(page.url) or market_of(page.url) != market_of(url):
                 return {"state": "error", "url": url, "title": "", "text": "",
@@ -530,7 +546,8 @@ class CloudBrowser:
                 "links": links[:6000],
                 "price_fragments": [str(n)+" ₽" for n in sorted(visual_prices)[:70]],
                 "diagnostic": diagnostic,
-                "coverage_complete": bool(complete and not blocked),
+                "coverage_complete": bool(complete and not blocked
+                                          and not navigation.get("plain_search_fallback")),
                 "audit": {
                     "raw_seen": raw_count, "unique_products": len(ledger),
                     "network_products": network_count,
@@ -539,6 +556,8 @@ class CloudBrowser:
                     "priced_products": sum(x["price"] > 0 for x in links),
                     "unlinked_low_prices": orphans,
                     "sort_requested": bool(search),
+                    "sort_ui_confirmed": bool(navigation.get("sort_ui_selected")),
+                    "plain_search_fallback": bool(navigation.get("plain_search_fallback")),
                     "http_status": response.status if response else None,
                     "blocked_statuses": blocked_http[:5],
                     "browser_headful": self.headful,
