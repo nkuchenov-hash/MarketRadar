@@ -11,6 +11,7 @@ from urllib.parse import parse_qs, urlparse
 STOREFRONTS = {
     "Wildberries": "https://www.wildberries.ru/",
     "Ozon": "https://www.ozon.ru/",
+    "Яндекс Маркет": "https://market.yandex.ru/",
 }
 SEARCH_INPUTS = {
     "Wildberries": (
@@ -23,10 +24,15 @@ SEARCH_INPUTS = {
         "input[placeholder*='Искать']", "input[placeholder*='Найти']",
         "input[aria-label*='Поиск']",
     ),
+    "Яндекс Маркет": (
+        "input#header-search", "input[name='text']", "input[type='search']",
+        "input[placeholder*='Найти']", "input[placeholder*='Поиск']",
+        "input[placeholder*='Искать']", "input[aria-label*='Поиск']",
+    ),
 }
-SORT_MENU = re.compile(r"популярност|сортиров|по цене", re.IGNORECASE)
+SORT_MENU = re.compile(r"популярност|сортиров|по цене|по умолчанию|подешевле|подороже|рейтинг", re.IGNORECASE)
 SORT_ASC = re.compile(
-    r"сначала деш[её]в|по возрастанию цен|цен[аы]:?\s*по возрастанию",
+    r"подешевле|сначала деш[её]в|по возрастанию цен|цен[аы]:?\s*по возрастанию",
     re.IGNORECASE,
 )
 
@@ -40,7 +46,10 @@ def search_term(target: str, market: str) -> str:
 def is_store_search(url: str, market: str) -> bool:
     p = urlparse(url)
     host = p.hostname or ""
-    expected = "wildberries.ru" if market == "Wildberries" else "ozon.ru"
+    expected = {"Wildberries":"wildberries.ru", "Ozon":"ozon.ru",
+                "Яндекс Маркет":"market.yandex.ru"}.get(market, "")
+    if not expected:
+        return False
     return (host == expected or host.endswith("." + expected)) and (
         "search" in p.path.lower())
 
@@ -57,6 +66,9 @@ async def open_search_via_ui(page, market: str, target: str, on_search_start=Non
         "home_title": "",
         "search_ui_found": False,
         "search_ui_submitted": False,
+        "search_query_typed": False,
+        "brand_filter_requested": "",
+        "brand_filter_selected": False,
         "sort_ui_selected": False,
         "sort_url_requested": False,
         "search_http_status": None,
@@ -96,21 +108,69 @@ async def open_search_via_ui(page, market: str, target: str, on_search_start=Non
             await search_input.click(timeout=4000)
             await search_input.fill("")
             await search_input.press_sequentially(query,delay=65)
+            result["search_query_typed"] = True
             if on_search_start: on_search_start()
             await search_input.press("Enter")
             await page.wait_for_timeout(1700)
             result["search_ui_submitted"] = is_store_search(page.url,market)
             if result["search_ui_submitted"]:
+                # The screenshot's "Яндекс" brand filter is not the same as
+                # an exact-name classifier. Apply it through the shop UI only
+                # when the requested product explicitly names that brand.
+                if market == "Яндекс Маркет" and query.casefold().startswith("яндекс "):
+                    result["brand_filter_requested"] = "Яндекс"
+                    try:
+                        box=page.get_by_role("checkbox",name=re.compile(r"^\\s*Яндекс\\s*$",re.I)).first
+                        if await box.is_visible(timeout=650):
+                            if not await box.is_checked():
+                                await box.check(timeout=3000)
+                            result["brand_filter_selected"] = await box.is_checked()
+                            await page.wait_for_timeout(700)
+                        else:
+                            label=page.locator("label").filter(
+                                has_text=re.compile(r"^\\s*Яндекс\\s*$",re.I)).first
+                            if await label.is_visible(timeout=500):
+                                await label.click(timeout=2500)
+                                await page.wait_for_timeout(700)
+                                inner=label.locator('input[type="checkbox"]').first
+                                if await inner.count():
+                                    result["brand_filter_selected"] = await inner.is_checked()
+                    except Exception as e:
+                        result["brand_filter_error"] = type(e).__name__
                 try:
-                    menu=page.get_by_text(SORT_MENU).first
-                    if await menu.is_visible(timeout=900):
-                        await menu.click(timeout=3500)
-                        await page.wait_for_timeout(350)
-                        choice=page.get_by_text(SORT_ASC).first
-                        if await choice.is_visible(timeout=900):
-                            await choice.click(timeout=3500)
-                            await page.wait_for_timeout(1150)
-                            result["sort_ui_selected"] = True
+                    # The current selected sort can already be "Подешевле".
+                    selected=page.get_by_role("button",name=re.compile(
+                        r"^\\s*(?:Подешевле|Сначала деш[её]вые)\\s*$",re.I)).first
+                    if await selected.is_visible(timeout=650):
+                        result["sort_ui_selected"] = True
+                    else:
+                        control=None
+                        for item in (
+                            page.get_by_role("button",name=SORT_MENU).first,
+                            page.get_by_text(SORT_MENU).first,
+                        ):
+                            if await item.is_visible(timeout=600):
+                                control=item
+                                break
+                        if control is not None:
+                            await control.click(timeout=3500)
+                            await page.wait_for_timeout(350)
+                            for option in (
+                                page.get_by_role("option",name=SORT_ASC).first,
+                                page.get_by_role("menuitem",name=SORT_ASC).first,
+                                page.get_by_text(SORT_ASC).last,
+                            ):
+                                if await option.is_visible(timeout=650):
+                                    await option.click(timeout=3500)
+                                    await page.wait_for_timeout(1150)
+                                    # Verify the visible selection or a site-
+                                    # generated ascending-sort navigation.
+                                    chosen=page.get_by_role("button",name=re.compile(
+                                        r"^\\s*(?:Подешевле|Сначала деш[её]вые)\\s*$",re.I)).first
+                                    result["sort_ui_selected"] = (
+                                        await chosen.is_visible(timeout=600) or
+                                        ("how=aprice" in page.url and market=="Яндекс Маркет"))
+                                    break
                 except Exception as e:
                     result["sort_ui_error"] = type(e).__name__
         except Exception as e:
