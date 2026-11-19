@@ -63,14 +63,14 @@ final class DeliveryPolicy {
         }
         // Short marketplace badges often say "20 ноя." or "21 окт".
         Matcher abbreviated=Pattern.compile(
-            "(?iu)(\\d{1,2})\\s*(янв|фев|мар|апр|мая|июн|июл|авг|сен|окт|ноя|дек)\\.?(?![\\p{L}])")
+            "(?iu)(\\d{1,2})\\s*(янв|фев|мар|апр|мая|июн|июл|авг|сен|окт|нояб?|дек)\\.?(?![\\p{L}])")
             .matcher(s);
         if(abbreviated.find()){
             String[] prefixes={"янв","фев","мар","апр","мая","июн",
                 "июл","авг","сен","окт","ноя","дек"};
             int month=0;
             for(int i=0;i<prefixes.length;i++)
-                if(prefixes[i].equals(abbreviated.group(2)))month=i+1;
+                if(abbreviated.group(2).startsWith(prefixes[i]))month=i+1;
             if(month>0)try{
                 LocalDate date=LocalDate.of(today.getYear(),month,
                     Integer.parseInt(abbreviated.group(1)));
