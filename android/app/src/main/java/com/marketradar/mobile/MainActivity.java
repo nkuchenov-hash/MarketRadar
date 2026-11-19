@@ -1312,6 +1312,15 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
                 gap(details,secondary?2:4);
                 add(details,text(o.priceCondition,11,ACCENT,false),-1,-2);
             }
+            // Keep an observed store-listing price visible, but do not present
+            // it as detail-verified when the product page could not confirm it.
+            if(o.note.startsWith("Цена из карточки поисковой выдачи") ||
+               o.note.startsWith("Цена из публичной выдачи") ||
+               o.note.startsWith("Цена из выдачи;")){
+                gap(details,secondary?2:4);
+                add(details,text("Цена из выдачи · требует проверки в магазине",
+                    11,MUTED,false),-1,-2);
+            }
             add(card,row,-1,-2);
             card.setClickable(true);
             card.setOnClickListener(v->inspectOffer(o));
