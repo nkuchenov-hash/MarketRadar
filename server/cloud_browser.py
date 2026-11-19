@@ -228,9 +228,12 @@ class CloudBrowser:
     """Limited parallel Chromium workers, full listing scans and evidence ledger."""
     _slots = asyncio.Semaphore(max(1, min(int(os.getenv("CLOUD_BROWSER_PARALLEL","2")), 3)))
 
-    def __init__(self):
+    def __init__(self, market=None):
         self.playwright = self.browser = self.context = None
         self.acquired = False
+        self.market = market
+        self.headful = os.getenv("CLOUD_BROWSER_HEADFUL", "false").lower() in ("true","1","yes")
+        self.persistent = os.getenv("CLOUD_BROWSER_PERSISTENT", "false").lower() in ("true","1","yes")
 
     async def start(self):
         ok, reason = available()
@@ -252,12 +255,28 @@ class CloudBrowser:
                     raise RuntimeError("Удалённый Chromium должен использовать WSS")
                 self.browser = await self.playwright.chromium.connect_over_cdp(
                     cdp, timeout=30000)
+            elif self.persistent:
+                # Preserve first-party storefront state on the VPS between
+                # searches, as a normal installed browser does. One Chromium
+                # process at a time is required for each profile directory.
+                profile = {"Wildberries":"wb","Ozon":"ozon",
+                           "Яндекс Маркет":"ym"}.get(self.market, "diagnostic")
+                profile_dir = os.path.join(
+                    os.getenv("CLOUD_BROWSER_PROFILE_DIR", "/app/data/browser-profiles"),profile)
+                os.makedirs(profile_dir,mode=0o700,exist_ok=True)
+                self.context = await self.playwright.chromium.launch_persistent_context(
+                    profile_dir, headless=not self.headful,
+                    locale="ru-RU", viewport={"width": 1280, "height": 900},
+                    service_workers="allow",
+                    args=["--disable-dev-shm-usage"])
             else:
-                self.browser = await self.playwright.chromium.launch(headless=True,
-                                          args=["--disable-dev-shm-usage"])
-            self.context = await self.browser.new_context(
-                locale="ru-RU", viewport={"width": 1280, "height": 900},
-                service_workers="allow")
+                self.browser = await self.playwright.chromium.launch(
+                    headless=not self.headful,
+                    args=["--disable-dev-shm-usage"])
+            if self.context is None:
+                self.context = await self.browser.new_context(
+                    locale="ru-RU", viewport={"width": 1280, "height": 900},
+                    service_workers="allow")
         except Exception:
             await self.close()
             raise
