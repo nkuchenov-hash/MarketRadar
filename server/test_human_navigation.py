@@ -56,6 +56,57 @@ class HumanStorefrontTests(unittest.TestCase):
                     await browser.close()
         asyncio.run(run())
 
+    def test_yandex_captcha_home_recovers_plain_search_ui(self):
+        """A blocked homepage must not force an unverified sorted URL."""
+        from .mobile_cloud import exact_product
+        async def run():
+            with patch.dict(os.environ,{
+                "CLOUD_BROWSER_ENABLED":"true",
+                "CLOUD_BROWSER_HUMAN_FLOW":"true",
+                "CLOUD_BROWSER_HEADFUL":"false",
+                "CLOUD_BROWSER_PERSISTENT":"false",
+                "CLOUD_SEARCH_SCROLLS":"2",
+            }):
+                browser=CloudBrowser(market="Яндекс Маркет")
+                await browser.start()
+                try:
+                    listing="""<html><title>Yandex search</title><body>
+                    <form onsubmit="event.preventDefault();history.replaceState(null,'','/search?text='+encodeURIComponent(document.getElementById('header-search').value))">
+                      <input id="header-search" type="search"></form>
+                    <label><input id="brand" type="checkbox">Яндекс</label>
+                    <button id="sort" onclick="document.getElementById('cheap').hidden=false">По популярности</button>
+                    <div role="option" id="cheap" hidden
+                      onclick="document.getElementById('sort').innerText='Подешевле';this.hidden=true">
+                      Подешевле</div>
+                    <article><a href="https://market.yandex.ru/card/headphones/12345678">Беспроводные наушники Яндекс Дропс</a><div>7 127 ₽</div></article>
+                    <article><a href="https://market.yandex.ru/card/speaker/12345679">Умная колонка Яндекс Станция Мини 3 Про с Алисой</a><div>11 693 ₽</div></article>
+                    </body></html>"""
+                    async def store(route):
+                        if route.request.url=="https://market.yandex.ru/":
+                            await route.fulfill(status=200,content_type="text/html; charset=utf-8",
+                                body="<html><title>Вы не робот?</title><body>Yandex SmartCaptcha</body></html>")
+                        elif "/search?" in route.request.url and "how=aprice" not in route.request.url:
+                            await route.fulfill(status=200,content_type="text/html; charset=utf-8",body=listing)
+                        else:
+                            await route.fulfill(status=403,content_type="text/html",
+                                body="<html><title>Denied</title></html>")
+                    await browser.context.route("https://market.yandex.ru/**",store)
+                    result=await browser.snapshot(
+                        "https://market.yandex.ru/search?text=%D0%AF%D0%BD%D0%B4%D0%B5%D0%BA%D1%81+%D0%A1%D1%82%D0%B0%D0%BD%D1%86%D0%B8%D1%8F+%D0%9C%D0%B8%D0%BD%D0%B8+3+%D0%9F%D1%80%D0%BE")
+                    nav=result["audit"]["navigation"]
+                    self.assertEqual("ok",result["state"],result)
+                    self.assertTrue(nav["plain_search_fallback"],nav)
+                    self.assertTrue(nav["search_ui_submitted"],nav)
+                    self.assertTrue(nav["brand_filter_selected"],nav)
+                    self.assertTrue(nav["sort_ui_selected"],nav)
+                    self.assertFalse(nav["sort_url_requested"],nav)
+                    exact=[x for x in result["links"] if exact_product(
+                        "Яндекс Станция Мини 3 Про",x["title"])]
+                    self.assertEqual(11693,min(x["price"] for x in exact))
+                finally:
+                    await browser.close()
+        asyncio.run(run())
+
     def test_real_browser_reaches_sort_via_homepage_search_ui(self):
         async def run():
             # Mocked storefront fixture, not a claim of live WB access.
