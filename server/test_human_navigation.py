@@ -53,7 +53,7 @@ class HumanStorefrontTests(unittest.TestCase):
                         "%D0%9C%D0%B8%D0%BD%D0%B8+3+%D0%9F%D1%80%D0%BE")
                     self.assertEqual("ok",result["state"],result.get("diagnostic"))
                     self.assertEqual([11200,12500],
-                                     [x["price"] for x in result["links"]])
+                                     [x["price"] for x in result["links"]],result)
                     audit=result["audit"]
                     nav=audit["navigation"]
                     self.assertEqual(200,nav["home_http_status"])
