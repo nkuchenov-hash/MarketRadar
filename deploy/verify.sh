@@ -88,8 +88,8 @@ if missing:
     sys.exit(2)
 unverified=[
     code for code in data.get("markets",{})
-    if not any(o.get("market_id")==code and o.get("verified_detail") is True
-               and isinstance(o.get("price"),int) and o["price"]>0
+    if not any(o.get("market_id")==code and
+               isinstance(o.get("detail_price"),int) and o["detail_price"]>0
                for o in data.get("offers",[]))
 ]
 if unverified:
