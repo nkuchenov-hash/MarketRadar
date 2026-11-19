@@ -74,6 +74,35 @@ class PublicCloudApiTests(unittest.TestCase):
         self.assertEqual("завтра",job["offers"][0]["delivery"])
         self.assertIn("выдачи",job["offers"][0]["note"])
 
+    def test_generic_product_shell_keeps_observed_price_but_mismatch_blocks_it(self):
+        """HTTP 200 generic storefront titles cannot erase genuine price cards."""
+        import asyncio
+        from server import mobile_cloud
+        class Browser:
+            async def start(self): pass
+            async def close(self): pass
+            async def snapshot(self,url):
+                if "/catalog/0/search.aspx" in url:
+                    return {"state":"ok","coverage_complete":False,"links":[
+                        {"url":"https://www.wildberries.ru/catalog/123456789/detail.aspx",
+                         "title":"Яндекс Станция Мини 3 Про","price":11000,"source":"dom"},
+                        {"url":"https://www.wildberries.ru/catalog/123456790/detail.aspx",
+                         "title":"Яндекс Станция Мини 3 Про","price":9000,"source":"dom"},
+                    ]}
+                if "/123456789/" in url:
+                    return {"state":"ok","title":"Интернет-магазин Wildberries",
+                            "heading":"","primary_price":0}
+                return {"state":"ok","title":"Яндекс Станция Мини 3",
+                        "heading":"Яндекс Станция Мини 3","primary_price":9000}
+        job={"id":"generic-shell-test","query":"Яндекс Станция Мини 3 Про",
+             "state":"running","markets":{"wb":{"state":"pending","checked":0}},
+             "offers":[],"errors":[]}
+        with patch("server.mobile_cloud.CloudBrowser",Browser):
+            asyncio.run(mobile_cloud.run_market(job,"wb"))
+        self.assertEqual([11000],[x["price"] for x in job["offers"]],job)
+        self.assertFalse(job["offers"][0]["verified_detail"])
+        self.assertIn("подтверждения",job["offers"][0]["note"])
+
     def test_invalid_shops_rejected(self):
         with patch("server.main.cloud_browser.available",return_value=(True,"ok")):
             with TestClient(app) as client:
