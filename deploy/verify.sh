@@ -59,7 +59,9 @@ for code,market in data["markets"].items():
     audit=market.get("audit") or {}
     best=min((o["price"] for o in offers if isinstance(o.get("price"),int)),default=None)
     confirmed=sum(bool(o.get("verified_detail")) for o in offers)
-    print(f"{names.get(code,code)}: state={market.get(chr(115)+chr(116)+chr(97)+chr(116)+chr(101))}; offers={len(offers)}; price-verified={confirmed}; cheapest-observed={best}; candidates={market.get(chr(99)+chr(97)+chr(110)+chr(100)+chr(105)+chr(100)+chr(97)+chr(116)+chr(101)+chr(115))}; complete={market.get(chr(99)+chr(111)+chr(118)+chr(101)+chr(114)+chr(97)+chr(103)+chr(101)+chr(95)+chr(99)+chr(111)+chr(109)+chr(112)+chr(108)+chr(101)+chr(116)+chr(101)))}; http={audit.get(chr(104)+chr(116)+chr(116)+chr(112)+chr(95)+chr(115)+chr(116)+chr(97)+chr(116)+chr(117)+chr(115)))}")
+    print("{}: state={}; offers={}; price-verified={}; cheapest-observed={}; candidates={}; complete={}; http={}".format(
+        names.get(code,code),market.get("state"),len(offers),confirmed,best,
+        market.get("candidates"),market.get("coverage_complete"),audit.get("http_status")))
     if market.get("message"):
         print("  status:",market["message"][:220])
     for item in sorted(offers,key=lambda x:x.get("price",10**15))[:3]:
