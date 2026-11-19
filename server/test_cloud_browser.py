@@ -204,6 +204,28 @@ class CloudSearchTests(unittest.TestCase):
                     await browser.close()
         asyncio.run(run())
 
+    def test_yandex_split_installment_is_not_a_product_price(self):
+        """A cheaper monthly split amount must not become the shop's price."""
+        async def run():
+            from playwright.async_api import async_playwright
+            async with async_playwright() as p:
+                browser=await p.chromium.launch(headless=True)
+                try:
+                    page=await browser.new_page()
+                    await page.set_content("""
+                    <article>
+                       <a href="https://market.yandex.ru/card/mini-3-pro/12345678">
+                           Яндекс Станция Мини 3 Про</a>
+                       <p>11 693 ₽ Пэй</p><small>6×1 949 ₽ в Сплит</small>
+                    </article>
+                    """)
+                    snapshot=await page.evaluate(_DOM_SNAPSHOT)
+                    self.assertEqual(1,len(snapshot["products"]))
+                    self.assertEqual(11693,snapshot["products"][0]["price"],snapshot)
+                finally:
+                    await browser.close()
+        asyncio.run(run())
+
     def test_wildberries_lazy_images_are_bound_to_the_right_card(self):
         """Use card-owned lazy images rather than empty placeholder src values."""
         async def run():
