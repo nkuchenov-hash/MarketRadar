@@ -175,7 +175,12 @@ async def run_market(job: dict, shop_id: str):
                               if detail_accessible else 0)
                 if listing_price <= 0 and structured <= 0:
                     continue
+                # A lower listing price is not verified by a product page
+                # displaying a higher price. Keep the observed listing price,
+                # but distinguish its evidence from the detail-page price.
                 price = min(p for p in (listing_price, structured) if p > 0)
+                price_verified = bool(detail_match and structured > 0 and
+                                      price == structured)
                 image = candidate.get("image_url") or (
                     page.get("primary_image") if detail_accessible else "") or ""
                 if not image.startswith("https://"):
@@ -193,7 +198,7 @@ async def run_market(job: dict, shop_id: str):
                     "url":link, "price":price,
                     "image_url":image[:900],
                     "delivery":str(candidate.get("delivery_hint",""))[:100],
-                    "verified_detail":not listing_only,
+                    "verified_detail":price_verified,
                     "condition":str(candidate.get("price_condition",""))[:100],
                     "note":(
                         "Цена из выдачи; страница товара не открылась"
@@ -204,7 +209,7 @@ async def run_market(job: dict, shop_id: str):
                 })
                 if best == 0 or price < best:
                     best = price
-                if detail_match and (best_detail_verified == 0 or price < best_detail_verified):
+                if price_verified and (best_detail_verified == 0 or price < best_detail_verified):
                     best_detail_verified = price
             state["message"] = (
                 f"Подтверждено {len(verified_urls)}; проверено {state['checked']}; "
