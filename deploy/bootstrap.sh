@@ -10,16 +10,27 @@ fail() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 notice() { printf '\n==> %s\n' "$*"; }
 
 [[ "$(id -u)" == 0 ]] || fail "Run as root or with sudo in the VPS terminal."
-if ! command -v git >/dev/null 2>&1 || ! command -v openssl >/dev/null 2>&1 || ! command -v python3 >/dev/null 2>&1; then
-    command -v apt-get >/dev/null 2>&1 || fail "Ubuntu/Debian package manager required."
-    notice "Installing basic tools for a clean Ubuntu VPS."
-    apt-get update -qq
-    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq git openssl python3 ca-certificates
+if ! command -v apt-get >/dev/null 2>&1; then
+    fail "This installer supports Ubuntu VPS. Use an Ubuntu 24.04/26.04 image."
 fi
-for bin in bash curl git openssl python3 docker; do
-    command -v "$bin" >/dev/null 2>&1 || fail "Missing $bin. Select the Ubuntu VPS image with Docker preinstalled."
-done
-docker compose version >/dev/null 2>&1 || fail "Docker Compose V2 is required. Select the Beget Docker image or install the Compose plugin."
+# A plain Beget Ubuntu image does not necessarily include Docker.
+notice "Checking tools and Docker on the VPS."
+if ! command -v curl >/dev/null 2>&1 || ! command -v git >/dev/null 2>&1 ||
+   ! command -v openssl >/dev/null 2>&1 || ! command -v python3 >/dev/null 2>&1; then
+    apt-get update -qq
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+       curl git openssl python3 ca-certificates
+fi
+if ! command -v docker >/dev/null 2>&1 || ! docker compose version >/dev/null 2>&1; then
+    notice "Installing Docker and Compose from Ubuntu repositories."
+    apt-get update -qq
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq docker.io docker-compose-v2
+fi
+command -v docker >/dev/null 2>&1 || fail "Docker engine installation failed."
+docker compose version >/dev/null 2>&1 || fail "Docker Compose V2 installation failed."
+if command -v systemctl >/dev/null 2>&1; then
+    systemctl enable --now docker || fail "Failed to start Docker service."
+fi
 docker info >/dev/null 2>&1 || fail "Docker daemon is not running."
 
 DOMAIN="${1:-auto}"
