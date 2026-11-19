@@ -6,7 +6,7 @@ import unittest
 
 from unittest.mock import patch
 
-from server.cloud_browser import CloudBrowser, _DOM_SNAPSHOT, network_products, sorted_search_url
+from server.cloud_browser import CloudBrowser, _DOM_SNAPSHOT, network_products, sorted_search_url, browser_proxy
 
 
 class CloudSearchTests(unittest.TestCase):
@@ -18,6 +18,32 @@ class CloudSearchTests(unittest.TestCase):
         }
         for link, marker in urls.items():
             self.assertIn(marker, sorted_search_url(link))
+
+    def test_configurable_ozon_browser_egress_is_isolated_from_other_markets(self):
+        """Proxy credentials remain server-only and other shops keep direct egress."""
+        with patch.dict(os.environ, {
+            "MARKETRADAR_OZON_PROXY_SERVER":"http://127.0.0.1:1080",
+            "MARKETRADAR_OZON_PROXY_USERNAME":"shop-user",
+            "MARKETRADAR_OZON_PROXY_PASSWORD":"private-password",
+        }):
+            self.assertEqual({
+                "server":"http://127.0.0.1:1080",
+                "username":"shop-user",
+                "password":"private-password",
+            },browser_proxy("Ozon"))
+            self.assertIsNone(browser_proxy("Wildberries"))
+            self.assertIsNone(browser_proxy("Яндекс Маркет"))
+        with patch.dict(os.environ, {
+            "MARKETRADAR_OZON_PROXY_SERVER":
+                "http://user:secret@example.org:1080",
+        }):
+            with self.assertRaises(ValueError):
+                browser_proxy("Ozon")
+        with patch.dict(os.environ, {
+            "MARKETRADAR_OZON_PROXY_SERVER":"file:///etc/passwd",
+        }):
+            with self.assertRaises(ValueError):
+                browser_proxy("Ozon")
 
     def test_network_products_preserve_all_explicit_urls(self):
         raw = {"data":{"products":[
