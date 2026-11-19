@@ -32,6 +32,8 @@ jobs:
           python-version: '3.12'
       - name: Install real Chromium
         run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq xvfb
           python -m pip install -r requirements.txt
           python -m playwright install --with-deps chromium
           python -m compileall -q server
@@ -40,8 +42,12 @@ jobs:
         env:
           CLOUD_BROWSER_ENABLED: "true"
           CLOUD_SEARCH_SCROLLS: "17"
+          CLOUD_BROWSER_HEADFUL: "true"
+          CLOUD_BROWSER_PERSISTENT: "true"
+          CLOUD_BROWSER_HUMAN_FLOW: "true"
+          CLOUD_BROWSER_PROFILE_DIR: /tmp/market-profiles
         run: |
-          python - <<'PY'
+          xvfb-run -a python - <<'PY'
           import asyncio, json
           from pathlib import Path
           from urllib.parse import quote
@@ -56,10 +62,10 @@ jobs:
                   "Ozon": "https://www.ozon.ru/search/?text=" + quote(q),
               }
               findings = {}
-              browser = CloudBrowser()
-              await browser.start()
-              try:
-                  for market,url in urls.items():
+              for market,url in urls.items():
+                  browser = CloudBrowser(market=market)
+                  await browser.start()
+                  try:
                       result = await browser.snapshot(url)
                       links = result.get("links", [])
                       examples = [{
@@ -86,13 +92,15 @@ jobs:
                           "body_start":result.get("text","")[:350],
                       }
                       print(market, json.dumps(findings[market],ensure_ascii=False))
-              finally:
-                  await browser.close()
+                  finally:
+                      await browser.close()
               Path("live-storefront-search.json").write_text(
                   json.dumps(findings,ensure_ascii=False,indent=2), encoding="utf-8")
-              ym=findings["Яндекс Маркет"]
-              if ym["state"]!="ok" or ym["exact_priced_matches"]<1:
-                  raise RuntimeError("Yandex Market live Chromium search returned no verifiable product records")
+              failed=[market for market,record in findings.items()
+                      if record["state"]!="ok" or record["exact_priced_matches"]<1]
+              if failed:
+                  raise RuntimeError("No genuine exact-model priced listings from: " +
+                                     ", ".join(failed))
           asyncio.run(main())
           PY
       - uses: actions/upload-artifact@v4
