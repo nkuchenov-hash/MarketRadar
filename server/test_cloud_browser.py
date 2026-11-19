@@ -233,6 +233,28 @@ class CloudSearchTests(unittest.TestCase):
                     await browser.close()
         asyncio.run(run())
 
+    def test_yandex_abbreviated_delivery_date_in_card(self):
+        """The screenshot's '22 нояб.' must remain a delivery hint."""
+        async def run():
+            from playwright.async_api import async_playwright
+            async with async_playwright() as p:
+                browser=await p.chromium.launch(headless=True)
+                try:
+                    page=await browser.new_page()
+                    await page.set_content("""
+                    <article>
+                      <a href="https://market.yandex.ru/card/speaker/12345678">
+                        Умная колонка Яндекс Станция Мини 3 Про</a>
+                      <span>11 693 ₽ Пэй</span><span>22 нояб.</span>
+                    </article>
+                    """)
+                    snap=await page.evaluate(_DOM_SNAPSHOT)
+                    self.assertEqual("22 нояб.",snap["products"][0]["delivery_hint"])
+                    self.assertEqual(11693,snap["products"][0]["price"])
+                finally:
+                    await browser.close()
+        asyncio.run(run())
+
     def test_yandex_split_installment_is_not_a_product_price(self):
         """A cheaper monthly split amount must not become the shop's price."""
         async def run():
