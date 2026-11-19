@@ -120,7 +120,7 @@ async def open_search_via_ui(page, market: str, target: str, on_search_start=Non
                 if market == "Яндекс Маркет" and query.casefold().startswith("яндекс "):
                     result["brand_filter_requested"] = "Яндекс"
                     try:
-                        box=page.get_by_role("checkbox",name=re.compile(r"^\\s*Яндекс\\s*$",re.I)).first
+                        box=page.get_by_role("checkbox",name=re.compile(r"^\s*Яндекс\s*$",re.I)).first
                         if await box.is_visible(timeout=650):
                             if not await box.is_checked():
                                 await box.check(timeout=3000)
@@ -128,7 +128,7 @@ async def open_search_via_ui(page, market: str, target: str, on_search_start=Non
                             await page.wait_for_timeout(700)
                         else:
                             label=page.locator("label").filter(
-                                has_text=re.compile(r"^\\s*Яндекс\\s*$",re.I)).first
+                                has_text=re.compile(r"^\s*Яндекс\s*$",re.I)).first
                             if await label.is_visible(timeout=500):
                                 await label.click(timeout=2500)
                                 await page.wait_for_timeout(700)
@@ -140,7 +140,7 @@ async def open_search_via_ui(page, market: str, target: str, on_search_start=Non
                 try:
                     # The current selected sort can already be "Подешевле".
                     selected=page.get_by_role("button",name=re.compile(
-                        r"^\\s*(?:Подешевле|Сначала деш[её]вые)\\s*$",re.I)).first
+                        r"^\s*(?:Подешевле|Сначала деш[её]вые)\s*$",re.I)).first
                     if await selected.is_visible(timeout=650):
                         result["sort_ui_selected"] = True
                     else:
@@ -166,7 +166,7 @@ async def open_search_via_ui(page, market: str, target: str, on_search_start=Non
                                     # Verify the visible selection or a site-
                                     # generated ascending-sort navigation.
                                     chosen=page.get_by_role("button",name=re.compile(
-                                        r"^\\s*(?:Подешевле|Сначала деш[её]вые)\\s*$",re.I)).first
+                                        r"^\s*(?:Подешевле|Сначала деш[её]вые)\s*$",re.I)).first
                                     result["sort_ui_selected"] = (
                                         await chosen.is_visible(timeout=600) or
                                         ("how=aprice" in page.url and market=="Яндекс Маркет"))
