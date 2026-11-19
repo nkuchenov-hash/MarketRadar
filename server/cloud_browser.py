@@ -198,13 +198,15 @@ _DOM_SNAPSHOT = r"""() => {
         function safeImage(raw) {
             if (!raw || /^data:|^blob:/i.test(raw)) return '';
             try {
-                const u = new URL(raw, document.baseURI);
+                const u = new URL(raw.startsWith('//') ? 'https:' + raw : raw,
+                                  document.baseURI);
                 return u.protocol === 'https:' ? u.href : '';
             } catch(e) { return ''; }
         }
         let imageUrl = '';
         const imageNodes = [
-            ...(imageRoot?.querySelectorAll('picture source, img') || [])
+            ...(imageRoot?.querySelectorAll('img') || []),
+            ...(imageRoot?.querySelectorAll('picture source') || [])
         ].slice(0, 15);
         for (const img of imageNodes) {
             const srcset = s => (s || '').split(',')[0].trim().split(/\s+/)[0];
