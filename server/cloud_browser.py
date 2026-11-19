@@ -375,7 +375,7 @@ class CloudBrowser:
             return {"state": "error", "url": url, "text": "", "links": []}
         search = "search" in urlparse(url).path.lower()
         target = sorted_search_url(url) if search else url
-        use_shop_ui = (search and market_of(target) in ("Wildberries","Ozon")
+        use_shop_ui = (search and market_of(target) in ("Wildberries","Ozon","Яндекс Маркет")
                        and os.getenv("CLOUD_BROWSER_HUMAN_FLOW","false").lower()
                        in ("true","yes","1"))
         capturing_search = [not use_shop_ui]
@@ -620,7 +620,8 @@ class CloudBrowser:
                 "price_fragments": [str(n)+" ₽" for n in sorted(visual_prices)[:70]],
                 "diagnostic": diagnostic,
                 "coverage_complete": bool(complete and not blocked
-                                          and not navigation.get("plain_search_fallback")),
+                                          and not navigation.get("plain_search_fallback")
+                                          and (not use_shop_ui or navigation.get("sort_ui_selected"))),
                 "audit": {
                     "raw_seen": raw_count, "unique_products": len(ledger),
                     "network_products": network_count,
