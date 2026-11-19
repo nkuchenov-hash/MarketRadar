@@ -457,6 +457,8 @@ class CloudBrowser:
                     existing["price"] = amount
                     existing["source"] = item.get("source", existing["source"])
 
+        network_truncated = [0]
+
         async def parse_response(response):
             nonlocal network_count
             try:
@@ -482,10 +484,13 @@ class CloudBrowser:
                 headers = response.headers
                 if "json" not in headers.get("content-type","").lower():
                     return
-                if int(headers.get("content-length","0") or 0) > 2_500_000:
-                    return
+                # Content-Length is often absent or reports the compressed transfer
+                # size. Parse the response instead of silently dropping large feeds.
+                # An incomplete traversal must be visible in the coverage audit.
                 data = await response.json()
-                found, _ = network_products(data, response.url, market=source_market)
+                found, visited = network_products(data, response.url, market=source_market)
+                if visited >= 12000:
+                    network_truncated[0] += 1
                 network_count += len(found)
                 for item in found:
                     preserve(item)
@@ -666,10 +671,12 @@ class CloudBrowser:
                 "diagnostic": diagnostic,
                 "coverage_complete": bool(complete and not blocked
                                           and not navigation.get("plain_search_fallback")
-                                          and (not use_shop_ui or navigation.get("sort_ui_selected"))),
+                                          and (not use_shop_ui or navigation.get("sort_ui_selected"))
+                                           and not network_truncated[0]),
                 "audit": {
                     "raw_seen": raw_count, "unique_products": len(ledger),
                     "network_products": network_count,
+                     "network_truncated_responses": network_truncated[0],
                     "dom_snapshots": visited_snapshots, "pages": page_count,
                     "load_more_clicks": load_more_count,
                     "priced_products": sum(x["price"] > 0 for x in links),
