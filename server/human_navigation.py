@@ -300,10 +300,14 @@ async def open_search_via_ui(page, market: str, target: str, on_search_start=Non
 
     # Only try the sorted URL after both visible-UI navigation and plain
     # browsing have failed. A working plain result must not be discarded.
+    # A successful plain-search navigation is independent of whether a
+    # subsequent UI click returned a Playwright Response object. Retain the
+    # last observed working listing; never replace HTTP 200 cards with a
+    # speculative sort URL that may fail 403/498.
     plain_working=(market in ("Wildberries","Ozon","Яндекс Маркет") and
                    result.get("plain_search_fallback") and
                    not result.get("plain_blocked") and
-                   response is not None and response.status==200)
+                   result.get("plain_search_http_status")==200)
     if not result["search_ui_submitted"] and not plain_working:
         if on_search_start: on_search_start()
         response=await page.goto(target,wait_until="domcontentloaded",timeout=35000)
