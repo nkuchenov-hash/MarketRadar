@@ -319,6 +319,7 @@ class CloudBrowser:
         title = ""
         complete = False
         diagnostic = ""
+        ssr_attempted = False
         last_snapshot = {}
         visited_pages = {target}
         page_count = 1
@@ -405,6 +406,7 @@ class CloudBrowser:
                 response = await page.goto(target, wait_until="domcontentloaded", timeout=35000)
             if (search and response
                     and response.status in (403,429,498,503)):
+                ssr_attempted = True
                 from .public_html import fetch_public_search_html
                 fallback = await asyncio.to_thread(fetch_public_search_html,target)
                 if fallback:
@@ -508,7 +510,7 @@ class CloudBrowser:
             all_products = list(ledger.values())
             blocked = ((bool(blocked_http) and not all_products) or
                 any(t in page_text.lower() for t in BLOCK_WORDS))
-            if blocked and search:
+            if blocked and search and not ssr_attempted:
                 from .public_html import fetch_public_search_html
                 fallback = await asyncio.to_thread(fetch_public_search_html,target)
                 if fallback:
