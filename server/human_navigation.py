@@ -75,6 +75,16 @@ async def open_search_via_ui(page, market: str, target: str, on_search_start=Non
         "final_url": "",
     }
     home = STOREFRONTS.get(market)
+    result["entry_point"] = "homepage"
+    if home and market == "Яндекс Маркет":
+        # Yandex may challenge a fresh cloud browser on the homepage before
+        # search even starts, while accepting an ordinary search link. Enter
+        # the unsorted results page first, then TYPE and sort via the UI.
+        p=urlparse(target)
+        params=[(k,v) for k,v in parse_qsl(p.query,keep_blank_values=True)
+                if k not in ("how","sort","sorting")]
+        home=urlunparse(p._replace(query=urlencode(params)))
+        result["entry_point"] = "plain_search"
     if not home:
         if on_search_start: on_search_start()
         response = await page.goto(target, wait_until="domcontentloaded", timeout=35000)
