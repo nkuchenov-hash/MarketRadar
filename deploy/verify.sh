@@ -99,7 +99,8 @@ if unverified:
 print("VERDICT: detail-verified priced offers found from every requested marketplace")
 print("NOTE: this does not establish complete coverage, delivery eligibility or a global minimum")
 '
-    exit 0
+    # Preserve the Python acceptance verdict; do not report success after exit 2/3.
+    exit $?
   fi
   if (( attempt % 15 == 0 )); then
     printf '%s' "$output" | python3 -c '
