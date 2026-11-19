@@ -52,6 +52,7 @@ def exact_product(query: str, title: str) -> bool:
         "климатический модуль", "модуль для", "чехол", "держатель",
         "кронштейн", "подставка", "крепление", "адаптер", "кабель",
         "защитное стекло", "блок питания", "накладка",
+        "аккумулятор", "батарея", "пауэрбанк", "powerbank",
     )
     if any(term in t and term not in q for term in accessory_terms):
         return False
@@ -67,7 +68,8 @@ def plausible_listing(query: str, title: str) -> bool:
     t = normalize(title).replace("mini","мини").replace("pro","про")
     accessory = ("чехол", "крепление", "кронштейн", "держатель", "адаптер",
                  "кабель", "защитное стекло", "блок питания", "подставка",
-                 "климатический модуль", "модуль для", "накладка")
+                 "климатический модуль", "модуль для", "накладка",
+                 "аккумулятор", "батарея", "пауэрбанк", "powerbank")
     if any(x in t for x in accessory) and not any(x in q for x in accessory):
         return False
     meaningful=[w for w in q.split() if len(w)>2 or w.isdigit()]
