@@ -107,9 +107,22 @@ jobs:
                   json.dumps(findings,ensure_ascii=False,indent=2), encoding="utf-8")
               failed=[market for market,record in findings.items()
                       if record["state"]!="ok" or record["exact_priced_matches"]<1]
+              not_human=[]
+              for market,record in findings.items():
+                  audit=record.get("audit") or {}
+                  nav=audit.get("navigation") or audit.get("browser_navigation") or {}
+                  if not (nav.get("search_ui_submitted") and
+                          audit.get("sort_ui_confirmed")):
+                      not_human.append(market)
+              errors=[]
               if failed:
-                  raise RuntimeError("No genuine exact-model priced listings from: " +
-                                     ", ".join(failed))
+                  errors.append("No genuine exact-model priced listings from: " +
+                                ", ".join(failed))
+              if not_human:
+                  errors.append("Typed search and cheap-first sort NOT proven in live Chromium for: " +
+                                ", ".join(not_human))
+              if errors:
+                  raise RuntimeError("; ".join(errors))
               # The acceptance gate must catch a priced HTML extraction
               # that never typed into the real website or clicked its sort.
               # A successful search URL request is NOT human-style browsing.
