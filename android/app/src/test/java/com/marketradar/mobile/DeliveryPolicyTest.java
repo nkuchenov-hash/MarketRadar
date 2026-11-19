@@ -29,6 +29,10 @@ public class DeliveryPolicyTest {
         assertEquals(2,p.days("20 ноя."));
         assertEquals(3,p.days("21 ноя"));
         assertEquals(10,p.days("28 ноя."));
+        DeliveryPolicy today=new DeliveryPolicy(3,false,15,LocalDate.of(2026,11,19));
+        assertEquals(3,today.days("22 нояб."));
+        assertTrue(today.timely("22 нояб."));
+        assertEquals(4,today.days("23 нояб."));
         assertEquals("20 ноя.",ScanEngine.readDeliveryHint(
             "Умная колонка 11 479 ₽ доставка 20 ноя."));
         assertEquals(2,p.days(ScanEngine.readDeliveryHint(
