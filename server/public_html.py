@@ -146,7 +146,7 @@ def _title_from_slug(url: str) -> str:
     # the first segment, not the numeric product ID in the second one.
     if path[0].startswith("product--"):
         slug = unquote(path[0][len("product--"):])
-    elif path[0] in ("product", "products") and len(path) > 1:
+    elif path[0] in ("product", "products", "card") and len(path) > 1:
         slug = unquote(path[1])
     else:
         return ""
