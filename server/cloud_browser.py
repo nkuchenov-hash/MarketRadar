@@ -266,6 +266,37 @@ _DOM_SNAPSHOT = r"""() => {
 }"""
 
 
+def browser_proxy(market: str | None):
+    """Optional per-store proxy for server-side Chromium.
+
+    Credentials are read exclusively from the VPS environment and never sent
+    to the Android client or inserted into browser diagnostics.
+    Unconfigured stores keep their existing direct connection.
+    """
+    slug = {"Ozon": "OZON", "Wildberries": "WB",
+            "Яндекс Маркет": "YM"}.get(market)
+    if not slug:
+        return None
+    prefix = "MARKETRADAR_" + slug + "_PROXY"
+    server = os.getenv(prefix + "_SERVER", "").strip()
+    if not server:
+        return None
+    parsed = urlparse(server)
+    if (parsed.scheme not in ("http", "https", "socks5") or
+            not parsed.hostname or parsed.username or parsed.password or
+            parsed.path not in ("", "/") or parsed.query or parsed.fragment):
+        raise ValueError("Неверный формат адреса браузерного прокси")
+    proxy = {"server": server}
+    username = os.getenv(prefix + "_USERNAME", "")
+    password = os.getenv(prefix + "_PASSWORD", "")
+    if username:
+        proxy["username"] = username
+        proxy["password"] = password
+    elif password:
+        raise ValueError("Для прокси задан пароль без имени пользователя")
+    return proxy
+
+
 class CloudBrowser:
     """Limited parallel Chromium workers, full listing scans and evidence ledger."""
     _slots = asyncio.Semaphore(max(1, min(int(os.getenv("CLOUD_BROWSER_PARALLEL","2")), 3)))
@@ -309,11 +340,11 @@ class CloudBrowser:
                 self.context = await self.playwright.chromium.launch_persistent_context(
                     profile_dir, headless=not self.headful,
                     locale="ru-RU", viewport={"width": 1280, "height": 900},
-                    service_workers="allow",
+                    service_workers="allow", proxy=browser_proxy(self.market),
                     args=["--disable-dev-shm-usage"])
             else:
                 self.browser = await self.playwright.chromium.launch(
-                    headless=not self.headful,
+                    headless=not self.headful, proxy=browser_proxy(self.market),
                     args=["--disable-dev-shm-usage"])
             if self.context is None:
                 self.context = await self.browser.new_context(
