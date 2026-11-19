@@ -132,4 +132,6 @@ jobs:
         if: always()
         run: |
           docker logs --tail=100 marketradar-backend-smoke || true
+          docker exec marketradar-backend-smoke cat /tmp/marketradar-xvfb.log || true
+          docker exec marketradar-backend-smoke ps -ef || true
           docker stop marketradar-backend-smoke || true
