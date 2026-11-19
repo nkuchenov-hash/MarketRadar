@@ -77,6 +77,16 @@ for code,market in data["markets"].items():
     for item in sorted(offers,key=lambda x:x.get("price",10**15))[:3]:
         print("  ",item.get("price"),"₽",str(item.get("title",""))[:90],"delivery:",item.get("delivery",""),"detail-verified:",item.get("verified_detail",False))
 print("Job:",data.get("state"),"errors:",data.get("errors",[]))
+missing=[
+    code for code in data.get("markets",{})
+    if not any(o.get("market_id")==code and isinstance(o.get("price"),int)
+               and o["price"]>0 for o in data.get("offers",[]))
+]
+if missing:
+    print("VERDICT: FAILED — no priced offers from",
+          ", ".join(names.get(code,code) for code in missing))
+    sys.exit(2)
+print("VERDICT: priced offers found from every requested marketplace")
 '
     exit 0
   fi
