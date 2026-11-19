@@ -220,6 +220,48 @@ class HumanStorefrontTests(unittest.TestCase):
                     await browser.close()
         asyncio.run(run())
 
+    def test_plain_200_without_search_control_must_not_reopen_blocked_sorted_url(self):
+        """Preserve real WB search even when website hides its search input."""
+        async def run():
+            with patch.dict(os.environ,{
+                "CLOUD_BROWSER_ENABLED":"true",
+                "CLOUD_BROWSER_HUMAN_FLOW":"true",
+                "CLOUD_BROWSER_HEADFUL":"false",
+                "CLOUD_BROWSER_PERSISTENT":"false",
+                "CLOUD_SEARCH_SCROLLS":"1",
+            }):
+                browser=CloudBrowser(market="Wildberries")
+                await browser.start()
+                try:
+                    requested=[]
+                    async def store(route):
+                        url=route.request.url
+                        requested.append(url)
+                        if url=="https://www.wildberries.ru/" or "sort=priceup" in url:
+                            await route.fulfill(status=498,content_type="text/html",
+                                body="<html><title>Restricted</title></html>")
+                        else:
+                            await route.fulfill(status=200,content_type="text/html",
+                                body="""<html><title>WB results</title><body>
+                                  <article><a href="https://www.wildberries.ru/catalog/123456789/detail.aspx">
+                                  Яндекс Станция Мини 3 Про</a><span>11 200 ₽</span>
+                                  </article></body></html>""")
+                    await browser.context.route("https://www.wildberries.ru/**",store)
+                    result=await browser.snapshot(
+                        "https://www.wildberries.ru/catalog/0/search.aspx?search=test")
+                    nav=result["audit"]["navigation"]
+                    self.assertEqual("ok",result["state"],result)
+                    self.assertEqual(11200,result["links"][0]["price"],result)
+                    self.assertEqual(200,nav["plain_search_http_status"],nav)
+                    self.assertFalse(nav["sort_url_requested"],nav)
+                    self.assertFalse(nav["sort_ui_selected"],nav)
+                    self.assertFalse(nav["search_ui_submitted"],nav)
+                    self.assertFalse(any("sort=priceup" in x for x in requested),
+                                     requested)
+                finally:
+                    await browser.close()
+        asyncio.run(run())
+
     def test_ui_search_does_not_reopen_blocked_sorted_url(self):
         """A live UI result must survive if the sorting control is absent."""
         async def run():
