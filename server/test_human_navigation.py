@@ -42,9 +42,9 @@ class HumanStorefrontTests(unittest.TestCase):
                     </body></html>"""
                     async def mock_store(route):
                         if "/catalog/0/search.aspx" in route.request.url:
-                            await route.fulfill(status=200,content_type="text/html",body=listing)
+                            await route.fulfill(status=200,content_type="text/html; charset=utf-8",body=listing)
                         else:
-                            await route.fulfill(status=200,content_type="text/html",body=home)
+                            await route.fulfill(status=200,content_type="text/html; charset=utf-8",body=home)
                     await browser.context.route("https://www.wildberries.ru/**",mock_store)
                     result=await browser.snapshot(
                         "https://www.wildberries.ru/catalog/0/search.aspx?search="
