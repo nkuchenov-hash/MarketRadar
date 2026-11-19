@@ -121,11 +121,14 @@ jobs:
           job_id=job["id"]
           print("Created live browser search job",job_id[:8],"status",job["state"])
           result=None
+          terminal={"finished","failed","cancelled","canceled"}
           for _ in range(14):
               with urllib.request.urlopen(urllib.request.Request(
                       base+"/api/mobile/browser/jobs/"+job_id,headers=access),timeout=10) as r:
                   result=json.load(r)
-              if result["state"]!="running":break
+              assert result["state"] in terminal | {"running","queued","pending","starting"},result
+              if result["state"] in terminal:
+                  break
               time.sleep(2)
           assert isinstance(result["markets"].get("ym"),dict),result
           assert isinstance(result["offers"],list),result
@@ -134,9 +137,10 @@ jobs:
               "market_state":result["markets"]["ym"]["state"],
               "candidate_count":result["markets"]["ym"]["candidates"],
               "offer_count":len(result["offers"])},ensure_ascii=False))
-          if result["state"]=="running":
+          if result["state"] not in terminal:
               urllib.request.urlopen(urllib.request.Request(
                   base+"/api/mobile/browser/jobs/"+job_id,headers=access,method="DELETE"),timeout=10)
+              print("Smoke job still active after polling window; cancelled cleanly")
           # This is deployment/API smoke only. Market access is a separate
           # live acceptance gate and can still be HTTP 403/498 in GitHub CI.
           PY
