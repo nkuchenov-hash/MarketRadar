@@ -18,6 +18,10 @@ services:
       CLOUD_BROWSER_ENABLED: "true"
       CLOUD_BROWSER_PARALLEL: "1"
       CLOUD_SEARCH_SCROLLS: "20"
+      CLOUD_BROWSER_HEADFUL: "true"
+      CLOUD_BROWSER_PERSISTENT: "true"
+      CLOUD_BROWSER_HUMAN_FLOW: "true"
+      CLOUD_BROWSER_PROFILE_DIR: /app/data/browser-profiles
       MARKETRADAR_MOBILE_ACCESS_KEY: ${MARKETRADAR_MOBILE_ACCESS_KEY:?Generate a private key before deployment}
       APP_ORIGIN: https://${MARKETRADAR_DOMAIN:?Set DNS name}
       COOKIE_SECURE: "true"
