@@ -302,6 +302,11 @@ class CloudBrowser:
             return {"state": "error", "url": url, "text": "", "links": []}
         search = "search" in urlparse(url).path.lower()
         target = sorted_search_url(url) if search else url
+        use_shop_ui = (search and market_of(target) in ("Wildberries","Ozon")
+                       and os.getenv("CLOUD_BROWSER_HUMAN_FLOW","false").lower()
+                       in ("true","yes","1"))
+        capturing_search = [not use_shop_ui]
+        navigation = {}
         page = await self.context.new_page()
         ledger = {}
         raw_count = 0
@@ -352,6 +357,8 @@ class CloudBrowser:
         async def parse_response(response):
             nonlocal network_count
             try:
+                if not capturing_search[0]:
+                    return
                 resource = response.request.resource_type
                 if response.status in (403, 429, 498, 503) and (
                     resource == "document" or (market_of(response.url) == market_of(target)
@@ -389,7 +396,13 @@ class CloudBrowser:
 
         page.on("response", on_response)
         try:
-            response = await page.goto(target, wait_until="domcontentloaded", timeout=35000)
+            if use_shop_ui:
+                from .human_navigation import open_search_via_ui
+                response,navigation = await open_search_via_ui(
+                    page,market_of(target),target,
+                    on_search_start=lambda:capturing_search.__setitem__(0,True))
+            else:
+                response = await page.goto(target, wait_until="domcontentloaded", timeout=35000)
             if (search and market_of(target) == "Яндекс Маркет" and response
                     and response.status in (403,429,498,503)):
                 from .public_html import fetch_public_search_html
@@ -520,7 +533,10 @@ class CloudBrowser:
                     "unlinked_low_prices": orphans,
                     "sort_requested": bool(search),
                     "http_status": response.status if response else None,
-                    "blocked_statuses": blocked_http[:5]
+                    "blocked_statuses": blocked_http[:5],
+                    "browser_headful": self.headful,
+                    "browser_persistent": self.persistent,
+                    "navigation": navigation,
                 },
             }
         except Exception as exc:
