@@ -170,6 +170,16 @@ async def run_market(job: dict, shop_id: str):
                                 if detail_accessible else "")
                 detail_match = detail_accessible and exact_product(
                     job["query"],detail_title)
+                # A shell page with the generic store title is not a
+                # verified product identity, even when HTTP status is 200.
+                # But an explicit *different* product title must still veto
+                # listing-only evidence.
+                generic_title = detail_title.strip().lower().startswith(
+                    ("wildberries", "ozon", "интернет-магазин", "публичная выдача",
+                     "похоже, нет соединения", "..."))
+                detail_identity_seen = detail_accessible and bool(
+                    (page.get("heading") or "").strip() or
+                    (detail_title.strip() and not generic_title))
                 listing_price = int(candidate.get("price") or 0)
                 listing_match = exact_product(
                     job["query"],candidate.get("title",""))
@@ -179,7 +189,7 @@ async def run_market(job: dict, shop_id: str):
                 # The DOM extractor associates prices with one product tile;
                 # generic page-wide/unlinked prices are never candidates.
                 listing_only = (
-                    not detail_accessible and
+                    (not detail_accessible or not detail_identity_seen) and
                     candidate.get("source") in ("public_ssr", "dom") and
                     listing_match and listing_price>0)
                 if not (detail_match or listing_only):
@@ -214,7 +224,7 @@ async def run_market(job: dict, shop_id: str):
                     "verified_detail":price_verified,
                     "condition":str(candidate.get("price_condition",""))[:100],
                     "note":(
-                        "Цена из карточки поисковой выдачи; страница товара не открылась"
+                        "Цена из карточки поисковой выдачи; подтверждения на странице товара нет"
                         if listing_only else
                         "Цена из публичной выдачи; модель сверена по странице"
                         if listing_price and (not structured or listing_price<structured)
