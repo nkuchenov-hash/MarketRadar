@@ -104,8 +104,14 @@ if unverified:
     print("VERDICT: INCOMPLETE — listing prices exist, but no detail-verified exact-model offer from",
           ", ".join(names.get(code,code) for code in unverified))
     sys.exit(3)
-print("VERDICT: detail-verified priced offers found from every requested marketplace")
-print("NOTE: this does not establish complete coverage, delivery eligibility or a global minimum")
+incomplete=[code for code, market in data["markets"].items()
+            if market.get("coverage_complete") is not True]
+if incomplete:
+    print("VERDICT: INCOMPLETE — verified offers exist, but listing coverage is not complete for",
+          ", ".join(names.get(code,code) for code in incomplete))
+    sys.exit(5)
+print("VERDICT: detail-verified priced offers found with reported complete listing coverage")
+print("NOTE: delivery eligibility and global minimum still require separate live comparison")
 ' "$shops"
     # Preserve the Python acceptance verdict; do not report success after exit 2/3.
     exit $?
