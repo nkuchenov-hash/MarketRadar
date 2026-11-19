@@ -76,9 +76,17 @@ jobs:
                           "delivery":x.get("delivery_hint",""),
                           "has_image":bool(x.get("image_url",""))
                       } for x in links[:12]]
-                      exact=[x for x in links if
-                             x.get("price",0)>0 and
-                             exact_product(q,x.get("title",""))]
+                      exact=sorted(
+                          [x for x in links if x.get("price",0)>0 and
+                           exact_product(q,x.get("title",""))],
+                          key=lambda x:x["price"])
+                      exact_examples=[{
+                          "price":x["price"],"title":x.get("title",""),
+                          "url":x.get("url",""),
+                          "delivery":x.get("delivery_hint",""),
+                          "price_evidence":x.get("source",""),
+                          "has_image":bool(x.get("image_url",""))
+                      } for x in exact[:20]]
                       findings[market] = {
                           "state":result.get("state"),"requested_url":sorted_search_url(url),
                           "final_url":result.get("url"),"page_title":result.get("title"),
@@ -89,6 +97,7 @@ jobs:
                           "audit":result.get("audit",{}),
                           "diagnostic":result.get("diagnostic",""),
                           "sample":examples,
+                          "cheapest_exact_examples":exact_examples,
                           "body_start":result.get("text","")[:350],
                       }
                       print(market, json.dumps(findings[market],ensure_ascii=False))
