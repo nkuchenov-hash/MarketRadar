@@ -86,7 +86,18 @@ if missing:
     print("VERDICT: FAILED — no priced offers from",
           ", ".join(names.get(code,code) for code in missing))
     sys.exit(2)
-print("VERDICT: priced offers found from every requested marketplace")
+unverified=[
+    code for code in data.get("markets",{})
+    if not any(o.get("market_id")==code and o.get("verified_detail") is True
+               and isinstance(o.get("price"),int) and o["price"]>0
+               for o in data.get("offers",[]))
+]
+if unverified:
+    print("VERDICT: INCOMPLETE — listing prices exist, but no detail-verified exact-model offer from",
+          ", ".join(names.get(code,code) for code in unverified))
+    sys.exit(3)
+print("VERDICT: detail-verified priced offers found from every requested marketplace")
+print("NOTE: this does not establish complete coverage, delivery eligibility or a global minimum")
 '
     exit 0
   fi
