@@ -248,7 +248,7 @@ def job_status(job_id: str) -> dict | None:
     offers = sorted(job["offers"],key=lambda item: (item["price"], item["market_id"]))
     return {
         "id":job_id, "state":job["state"],
-        "markets":job["markets"], "offers":offers[:80],
+        "markets":job["markets"], "offers":offers,
         "errors":job["errors"][:8], "finished":job["finished"]
     }
 
