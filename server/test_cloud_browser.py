@@ -253,7 +253,7 @@ class CloudSearchTests(unittest.TestCase):
                          <span>12 500 ₽</span>
                        </article>
                      </div>
-                    """)
+                    """,wait_until="domcontentloaded")
                     snapshot=await page.evaluate(_DOM_SNAPSHOT)
                     by_id={x["url"].split("/")[-2]:x for x in snapshot["products"]}
                     self.assertEqual(2,len(by_id))
