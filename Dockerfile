@@ -16,4 +16,6 @@ RUN chmod -R a+rX /app/server /app/web /app/extension
 RUN mkdir -p /app/data /app/downloads && python -c "import zipfile,pathlib; p=pathlib.Path('/app/extension'); z=zipfile.ZipFile('/app/downloads/marketradar-extension.zip','w',compression=zipfile.ZIP_DEFLATED); [z.write(f, f.relative_to(p)) for f in p.rglob('*') if f.is_file()]; z.close()" && useradd -m -u 10001 radar && chown -R radar:radar /app/data /app/downloads /ms-playwright
 USER radar
 EXPOSE 10000
-CMD ["sh","-c","exec xvfb-run -a -s '-screen 0 1440x900x24' uvicorn server.main:app --host 0.0.0.0 --port ${PORT:-10000} --workers 1 --proxy-headers"]
+# Keep API startup independent of the virtual display. If Chromium's Xvfb
+# fails, /health and the authenticated job status endpoint remain available.
+CMD ["sh","-c","Xvfb :99 -screen 0 1440x900x24 -nolisten tcp >/tmp/marketradar-xvfb.log 2>&1 & exec uvicorn server.main:app --host 0.0.0.0 --port ${PORT:-10000} --workers 1 --proxy-headers"]
