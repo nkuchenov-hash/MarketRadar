@@ -497,6 +497,22 @@ class CloudBrowser:
             network_tasks.add(task)
             task.add_done_callback(network_tasks.discard)
 
+        async def browser_evidence(fallback,response):
+            # Public HTML may still contain real cards, but cannot pretend
+            # that the shopper-style browser workflow actually succeeded.
+            audit=fallback.setdefault("audit",{})
+            audit["browser_headful"]=self.headful
+            audit["browser_persistent"]=self.persistent
+            audit["browser_navigation"]=dict(navigation)
+            audit["browser_http_status"]=response.status if response else None
+            try:
+                audit["browser_page_title"]=(await page.title())[:120]
+            except Exception:
+                audit["browser_page_title"]=""
+            audit["browser_page_path"]=urlparse(page.url).path[:180]
+            audit["sort_ui_confirmed"]=bool(navigation.get("sort_ui_selected"))
+            return fallback
+
         page.on("response", on_response)
         try:
             if use_shop_ui:
@@ -512,7 +528,7 @@ class CloudBrowser:
                 from .public_html import fetch_public_search_html
                 fallback = await asyncio.to_thread(fetch_public_search_html,target)
                 if fallback:
-                    return fallback
+                    return await browser_evidence(fallback,response)
                 # A marketplace can deny a URL with a price-sort parameter
                 # while still serving the regular search. Preserve genuine
                 # first-party cards and sort observed prices in our ledger.
@@ -632,7 +648,7 @@ class CloudBrowser:
                 from .public_html import fetch_public_search_html
                 fallback = await asyncio.to_thread(fetch_public_search_html,target)
                 if fallback:
-                    return fallback
+                    return await browser_evidence(fallback,response)
             all_products.sort(key=lambda c:(c["price"] <= 0,
                                       c["price"] if c["price"] else 10**12,c["url"]))
             links = all_products
