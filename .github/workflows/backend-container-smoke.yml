@@ -87,7 +87,7 @@ jobs:
                   await b.close()
           asyncio.run(run())
           PY
-      - name: Run SSR and cloud evidence regression tests in built backend
+      - name: Run SSR pagination regression in deployable backend
         shell: bash
         run: |
           # Exercise the exact runtime dependencies shipped to the VPS.
