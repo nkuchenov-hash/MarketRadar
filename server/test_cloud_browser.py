@@ -61,6 +61,35 @@ class CloudSearchTests(unittest.TestCase):
         self.assertFalse(plausible_listing(query,"Чехол для Яндекс Станции Мини 3 Про"))
         self.assertFalse(plausible_listing(query,"Климатический модуль для Станции Мини 3 Про с Алисой Яндекс"))
 
+    def test_yandex_smartcaptcha_is_not_a_successful_search(self):
+        """HTTP 200 challenge pages cannot count as a complete price scan."""
+        async def run():
+            with patch.dict(os.environ,{
+                "CLOUD_BROWSER_ENABLED":"true",
+                "CLOUD_BROWSER_HUMAN_FLOW":"false",
+                "CLOUD_BROWSER_PERSISTENT":"false",
+                "CLOUD_BROWSER_HEADFUL":"false",
+                "CLOUD_SEARCH_SCROLLS":"0",
+            }):
+                engine=CloudBrowser(market="Яндекс Маркет")
+                await engine.start()
+                try:
+                    async def captcha(route):
+                        await route.fulfill(status=200,content_type="text/html",
+                            body="<html><title>Вы не робот?</title><body>"
+                            "Подтвердите, что запросы отправляли вы, а не робот"
+                            "<div>Yandex SmartCaptcha</div></body></html>")
+                    await engine.context.route("https://market.yandex.ru/**",captcha)
+                    with patch("server.public_html.fetch_public_search_html",return_value={}):
+                        result=await engine.snapshot(
+                            "https://market.yandex.ru/search?text=test")
+                    self.assertEqual("blocked",result["state"],result)
+                    self.assertFalse(result["coverage_complete"],result)
+                    self.assertEqual([],result["links"],result)
+                finally:
+                    await engine.close()
+        asyncio.run(run())
+
     def test_real_chromium_dom_card_with_sibling_price(self):
         async def run():
             from playwright.async_api import async_playwright
