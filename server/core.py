@@ -10,7 +10,8 @@ MARKETS = {
 }
 BLOCK_WORDS = ('подозрительная активность','проверяем браузер','похоже, нет соединения',
                'captcha-support@','проверка браузера','докажите, что вы не робот',
-               'access denied','слишком много запросов','вы не робот','robot check')
+               'access denied','слишком много запросов','вы не робот','robot check',
+               'подтвердите, что запросы отправляли вы','yandex smartcaptcha')
 
 def host_allowed(url: str) -> bool:
     try:
