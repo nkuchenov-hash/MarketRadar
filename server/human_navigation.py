@@ -178,14 +178,14 @@ async def open_search_via_ui(page, market: str, target: str, on_search_start=Non
         except Exception as e:
             result["search_ui_error"] = type(e).__name__
 
-    # WB often blocks the homepage and ?sort=priceup while allowing the
-    # plain search page. Recover through that REAL browser page first, and
-    # attempt to enter the query and choose sorting through its visible UI.
+    # Storefronts may deny the homepage or a prebuilt sorted URL while
+    # serving the ordinary search page. Try that page in Chromium first,
+    # then use the visible search, filter and sort controls.
     # This distinction is audited: URL navigation is never a UI search.
-    if not result["search_ui_submitted"] and market in ("Wildberries","Ozon"):
+    if not result["search_ui_submitted"] and market in ("Wildberries","Ozon","Яндекс Маркет"):
         parsed=urlparse(target)
         plain_params=[(k,v) for k,v in parse_qsl(parsed.query,keep_blank_values=True)
-                      if k not in ("sort","sorting")]
+                      if k not in ("sort","sorting","how")]
         plain=urlunparse(parsed._replace(query=urlencode(plain_params)))
         if on_search_start: on_search_start()
         try:
@@ -196,7 +196,12 @@ async def open_search_via_ui(page, market: str, target: str, on_search_start=Non
                 plain_response.status if plain_response else None)
             response=plain_response
             await page.wait_for_timeout(900)
-            if plain_response and plain_response.status==200:
+            initial_plain_title=(await page.title()).lower()
+            result["plain_blocked"]=any(x in initial_plain_title
+                for x in ("похоже, нет соединения","вы не робот","access denied",
+                          "подтвердите, что запросы отправляли вы"))
+            if (plain_response and plain_response.status==200
+                    and not result["plain_blocked"]):
                 entry=None
                 for selector in SEARCH_INPUTS[market]:
                     try:
@@ -227,8 +232,18 @@ async def open_search_via_ui(page, market: str, target: str, on_search_start=Non
                     result["strategy"]="plain_then_ui_search"
                 else:
                     result["strategy"]="plain_browser_search"
-                # Sort by clicking the visible storefront dropdown. Never
-                # promote an unverified URL parameter to UI-selected.
+                if market=="Яндекс Маркет" and search_term(target,market).casefold().startswith("яндекс "):
+                    result["brand_filter_requested"]="Яндекс"
+                    try:
+                        brand=page.get_by_role("checkbox",name=re.compile(r"^\s*Яндекс\s*$",re.I)).first
+                        if await brand.is_visible(timeout=550):
+                            if not await brand.is_checked():
+                                await brand.check(timeout=3000)
+                            result["brand_filter_selected"]=await brand.is_checked()
+                            await page.wait_for_timeout(650)
+                    except Exception as exc:
+                        result["brand_filter_error"]=type(exc).__name__
+                # Sort using the visible store control, not a guessed URL.
                 try:
                     selected=page.get_by_role("button",name=re.compile(
                         r"^\s*(?:Подешевле|Сначала деш[её]вые)\s*$",re.I)).first
@@ -250,7 +265,9 @@ async def open_search_via_ui(page, market: str, target: str, on_search_start=Non
                                     ("sort=priceup" in page.url and
                                      market=="Wildberries") or
                                     ("sorting=price" in page.url and
-                                     market=="Ozon"))
+                                     market=="Ozon") or
+                                    ("how=aprice" in page.url and
+                                     market=="Яндекс Маркет"))
                 except Exception as exc:
                     result["plain_sort_ui_error"]=type(exc).__name__
                 if result["sort_ui_selected"]:
@@ -273,8 +290,9 @@ async def open_search_via_ui(page, market: str, target: str, on_search_start=Non
 
     # Only try the sorted URL after both visible-UI navigation and plain
     # browsing have failed. A working plain result must not be discarded.
-    plain_working=(market in ("Wildberries","Ozon") and
+    plain_working=(market in ("Wildberries","Ozon","Яндекс Маркет") and
                    result.get("plain_search_fallback") and
+                   not result.get("plain_blocked") and
                    response is not None and response.status==200)
     if not result["search_ui_submitted"] and not plain_working:
         if on_search_start: on_search_start()
