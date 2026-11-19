@@ -126,6 +126,7 @@ async def run_market(job: dict, shop_id: str):
         state["state"] = "checking"
         state["message"] = "Проверяем дешёвые карточки товаров"
         best = 0
+        best_detail_verified = 0
         max_checked = min(180, len(candidates))
         cutoff_due_to_limit = False
         verified_urls = set()
@@ -203,13 +204,17 @@ async def run_market(job: dict, shop_id: str):
                 })
                 if best == 0 or price < best:
                     best = price
+                if detail_match and (best_detail_verified == 0 or price < best_detail_verified):
+                    best_detail_verified = price
             state["message"] = (
                 f"Подтверждено {len(verified_urls)}; проверено {state['checked']}; "
                 f"лучшее предложение {best or '—'} ₽")
         if cutoff_due_to_limit:
             state["coverage_complete"] = False
             state["message"] = "Достигнут предел проверки карточек; проверка неполная"
-        state["best_verified"] = best
+        # Listing-only SSR evidence is not a verified product-detail price.
+        state["best_found"] = best
+        state["best_verified"] = best_detail_verified
         state["state"] = "complete" if state["coverage_complete"] else "partial"
         state["message"] = (
             f"Найдено {sum(o['market_id']==shop_id for o in job['offers'])} "
