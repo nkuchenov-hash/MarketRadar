@@ -41,6 +41,39 @@ class PublicCloudApiTests(unittest.TestCase):
                 self.assertEqual(200,stopped.status_code,stopped.text)
                 self.assertTrue(stopped.json()["stopped"])
 
+    def test_dom_listing_survives_blocked_product_detail(self):
+        """WB exact-model DOM prices remain visible, but never detail-verified."""
+        import asyncio
+        from server import mobile_cloud
+
+        class FakeBrowser:
+            async def start(self): pass
+            async def close(self): pass
+            async def snapshot(self, url):
+                if "/detail.aspx" in url:
+                    return {"state":"blocked","links":[]}
+                return {
+                    "state":"ok","coverage_complete":False,
+                    "links":[
+                        {"url":"https://www.wildberries.ru/catalog/123456789/detail.aspx",
+                         "title":"Умная колонка Яндекс Станция Мини 3 Про с Zigbee",
+                         "price":10990,"source":"dom","delivery_hint":"завтра"},
+                        {"url":"https://www.wildberries.ru/catalog/123456790/detail.aspx",
+                         "title":"Климатический модуль для Станции Мини 3 Про",
+                         "price":2700,"source":"dom","delivery_hint":"завтра"},
+                    ]}
+        job={"id":"dom-listing-recovery","query":"Яндекс Станция Мини 3 Про",
+             "state":"running",
+             "markets":{"wb":{"state":"pending","checked":0}},
+             "offers":[],"errors":[]}
+        with patch("server.mobile_cloud.CloudBrowser", FakeBrowser):
+            asyncio.run(mobile_cloud.run_market(job,"wb"))
+        self.assertEqual(1,len(job["offers"]),job)
+        self.assertEqual(10990,job["offers"][0]["price"])
+        self.assertFalse(job["offers"][0]["verified_detail"])
+        self.assertEqual("завтра",job["offers"][0]["delivery"])
+        self.assertIn("выдачи",job["offers"][0]["note"])
+
     def test_invalid_shops_rejected(self):
         with patch("server.main.cloud_browser.available",return_value=(True,"ok")):
             with TestClient(app) as client:
