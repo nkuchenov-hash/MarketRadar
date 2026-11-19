@@ -118,15 +118,18 @@ async def open_search_via_ui(page, market: str, target: str, on_search_start=Non
 
     # The sorted URL remains an important explicit request; a website may
     # ignore it, so the audit never equates query string with proven sorting.
-    if not result["search_ui_submitted"] or not result["sort_ui_selected"]:
+    if not result["search_ui_submitted"]:
+        # Only fall back to a direct URL if the real storefront search never
+        # navigated. Reopening a sorted URL after a successful UI search can
+        # replace a working listing with a 403/498 challenge page.
         if on_search_start: on_search_start()
         response=await page.goto(target,wait_until="domcontentloaded",timeout=35000)
         result["sort_url_requested"]=True
-        result["strategy"]=("ui_search_sorted_url" if result["search_ui_submitted"]
-                            else "home_then_sorted_url")
+        result["strategy"]="home_then_sorted_url"
     else:
         response = None
-        result["strategy"]="ui_search_sorted_ui"
+        result["strategy"]=("ui_search_sorted_ui" if result["sort_ui_selected"]
+                            else "ui_search_sort_unconfirmed")
     result["final_url"] = page.url
     # A page reached through UI has no reliable Playwright Response object
     # after the navigation has completed. HTTP errors are observed elsewhere.
