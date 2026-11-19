@@ -50,6 +50,8 @@ class CloudSearchTests(unittest.TestCase):
         self.assertTrue(exact_product(query,"Умная колонка Яндекс Станция Мини 3 Про"))
         self.assertFalse(exact_product(query,"Яндекс Станция Мини 3"))
         self.assertFalse(exact_product(query,"Чехол для Яндекс Станция Мини 3 Про"))
+        self.assertFalse(exact_product(query,"Климатический модуль для Станции Мини 3 Про с Алисой Яндекс"))
+        self.assertFalse(exact_product(query,"Держатель для Яндекс Станции Мини 3 Про"))
         self.assertFalse(exact_product(query,"Яндекс Станция Мини 3 Лайт"))
         self.assertFalse(exact_product("iPhone 15 Pro","Apple iPhone 14 Pro"))
         self.assertTrue(exact_product("iPhone 15 Pro","Apple iPhone 15 Pro 256GB"))
@@ -57,6 +59,7 @@ class CloudSearchTests(unittest.TestCase):
         self.assertTrue(plausible_listing(query,"Яндекс Станция Мини"))
         self.assertTrue(plausible_listing(query,""))
         self.assertFalse(plausible_listing(query,"Чехол для Яндекс Станции Мини 3 Про"))
+        self.assertFalse(plausible_listing(query,"Климатический модуль для Станции Мини 3 Про с Алисой Яндекс"))
 
     def test_real_chromium_dom_card_with_sibling_price(self):
         async def run():
