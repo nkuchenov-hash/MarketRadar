@@ -439,7 +439,7 @@ class CloudBrowser:
                 def quality(s):
                     if not s.strip():
                         return -1000
-                    if (re.search(r"₽|\\bруб\\b",s,re.I) or
+                    if (re.search(r"₽|\bруб\b",s,re.I) or
                             re.search(r"^(цена с картой|сплит|пэй|купить|в корзину)",s,re.I)):
                         return -100
                     return min(200,len(s.strip()))
