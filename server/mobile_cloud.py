@@ -45,6 +45,16 @@ def exact_product(query: str, title: str) -> bool:
                       "плюс", "plus", "refurbished", "восстановленный", "уценка"}
     if (given & extra_variants) - requested:
         return False
+    # A product title can contain every model token yet describe a separate
+    # accessory (e.g. a 3,000 ₽ climate module "для Станции Мини 3 Про").
+    # Reject such accessories in both listing and detail evidence gates.
+    accessory_terms = (
+        "климатический модуль", "модуль для", "чехол", "держатель",
+        "кронштейн", "подставка", "крепление", "адаптер", "кабель",
+        "защитное стекло", "блок питания", "накладка",
+    )
+    if any(term in t and term not in q for term in accessory_terms):
+        return False
     return True
 
 def plausible_listing(query: str, title: str) -> bool:
@@ -56,7 +66,8 @@ def plausible_listing(query: str, title: str) -> bool:
     q = normalize(query).replace("mini","мини").replace("pro","про")
     t = normalize(title).replace("mini","мини").replace("pro","про")
     accessory = ("чехол", "крепление", "кронштейн", "держатель", "адаптер",
-                 "кабель", "защитное стекло", "блок питания", "подставка")
+                 "кабель", "защитное стекло", "блок питания", "подставка",
+                 "климатический модуль", "модуль для", "накладка")
     if any(x in t for x in accessory) and not any(x in q for x in accessory):
         return False
     meaningful=[w for w in q.split() if len(w)>2 or w.isdigit()]
