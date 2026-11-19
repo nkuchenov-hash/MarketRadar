@@ -4,6 +4,8 @@ on:
     branches: [main]
     paths:
       - 'server/cloud_browser.py'
+      - 'server/human_navigation.py'
+      - 'server/test_human_navigation.py'
       - 'server/agent.py'
       - 'server/main.py'
       - 'server/mobile_cloud.py'
@@ -33,7 +35,7 @@ jobs:
           python -m pip install -r requirements.txt
           python -m playwright install --with-deps chromium
           python -m compileall -q server
-          python -m unittest server.test_cloud_browser server.test_mobile_api server.test_public_html -v
+          python -m unittest server.test_cloud_browser server.test_human_navigation server.test_mobile_api server.test_public_html -v
       - name: Browser search with price ordering and captured network responses
         env:
           CLOUD_BROWSER_ENABLED: "true"
