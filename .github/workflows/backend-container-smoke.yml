@@ -33,8 +33,20 @@ jobs:
             --volume "$PWD/deploy/Caddyfile:/etc/caddy/Caddyfile:ro" \
             caddy:2.10-alpine caddy validate --config /etc/caddy/Caddyfile
           rm .env.production
+      - name: Reproduce Beget root bootstrap private file permissions
+        shell: bash
+        run: |
+          # root bootstrap sets umask 077, leaving Git checkout 0700 dirs
+          # and 0600 files; this must not prevent the non-root app from booting.
+          chmod -R go-rwx server web extension
+          test "$(stat -c '%a' server)" = "700"
+          test "$(stat -c '%a' server/__init__.py)" = "600"
       - name: Build deployable Chromium backend
         run: docker build -t marketradar-backend:smoke .
+      - name: Verify image runtime file permissions without root
+        run: |
+          docker run --rm --entrypoint python marketradar-backend:smoke -c "import os, pathlib; assert os.getuid() == 10001; [pathlib.Path(p).read_bytes() for p in ('/app/server/__init__.py','/app/web/index.html')]; print('App source is readable to non-root runtime')"
+
       - name: Launch actual FastAPI container
         run: |
           docker run --detach --rm --name marketradar-backend-smoke \
