@@ -51,6 +51,8 @@ class CloudSearchTests(unittest.TestCase):
         self.assertFalse(exact_product(query,"Яндекс Станция Мини 3"))
         self.assertFalse(exact_product(query,"Чехол для Яндекс Станция Мини 3 Про"))
         self.assertFalse(exact_product(query,"Климатический модуль для Станции Мини 3 Про с Алисой Яндекс"))
+        self.assertFalse(exact_product(query,"Портативный аккумулятор для Станции Мини 3 Про YNDX-00650BLK Яндекс"))
+        self.assertFalse(exact_product(query,"Внешняя батарея для Яндекс Станция Мини 3 Про"))
         self.assertFalse(exact_product(query,"Держатель для Яндекс Станции Мини 3 Про"))
         self.assertFalse(exact_product(query,"Яндекс Станция Мини 3 Лайт"))
         self.assertFalse(exact_product("iPhone 15 Pro","Apple iPhone 14 Pro"))
@@ -60,6 +62,7 @@ class CloudSearchTests(unittest.TestCase):
         self.assertTrue(plausible_listing(query,""))
         self.assertFalse(plausible_listing(query,"Чехол для Яндекс Станции Мини 3 Про"))
         self.assertFalse(plausible_listing(query,"Климатический модуль для Станции Мини 3 Про с Алисой Яндекс"))
+        self.assertFalse(plausible_listing(query,"Портативный аккумулятор для Станции Мини 3 Про YNDX-00650BLK Яндекс"))
 
     def test_plain_search_recovers_cards_when_sorted_url_is_blocked(self):
         """Do not lose genuine priced offers solely due to sort URL denial."""
