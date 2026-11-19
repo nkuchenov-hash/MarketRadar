@@ -403,7 +403,7 @@ class CloudBrowser:
                     on_search_start=lambda:capturing_search.__setitem__(0,True))
             else:
                 response = await page.goto(target, wait_until="domcontentloaded", timeout=35000)
-            if (search and market_of(target) == "Яндекс Маркет" and response
+            if (search and response
                     and response.status in (403,429,498,503)):
                 from .public_html import fetch_public_search_html
                 fallback = await asyncio.to_thread(fetch_public_search_html,target)
@@ -508,7 +508,7 @@ class CloudBrowser:
             all_products = list(ledger.values())
             blocked = ((bool(blocked_http) and not all_products) or
                 any(t in page_text.lower() for t in BLOCK_WORDS))
-            if blocked and search and market_of(target) == "Яндекс Маркет":
+            if blocked and search:
                 from .public_html import fetch_public_search_html
                 fallback = await asyncio.to_thread(fetch_public_search_html,target)
                 if fallback:
