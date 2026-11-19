@@ -224,6 +224,7 @@ async def run_market(job: dict, shop_id: str):
                     "image_url":image[:900],
                     "delivery":str(candidate.get("delivery_hint",""))[:100],
                     "verified_detail":price_verified,
+                    "detail_price":structured if detail_match and structured > 0 else None,
                     "condition":str(candidate.get("price_condition",""))[:100],
                     "note":(
                         "Цена из карточки поисковой выдачи; подтверждения на странице товара нет"
@@ -234,8 +235,12 @@ async def run_market(job: dict, shop_id: str):
                 })
                 if best == 0 or price < best:
                     best = price
-                if price_verified and (best_detail_verified == 0 or price < best_detail_verified):
-                    best_detail_verified = price
+                # Record a higher detail-page price as independent evidence too.
+                # The cheaper listing price must not erase a verified price
+                # merely because the two observations disagree.
+                if detail_match and structured > 0:
+                    if best_detail_verified == 0 or structured < best_detail_verified:
+                        best_detail_verified = structured
             state["message"] = (
                 f"Подтверждено {len(verified_urls)}; проверено {state['checked']}; "
                 f"лучшее предложение {best or '—'} ₽")
