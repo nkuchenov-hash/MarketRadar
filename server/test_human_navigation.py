@@ -40,7 +40,7 @@ class HumanStorefrontTests(unittest.TestCase):
                     <article><a href="https://market.yandex.ru/card/thing/12345679">Яндекс Станция Мини 3 Про</a><span>11 693 ₽</span></article>
                     </body></html>"""
                     async def mock_store(route):
-                        await route.fulfill(status=200, content_type="text/html",
+                        await route.fulfill(status=200, content_type="text/html; charset=utf-8",
                             body=listing if "/search?" in route.request.url else home)
                     await browser.context.route("https://market.yandex.ru/**",mock_store)
                     result=await browser.snapshot(
@@ -139,7 +139,7 @@ class HumanStorefrontTests(unittest.TestCase):
                             await route.fulfill(status=498,content_type="text/html",
                                 body="<html><title>Restricted</title></html>")
                         elif "/catalog/0/search.aspx" in url:
-                            await route.fulfill(status=200,content_type="text/html",
+                            await route.fulfill(status=200,content_type="text/html; charset=utf-8",
                                 body=listing)
                         else:
                             await route.fulfill(status=498,content_type="text/html",
