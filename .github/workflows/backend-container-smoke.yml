@@ -92,12 +92,13 @@ jobs:
         run: |
           # Exercise the exact runtime dependencies shipped to the VPS.
           docker cp tests/. marketradar-backend-smoke:/tmp/marketradar-tests/
-          docker exec marketradar-backend-smoke python -m unittest discover \
-            -s /tmp/marketradar-tests -p 'test_ssr_pagination_failure_ledger.py' -v
-          docker exec marketradar-backend-smoke python -m unittest discover \
-            -s /tmp/marketradar-tests -p 'test_cloud_verification_evidence.py' -v
-          docker exec marketradar-backend-smoke python -m unittest discover \
-            -s /tmp/marketradar-tests -p 'test_mobile_cloud_offer_ledger.py' -v
+          # Production requirements remain unchanged: install pytest only into
+          # this throwaway smoke-test container for pytest-style regressions.
+          docker exec -u 0 marketradar-backend-smoke python -m pip install -q --no-cache-dir pytest
+          docker exec marketradar-backend-smoke python -m pytest -q \
+            /tmp/marketradar-tests/test_ssr_pagination_failure_ledger.py \
+            /tmp/marketradar-tests/test_cloud_verification_evidence.py \
+            /tmp/marketradar-tests/test_mobile_cloud_offer_ledger.py
       - name: Verify real Android REST job contract
         shell: bash
         run: |
