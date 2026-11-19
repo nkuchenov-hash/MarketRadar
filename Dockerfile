@@ -1,6 +1,6 @@
 FROM python:3.12-slim
 WORKDIR /app
-ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 DB_PATH=/app/data/marketradar.sqlite3 PLAYWRIGHT_BROWSERS_PATH=/ms-playwright CLOUD_BROWSER_ENABLED=true
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 DB_PATH=/app/data/marketradar.sqlite3 PLAYWRIGHT_BROWSERS_PATH=/ms-playwright CLOUD_BROWSER_ENABLED=true DISPLAY=:99
 COPY requirements.txt ./
 RUN apt-get update && apt-get install -y --no-install-recommends libatomic1 xvfb xauth \
     && rm -rf /var/lib/apt/lists/* \
