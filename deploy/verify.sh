@@ -62,6 +62,16 @@ for code,market in data["markets"].items():
     print("{}: state={}; offers={}; price-verified={}; cheapest-observed={}; candidates={}; complete={}; http={}".format(
         names.get(code,code),market.get("state"),len(offers),confirmed,best,
         market.get("candidates"),market.get("coverage_complete"),audit.get("http_status")))
+    nav=audit.get("navigation") or {}
+    if nav:
+        print("  browser:", "headed" if audit.get("browser_headful") else "headless",
+              "persistent:", bool(audit.get("browser_persistent")),
+              "route:",nav.get("strategy"),"homeHTTP:",nav.get("home_http_status"),
+              "homeTitle:",nav.get("home_title"),
+              "searchField:",nav.get("search_ui_found"),
+              "searchSubmitted:",nav.get("search_ui_submitted"),
+              "sortSelected:",nav.get("sort_ui_selected"),
+              "searchHTTP:",nav.get("search_http_status"))
     if market.get("message"):
         print("  status:",market["message"][:220])
     for item in sorted(offers,key=lambda x:x.get("price",10**15))[:3]:
