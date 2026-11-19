@@ -139,10 +139,17 @@ _TRANSLITERATION = {
 
 
 def _title_from_slug(url: str) -> str:
-    path = urlparse(url).path.split("/")
-    if len(path) < 3:
+    path = [part for part in urlparse(url).path.split("/") if part]
+    if not path:
         return ""
-    slug = unquote(path[2])
+    # Yandex product URLs use /product--<slug>/<id>; the model is in
+    # the first segment, not the numeric product ID in the second one.
+    if path[0].startswith("product--"):
+        slug = unquote(path[0][len("product--"):])
+    elif path[0] in ("product", "products") and len(path) > 1:
+        slug = unquote(path[1])
+    else:
+        return ""
     return " ".join(_TRANSLITERATION.get(word,word)
                     for word in re.split(r"-+", slug) if word)[:240]
 
