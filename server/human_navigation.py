@@ -5,7 +5,6 @@ Records whether the browser reached a live search and requested price sorting.
 """
 from __future__ import annotations
 
-import asyncio
 import re
 from urllib.parse import parse_qs, urlparse
 
@@ -46,7 +45,7 @@ def is_store_search(url: str, market: str) -> bool:
         "search" in p.path.lower())
 
 
-async def open_search_via_ui(page, market: str, target: str):
+async def open_search_via_ui(page, market: str, target: str, on_search_start=None):
     """Open home, type into the site's real search bar and choose cheap-first.
 
     Falls back to normal sorted search URL if selectors changed. Each outcome
@@ -65,6 +64,7 @@ async def open_search_via_ui(page, market: str, target: str):
     }
     home = STOREFRONTS.get(market)
     if not home:
+        if on_search_start: on_search_start()
         response = await page.goto(target, wait_until="domcontentloaded", timeout=35000)
         result["strategy"] = "direct"
         result["search_http_status"] = response.status if response else None
@@ -96,6 +96,7 @@ async def open_search_via_ui(page, market: str, target: str):
             await search_input.click(timeout=4000)
             await search_input.fill("")
             await search_input.press_sequentially(query,delay=65)
+            if on_search_start: on_search_start()
             await search_input.press("Enter")
             await page.wait_for_timeout(1700)
             result["search_ui_submitted"] = is_store_search(page.url,market)
@@ -118,12 +119,13 @@ async def open_search_via_ui(page, market: str, target: str):
     # The sorted URL remains an important explicit request; a website may
     # ignore it, so the audit never equates query string with proven sorting.
     if not result["search_ui_submitted"] or not result["sort_ui_selected"]:
+        if on_search_start: on_search_start()
         response=await page.goto(target,wait_until="domcontentloaded",timeout=35000)
         result["sort_url_requested"]=True
         result["strategy"]=("ui_search_sorted_url" if result["search_ui_submitted"]
                             else "home_then_sorted_url")
     else:
-        response = page.main_frame
+        response = None
         result["strategy"]="ui_search_sorted_ui"
     result["final_url"] = page.url
     # A page reached through UI has no reliable Playwright Response object
