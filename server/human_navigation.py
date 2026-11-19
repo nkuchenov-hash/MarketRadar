@@ -169,7 +169,9 @@ async def open_search_via_ui(page, market: str, target: str, on_search_start=Non
                                         r"^\s*(?:Подешевле|Сначала деш[её]вые)\s*$",re.I)).first
                                     result["sort_ui_selected"] = (
                                         await chosen.is_visible(timeout=600) or
-                                        ("how=aprice" in page.url and market=="Яндекс Маркет"))
+                                        ("how=aprice" in page.url and market=="Яндекс Маркет") or
+                                        ("sort=priceup" in page.url and market=="Wildberries") or
+                                        ("sorting=price" in page.url and market=="Ozon"))
                                     break
                 except Exception as e:
                     result["sort_ui_error"] = type(e).__name__
@@ -214,9 +216,9 @@ async def open_search_via_ui(page, market: str, target: str, on_search_start=Non
                         result["search_query_typed"]=True
                         await entry.press("Enter")
                         await page.wait_for_timeout(1300)
+                        plain_title=(await page.title()).lower()
                         result["search_ui_submitted"]=is_store_search(
-                            page.url,market) and not any(x in
-                            (await page.title()).lower()
+                            page.url,market) and not any(x in plain_title
                             for x in ("похоже, нет соединения","вы не робот",
                                       "access denied"))
                     except Exception as exc:
