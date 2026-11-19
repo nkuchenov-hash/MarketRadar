@@ -173,13 +173,14 @@ async def run_market(job: dict, shop_id: str):
                 listing_price = int(candidate.get("price") or 0)
                 listing_match = exact_product(
                     job["query"],candidate.get("title",""))
-                # The fallback is a real public storefront listing with its
-                # own price and product link. If the detail page is denied,
-                # retain the offer as LISTING-ONLY, clearly not verified by
-                # the detail page. Never do this for unrelated DOM snapshots.
+                # A listing-specific price from the store's own SSR or DOM
+                # is useful even if opening the item returns HTTP 403/498.
+                # Keep exact-model offers as LISTING-ONLY, not detail verified.
+                # The DOM extractor associates prices with one product tile;
+                # generic page-wide/unlinked prices are never candidates.
                 listing_only = (
                     not detail_accessible and
-                    candidate.get("source")=="public_ssr" and
+                    candidate.get("source") in ("public_ssr", "dom") and
                     listing_match and listing_price>0)
                 if not (detail_match or listing_only):
                     continue
@@ -213,7 +214,7 @@ async def run_market(job: dict, shop_id: str):
                     "verified_detail":price_verified,
                     "condition":str(candidate.get("price_condition",""))[:100],
                     "note":(
-                        "Цена из выдачи; страница товара не открылась"
+                        "Цена из карточки поисковой выдачи; страница товара не открылась"
                         if listing_only else
                         "Цена из публичной выдачи; модель сверена по странице"
                         if listing_price and (not structured or listing_price<structured)
