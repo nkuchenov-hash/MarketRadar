@@ -33,6 +33,8 @@ class HumanStorefrontTests(unittest.TestCase):
                     <form onsubmit="event.preventDefault();location.href='/search?text='+encodeURIComponent(document.getElementById('header-search').value)">
                     <input id="header-search" type="search"></form></body></html>"""
                     listing="""<html><title>Yandex search</title><body>
+                    <form onsubmit="event.preventDefault();location.href='/search?text='+encodeURIComponent(document.getElementById('header-search').value)">
+                    <input id="header-search" type="search"></form>
                     <label><input type="checkbox" id="brand">Яндекс</label>
                     <button id="sort" onclick="document.getElementById('cheap').hidden=false">По популярности</button>
                     <div role="option" id="cheap" hidden onclick="document.getElementById('sort').innerText='Подешевле';this.hidden=true;history.replaceState(null,'',location.pathname+location.search+'&how=aprice')">Подешевле</div>
@@ -56,8 +58,8 @@ class HumanStorefrontTests(unittest.TestCase):
                     await browser.close()
         asyncio.run(run())
 
-    def test_yandex_captcha_home_recovers_plain_search_ui(self):
-        """A blocked homepage must not force an unverified sorted URL."""
+    def test_yandex_search_link_avoids_captcha_home(self):
+        """Start at regular search; do not visit a homepage that requires CAPTCHA."""
         from .mobile_cloud import exact_product
         async def run():
             with patch.dict(os.environ,{
@@ -95,7 +97,8 @@ class HumanStorefrontTests(unittest.TestCase):
                         "https://market.yandex.ru/search?text=%D0%AF%D0%BD%D0%B4%D0%B5%D0%BA%D1%81+%D0%A1%D1%82%D0%B0%D0%BD%D1%86%D0%B8%D1%8F+%D0%9C%D0%B8%D0%BD%D0%B8+3+%D0%9F%D1%80%D0%BE")
                     nav=result["audit"]["navigation"]
                     self.assertEqual("ok",result["state"],result)
-                    self.assertTrue(nav["plain_search_fallback"],nav)
+                    self.assertEqual("plain_search",nav["entry_point"],nav)
+                    self.assertFalse(nav.get("plain_search_fallback",False),nav)
                     self.assertTrue(nav["search_ui_submitted"],nav)
                     self.assertTrue(nav["brand_filter_selected"],nav)
                     self.assertTrue(nav["sort_ui_selected"],nav)
