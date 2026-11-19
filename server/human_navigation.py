@@ -6,7 +6,7 @@ Records whether the browser reached a live search and requested price sorting.
 from __future__ import annotations
 
 import re
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, parse_qsl, urlencode, urlparse, urlunparse
 
 STOREFRONTS = {
     "Wildberries": "https://www.wildberries.ru/",
@@ -176,17 +176,110 @@ async def open_search_via_ui(page, market: str, target: str, on_search_start=Non
         except Exception as e:
             result["search_ui_error"] = type(e).__name__
 
-    # The sorted URL remains an important explicit request; a website may
-    # ignore it, so the audit never equates query string with proven sorting.
-    if not result["search_ui_submitted"]:
-        # Only fall back to a direct URL if the real storefront search never
-        # navigated. Reopening a sorted URL after a successful UI search can
-        # replace a working listing with a 403/498 challenge page.
+    # WB often blocks the homepage and ?sort=priceup while allowing the
+    # plain search page. Recover through that REAL browser page first, and
+    # attempt to enter the query and choose sorting through its visible UI.
+    # This distinction is audited: URL navigation is never a UI search.
+    if not result["search_ui_submitted"] and market in ("Wildberries","Ozon"):
+        parsed=urlparse(target)
+        plain_params=[(k,v) for k,v in parse_qsl(parsed.query,keep_blank_values=True)
+                      if k not in ("sort","sorting")]
+        plain=urlunparse(parsed._replace(query=urlencode(plain_params)))
+        if on_search_start: on_search_start()
+        try:
+            plain_response=await page.goto(
+                plain,wait_until="domcontentloaded",timeout=30000)
+            result["plain_search_fallback"]=True
+            result["plain_search_http_status"]=(
+                plain_response.status if plain_response else None)
+            response=plain_response
+            await page.wait_for_timeout(900)
+            if plain_response and plain_response.status==200:
+                entry=None
+                for selector in SEARCH_INPUTS[market]:
+                    try:
+                        item=page.locator(selector).first
+                        if await item.is_visible(timeout=600):
+                            entry=item
+                            break
+                    except Exception:
+                        continue
+                if entry is not None:
+                    result["search_ui_found"]=True
+                    try:
+                        await entry.click(timeout=3500)
+                        await entry.fill("")
+                        await entry.press_sequentially(
+                            search_term(target,market),delay=65)
+                        result["search_query_typed"]=True
+                        await entry.press("Enter")
+                        await page.wait_for_timeout(1300)
+                        result["search_ui_submitted"]=is_store_search(
+                            page.url,market) and not any(x in
+                            (await page.title()).lower()
+                            for x in ("похоже, нет соединения","вы не робот",
+                                      "access denied"))
+                    except Exception as exc:
+                        result["plain_ui_error"]=type(exc).__name__
+                if result["search_ui_submitted"]:
+                    result["strategy"]="plain_then_ui_search"
+                else:
+                    result["strategy"]="plain_browser_search"
+                # Sort by clicking the visible storefront dropdown. Never
+                # promote an unverified URL parameter to UI-selected.
+                try:
+                    selected=page.get_by_role("button",name=re.compile(
+                        r"^\\s*(?:Подешевле|Сначала деш[её]вые)\\s*$",re.I)).first
+                    if await selected.is_visible(timeout=550):
+                        result["sort_ui_selected"]=True
+                    else:
+                        control=page.get_by_text(SORT_MENU).first
+                        if await control.is_visible(timeout=900):
+                            await control.click(timeout=3500)
+                            await page.wait_for_timeout(350)
+                            choice=page.get_by_text(SORT_ASC).last
+                            if await choice.is_visible(timeout=900):
+                                await choice.click(timeout=3500)
+                                await page.wait_for_timeout(950)
+                                chosen=page.get_by_role("button",name=re.compile(
+                                    r"^\\s*(?:Подешевле|Сначала деш[её]вые)\\s*$",re.I)).first
+                                result["sort_ui_selected"]=(
+                                    await chosen.is_visible(timeout=550) or
+                                    ("sort=priceup" in page.url and
+                                     market=="Wildberries") or
+                                    ("sorting=price" in page.url and
+                                     market=="Ozon"))
+                except Exception as exc:
+                    result["plain_sort_ui_error"]=type(exc).__name__
+                if result["sort_ui_selected"]:
+                    result["strategy"]+="_sorted_ui"
+                else:
+                    result["strategy"]+="_sort_unconfirmed"
+                # If re-submitting loses the search page, restore the
+                # already accessible regular search before scanning cards.
+                html_title=(await page.title()).lower()
+                if any(x in html_title for x in (
+                        "похоже, нет соединения","вы не робот","access denied")):
+                    response=await page.goto(
+                        plain,wait_until="domcontentloaded",timeout=22000)
+                    result["plain_search_restored"]=True
+                    result["search_ui_submitted"]=False
+                    result["sort_ui_selected"]=False
+                    result["strategy"]="plain_search_restored_unsorted"
+        except Exception as exc:
+            result["plain_search_error"]=type(exc).__name__
+
+    # Only try the sorted URL after both visible-UI navigation and plain
+    # browsing have failed. A working plain result must not be discarded.
+    plain_working=(market in ("Wildberries","Ozon") and
+                   result.get("plain_search_fallback") and
+                   response is not None and response.status==200)
+    if not result["search_ui_submitted"] and not plain_working:
         if on_search_start: on_search_start()
         response=await page.goto(target,wait_until="domcontentloaded",timeout=35000)
         result["sort_url_requested"]=True
-        result["strategy"]="home_then_sorted_url"
-    else:
+        result["strategy"]="url_last_resort"
+    elif not plain_working:
         response = None
         result["strategy"]=("ui_search_sorted_ui" if result["sort_ui_selected"]
                             else "ui_search_sort_unconfirmed")
