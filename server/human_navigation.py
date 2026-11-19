@@ -229,7 +229,7 @@ async def open_search_via_ui(page, market: str, target: str, on_search_start=Non
                 # promote an unverified URL parameter to UI-selected.
                 try:
                     selected=page.get_by_role("button",name=re.compile(
-                        r"^\\s*(?:Подешевле|Сначала деш[её]вые)\\s*$",re.I)).first
+                        r"^\s*(?:Подешевле|Сначала деш[её]вые)\s*$",re.I)).first
                     if await selected.is_visible(timeout=550):
                         result["sort_ui_selected"]=True
                     else:
@@ -242,7 +242,7 @@ async def open_search_via_ui(page, market: str, target: str, on_search_start=Non
                                 await choice.click(timeout=3500)
                                 await page.wait_for_timeout(950)
                                 chosen=page.get_by_role("button",name=re.compile(
-                                    r"^\\s*(?:Подешевле|Сначала деш[её]вые)\\s*$",re.I)).first
+                                    r"^\s*(?:Подешевле|Сначала деш[её]вые)\s*$",re.I)).first
                                 result["sort_ui_selected"]=(
                                     await chosen.is_visible(timeout=550) or
                                     ("sort=priceup" in page.url and
