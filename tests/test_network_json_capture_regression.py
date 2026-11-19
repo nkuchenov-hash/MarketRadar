@@ -53,3 +53,19 @@ def test_nested_marketplace_payload_preserves_last_product():
     assert len(offers) == 1500
     assert any("/catalog/701499/detail.aspx" in x["url"] for x in offers)
     assert visited > 1500
+
+
+def test_deeply_nested_first_party_feed_keeps_product():
+    product = {"id": 987654321, "name": "Яндекс Станция Мини 3 Про",
+               "salePriceU": 899900}
+    payload = product
+    for _ in range(30):
+        payload = {"data": [payload]}
+    offers, visited = network_products(
+        payload, "https://www.wildberries.ru/catalog/0/search.aspx",
+        market="Wildberries",
+    )
+    assert visited > 30
+    assert len(offers) == 1
+    assert offers[0]["url"].endswith("/catalog/987654321/detail.aspx")
+    assert offers[0]["price"] == 8999
