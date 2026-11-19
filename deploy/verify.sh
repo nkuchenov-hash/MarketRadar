@@ -49,7 +49,9 @@ for attempt in $(seq 1 180); do
   output="$(curl --fail-with-body -sS --max-time 20 "$BASE/api/mobile/browser/jobs/$id" \
      -H "X-MarketRadar-Key: $MARKETRADAR_MOBILE_ACCESS_KEY")"
   state="$(printf '%s' "$output" | python3 -c 'import sys,json;print(json.load(sys.stdin)["state"])')"
-  if [[ "$state" != "running" ]]; then
+  # Jobs may remain queued while the browser worker starts. Only terminal states
+  # should enter the acceptance gate; otherwise keep polling.
+  if [[ "$state" != "running" && "$state" != "queued" && "$state" != "pending" && "$state" != "starting" ]]; then
     printf '%s' "$output" | python3 -c '
 import json,sys
 data=json.load(sys.stdin)
