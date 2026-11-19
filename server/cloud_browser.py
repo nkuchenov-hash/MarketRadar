@@ -69,7 +69,9 @@ def network_products(payload, origin: str, max_nodes=12000, market: str | None =
         visited += 1
         if isinstance(node, list):
             if depth < 20:
-                todo.extend((x, depth + 1) for x in node[:1000])
+                # Do not silently discard products after the first 1,000 entries.
+                # max_nodes still bounds traversal of unusually large payloads.
+                todo.extend((x, depth + 1) for x in reversed(node))
             continue
         if not isinstance(node, dict):
             continue
