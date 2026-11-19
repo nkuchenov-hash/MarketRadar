@@ -204,6 +204,35 @@ class CloudSearchTests(unittest.TestCase):
                     await browser.close()
         asyncio.run(run())
 
+    def test_yandex_pay_label_does_not_replace_model_title(self):
+        """Pricing and product links of the same item must retain its real model."""
+        async def run():
+            from playwright.async_api import async_playwright
+            async with async_playwright() as p:
+                browser=await p.chromium.launch(headless=True)
+                try:
+                    page=await browser.new_page()
+                    await page.set_content("""
+                      <article>
+                       <a href="https://market.yandex.ru/card/speaker/12345678">
+                         Цена с картой Яндекс Пэй 14 175 ₽ вместо 15 550 ₽
+                       </a>
+                       <h3><a href="https://market.yandex.ru/card/speaker/12345678">
+                         Умная колонка Яндекс Станция Мини 3 Про с Алисой
+                       </a></h3>
+                       <span>11 693 ₽ Пэй</span>
+                      </article>
+                    """)
+                    products=(await page.evaluate(_DOM_SNAPSHOT))["products"]
+                    self.assertEqual(2,len(products))
+                    for item in products:
+                        self.assertIn("Станция Мини 3 Про",item["title"],products)
+                        self.assertNotIn("Цена с картой",item["title"],products)
+                        self.assertEqual(11693,item["price"],products)
+                finally:
+                    await browser.close()
+        asyncio.run(run())
+
     def test_yandex_split_installment_is_not_a_product_price(self):
         """A cheaper monthly split amount must not become the shop's price."""
         async def run():
