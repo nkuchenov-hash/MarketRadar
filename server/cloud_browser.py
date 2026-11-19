@@ -163,9 +163,18 @@ _DOM_SNAPSHOT = r"""() => {
             (a.parentElement?.innerText||a.innerText);
         const context = (tile?.innerText || fallback || '')
             .trim().slice(0,2200);
-        const title = (a.getAttribute('title') || a.getAttribute('aria-label') ||
-            a.innerText || a.querySelector('img')?.alt ||
-            tile?.querySelector('img')?.alt || '').trim().slice(0,300);
+        const titleCandidates = [
+            a.getAttribute('title'), a.getAttribute('aria-label'), a.innerText,
+            tile?.querySelector('h3,h2,[data-auto*="snippet-title"],[data-testid*="title"]')?.innerText,
+            a.querySelector('img')?.alt, tile?.querySelector('img')?.alt
+        ];
+        const properTitle = s => {
+            const v = (s||'').trim();
+            return v.length >= 8 && !/(?:₽|руб\.?|в\s+сплит)/i.test(v) &&
+                !/^(?:цена\s+с\s+картой|сплит|пэй|в\s+корзину|купить)/i.test(v);
+        };
+        const title = (titleCandidates.find(properTitle) ||
+            titleCandidates.find(s=>!!(s||'').trim()) || '').trim().slice(0,300);
         price.lastIndex = 0;
         const matches = [...context.matchAll(price)];
         // Instalment labels such as "6×1 949 ₽ в Сплит" are NOT the
@@ -426,8 +435,16 @@ class CloudBrowser:
                                "image_url": str(item.get("image_url",""))[:900],
                                "delivery_hint": str(item.get("delivery_hint",""))[:100]}
             else:
-                if len(str(item.get("title",""))) > len(existing["title"]):
-                    existing["title"] = str(item["title"])[:300]
+                new_title=str(item.get("title",""))[:300]
+                def quality(s):
+                    if not s.strip():
+                        return -1000
+                    if (re.search(r"₽|\\bруб\\b",s,re.I) or
+                            re.search(r"^(цена с картой|сплит|пэй|купить|в корзину)",s,re.I)):
+                        return -100
+                    return min(200,len(s.strip()))
+                if quality(new_title) > quality(existing["title"]):
+                    existing["title"] = new_title
                 if len(str(item.get("context",""))) > len(existing["context"]):
                     existing["context"] = str(item["context"])[:1100]
                 if not existing.get("image_url") and item.get("image_url"):
