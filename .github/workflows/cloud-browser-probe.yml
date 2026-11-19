@@ -110,6 +110,20 @@ jobs:
               if failed:
                   raise RuntimeError("No genuine exact-model priced listings from: " +
                                      ", ".join(failed))
+              # The acceptance gate must catch a priced HTML extraction
+              # that never typed into the real website or clicked its sort.
+              # A successful search URL request is NOT human-style browsing.
+              not_human=[]
+              for market,record in findings.items():
+                  nav=(record.get("audit") or {}).get("navigation") or {}
+                  if not (nav.get("search_query_typed") and
+                          nav.get("search_ui_submitted") and
+                          nav.get("sort_ui_selected")):
+                      not_human.append(market)
+              if not_human:
+                  raise RuntimeError(
+                      "Shopper UI sequence was NOT completed (type, submit, sort): " +
+                      ", ".join(not_human))
           asyncio.run(main())
           PY
       - uses: actions/upload-artifact@v4
