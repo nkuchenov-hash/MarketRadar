@@ -61,6 +61,56 @@ class CloudSearchTests(unittest.TestCase):
         self.assertFalse(plausible_listing(query,"Чехол для Яндекс Станции Мини 3 Про"))
         self.assertFalse(plausible_listing(query,"Климатический модуль для Станции Мини 3 Про с Алисой Яндекс"))
 
+    def test_plain_search_recovers_cards_when_sorted_url_is_blocked(self):
+        """Do not lose genuine priced offers solely due to sort URL denial."""
+        async def run():
+            with patch.dict(os.environ,{
+                "CLOUD_BROWSER_ENABLED":"true",
+                "CLOUD_BROWSER_HUMAN_FLOW":"false",
+                "CLOUD_BROWSER_HEADFUL":"false",
+                "CLOUD_BROWSER_PERSISTENT":"false",
+                "CLOUD_SEARCH_SCROLLS":"1",
+            }):
+                cases=[
+                    ("Wildberries",
+                     "https://www.wildberries.ru/catalog/0/search.aspx?search=test",
+                     "https://www.wildberries.ru/catalog/123456789/detail.aspx"),
+                    ("Ozon",
+                     "https://www.ozon.ru/search/?text=test",
+                     "https://www.ozon.ru/product/speaker-123456789/"),
+                ]
+                for market,search_url,product in cases:
+                    with self.subTest(market=market):
+                        engine=CloudBrowser(market=market)
+                        await engine.start()
+                        try:
+                            host="wildberries.ru" if market=="Wildberries" else "ozon.ru"
+                            async def mock_store(route):
+                                request_url=route.request.url
+                                if "sort=priceup" in request_url or "sorting=price" in request_url:
+                                    await route.fulfill(
+                                        status=498 if market=="Wildberries" else 403,
+                                        content_type="text/html",
+                                        body="<html><body>Проверяем браузер</body></html>")
+                                else:
+                                    await route.fulfill(
+                                        status=200,
+                                        content_type="text/html; charset=utf-8",
+                                        body=("<html><body><article><a href='" + product +
+                                              "'>Яндекс Станция Мини 3 Про</a>" +
+                                              "<span>11 200 ₽</span></article></body></html>"))
+                            await engine.context.route("https://www."+host+"/**",mock_store)
+                            with patch("server.public_html.fetch_public_search_html",return_value={}):
+                                result=await engine.snapshot(search_url)
+                            self.assertEqual("ok",result["state"],result)
+                            self.assertEqual(11200,result["links"][0]["price"],result)
+                            self.assertTrue(result["audit"]["plain_search_fallback"])
+                            self.assertFalse(result["coverage_complete"])
+                            self.assertEqual(200,result["audit"]["http_status"])
+                        finally:
+                            await engine.close()
+        asyncio.run(run())
+
     def test_yandex_smartcaptcha_is_not_a_successful_search(self):
         """HTTP 200 challenge pages cannot count as a complete price scan."""
         async def run():
