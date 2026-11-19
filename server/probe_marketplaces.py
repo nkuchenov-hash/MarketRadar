@@ -20,7 +20,8 @@ QUERY = "Яндекс Станция Мини 3 Про"
 
 
 async def probe_one(market, config):
-    browser = CloudBrowser()
+    # Exercise the actual per-shop persistent profile, not the diagnostic one.
+    browser = CloudBrowser(market=market)
     try:
         await browser.start()
         result = await browser.snapshot(config["search"].format(q=quote(QUERY)))
