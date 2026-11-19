@@ -456,6 +456,8 @@ class CloudBrowser:
                     existing["source"] = item.get("source", existing["source"])
 
         network_truncated = [0]
+        network_parse_errors = [0]
+        network_pending = [0]
 
         async def parse_response(response):
             nonlocal network_count
@@ -493,7 +495,8 @@ class CloudBrowser:
                 for item in found:
                     preserve(item)
             except Exception:
-                pass
+                # Failed JSON decoding must invalidate completeness, not vanish.
+                network_parse_errors[0] += 1
 
         def on_response(response):
             task = asyncio.create_task(parse_response(response))
@@ -643,7 +646,8 @@ class CloudBrowser:
                     }""")
                     await page.wait_for_timeout(250)
             if network_tasks:
-                await asyncio.wait(network_tasks, timeout=4)
+                _, pending = await asyncio.wait(network_tasks, timeout=4)
+                network_pending[0] = len(pending)
             all_products = list(ledger.values())
             blocked = ((bool(blocked_http) and not all_products) or
                 any(t in page_text.lower() for t in BLOCK_WORDS))
@@ -670,11 +674,17 @@ class CloudBrowser:
                 "coverage_complete": bool(complete and not blocked
                                           and not navigation.get("plain_search_fallback")
                                           and (not use_shop_ui or navigation.get("sort_ui_selected"))
-                                           and not network_truncated[0]),
+                                           and not network_truncated[0]
+                                          and not network_parse_errors[0]
+                                          and not network_pending[0]
+                                          and len(links) <= 6000),
                 "audit": {
                     "raw_seen": raw_count, "unique_products": len(ledger),
                     "network_products": network_count,
                      "network_truncated_responses": network_truncated[0],
+                    "network_parse_errors": network_parse_errors[0],
+                    "network_pending_responses": network_pending[0],
+                    "output_truncated_products": max(0, len(links) - 6000),
                     "dom_snapshots": visited_snapshots, "pages": page_count,
                     "load_more_clicks": load_more_count,
                     "priced_products": sum(x["price"] > 0 for x in links),
