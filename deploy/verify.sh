@@ -54,6 +54,11 @@ for attempt in $(seq 1 180); do
 import json,sys
 data=json.load(sys.stdin)
 names={"ym":"Яндекс Маркет","wb":"Wildberries","ozon":"Ozon"}
+expected=set(json.loads(sys.argv[1]))
+actual=set(data.get("markets",{}))
+if data.get("state")!="finished" or actual!=expected:
+    print("VERDICT: FAILED — job state or returned markets mismatch:",data.get("state"),sorted(actual),sorted(expected))
+    sys.exit(4)
 for code,market in data["markets"].items():
     offers=[o for o in data.get("offers",[]) if o.get("market_id")==code]
     audit=market.get("audit") or {}
@@ -89,6 +94,7 @@ if missing:
 unverified=[
     code for code in data.get("markets",{})
     if not any(o.get("market_id")==code and
+               o.get("verified_detail") is True and
                isinstance(o.get("detail_price"),int) and o["detail_price"]>0
                for o in data.get("offers",[]))
 ]
@@ -98,7 +104,7 @@ if unverified:
     sys.exit(3)
 print("VERDICT: detail-verified priced offers found from every requested marketplace")
 print("NOTE: this does not establish complete coverage, delivery eligibility or a global minimum")
-'
+' "$shops"
     # Preserve the Python acceptance verdict; do not report success after exit 2/3.
     exit $?
   fi
