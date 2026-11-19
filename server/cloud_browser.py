@@ -170,8 +170,50 @@ _DOM_SNAPSHOT = r"""() => {
         const matches = [...context.matchAll(price)];
         const prices = matches.map(m => Number(m[1].replace(/\D/g,'')))
             .filter(n => n >= 100 && n <= 50000000);
-        const img = tile?.querySelector('img') || a.querySelector('img');
-        const imageUrl = img?.currentSrc || img?.getAttribute('src') || '';
+        // Product images may be lazy-loaded, protocol-relative or stored
+        // in <picture> source/srcset rather than a populated <img src>.
+        // Only inspect a node containing at most this one product, never
+        // steal a neighbouring product's image from the whole grid.
+        const imageRoot = tile || (uniqueProducts(a.parentElement || a) <= 1
+            ? a.parentElement : a);
+        function safeImage(raw) {
+            if (!raw || /^data:|^blob:/i.test(raw)) return '';
+            try {
+                const u = new URL(raw, document.baseURI);
+                return u.protocol === 'https:' ? u.href : '';
+            } catch(e) { return ''; }
+        }
+        let imageUrl = '';
+        const imageNodes = [
+            ...(imageRoot?.querySelectorAll('picture source, img') || [])
+        ].slice(0, 15);
+        for (const img of imageNodes) {
+            const srcset = s => (s || '').split(',')[0].trim().split(/\s+/)[0];
+            const possibilities = [
+                img.getAttribute('data-src'),
+                img.getAttribute('data-original'),
+                img.getAttribute('data-lazy-src'),
+                img.currentSrc,
+                img.getAttribute('src'),
+                srcset(img.getAttribute('srcset')),
+                srcset(img.getAttribute('data-srcset'))
+            ];
+            for (const raw of possibilities) {
+                imageUrl = safeImage(raw);
+                if (imageUrl) break;
+            }
+            if (imageUrl) break;
+        }
+        if (!imageUrl && imageRoot) {
+            const backgrounds = [imageRoot,
+                ...imageRoot.querySelectorAll('[style*="background"]')].slice(0,15);
+            for (const el of backgrounds) {
+                const css = getComputedStyle(el).backgroundImage || '';
+                const match = css.match(/url\(["']?([^"')]+)["']?\)/i);
+                if (match) imageUrl = safeImage(match[1]);
+                if (imageUrl) break;
+            }
+        }
         const date = context.match(/(?:сегодня|завтра|послезавтра|через\s*\d{1,2}\s*дн|\d{1,2}\s*(?:января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря))/i);
         products.push({url:a.href, title, context,
             price:prices.length ? Math.min(...prices) : 0,
