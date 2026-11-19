@@ -1013,7 +1013,9 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         return best==Integer.MAX_VALUE?0:best;
     }
     private boolean qualifies(ScanEngine.Offer o,int timelyBest){
-        return o.price>0&&deliveryPolicy.timely(o.deliveryHint);
+        // Respect the configured exception for a substantially cheaper
+        // offer arriving after the deadline; unknown delivery is never eligible.
+        return deliveryPolicy.eligible(o.price,o.deliveryHint,timelyBest);
     }
     private void updateSummary(){
         int timelyBest=bestTimelyPrice();
