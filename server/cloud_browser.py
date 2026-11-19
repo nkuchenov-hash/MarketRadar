@@ -483,9 +483,14 @@ class CloudBrowser:
                     if not complete:
                         diagnostic = "Дополнительные страницы выдачи не завершены"
                     break
-                # Scroll the actual page; fallback to the largest scrollable panel
-                # used by virtualized storefront grids.
-                await page.evaluate("""() => {
+                # Scroll like a desktop shopper. Some storefronts use nested
+                # virtualized grids, so retain a DOM fallback only when the
+                # viewport and loaded product list stop advancing.
+                await page.mouse.move(960, 710)
+                await page.mouse.wheel(0, 780)
+                await page.wait_for_timeout(500)
+                if unchanged >= 1:
+                    await page.evaluate("""() => {
                     const doc=document.scrollingElement||document.documentElement;
                     let scrollTarget=doc;
                     for(const el of document.querySelectorAll('main,[class*="scroll"],[data-scroll]')){
@@ -496,8 +501,8 @@ class CloudBrowser:
                         }
                     }
                     scrollTarget.scrollBy(0,Math.max(700,window.innerHeight*0.85));
-                }""")
-                await page.wait_for_timeout(600)
+                    }""")
+                    await page.wait_for_timeout(250)
             if network_tasks:
                 await asyncio.wait(network_tasks, timeout=4)
             all_products = list(ledger.values())
