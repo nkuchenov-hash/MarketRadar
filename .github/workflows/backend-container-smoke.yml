@@ -92,11 +92,11 @@ jobs:
         run: |
           # Exercise the exact runtime dependencies shipped to the VPS.
           docker cp tests/. marketradar-backend-smoke:/tmp/marketradar-tests/
-          docker exec marketradar-backend-smoke python -m unittest discover \\
+          docker exec marketradar-backend-smoke python -m unittest discover \
             -s /tmp/marketradar-tests -p 'test_ssr_pagination_failure_ledger.py' -v
-          docker exec marketradar-backend-smoke python -m unittest discover \\
+          docker exec marketradar-backend-smoke python -m unittest discover \
             -s /tmp/marketradar-tests -p 'test_cloud_verification_evidence.py' -v
-          docker exec marketradar-backend-smoke python -m unittest discover \\
+          docker exec marketradar-backend-smoke python -m unittest discover \
             -s /tmp/marketradar-tests -p 'test_mobile_cloud_offer_ledger.py' -v
       - name: Verify real Android REST job contract
         shell: bash
