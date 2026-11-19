@@ -66,5 +66,58 @@ class HumanStorefrontTests(unittest.TestCase):
         asyncio.run(run())
 
 
+    def test_ui_search_does_not_reopen_blocked_sorted_url(self):
+        """A live UI result must survive if the sorting control is absent."""
+        async def run():
+            with patch.dict(os.environ,{
+                "CLOUD_BROWSER_ENABLED":"true",
+                "CLOUD_BROWSER_HUMAN_FLOW":"true",
+                "CLOUD_BROWSER_HEADFUL":"false",
+                "CLOUD_BROWSER_PERSISTENT":"false",
+                "CLOUD_SEARCH_SCROLLS":"2",
+            }):
+                browser=CloudBrowser(market="Wildberries")
+                await browser.start()
+                try:
+                    home="""<html><title>WB home</title><body>
+                    <form onsubmit="event.preventDefault();location.href='/catalog/0/search.aspx?search='+encodeURIComponent(document.getElementById('searchInput').value)">
+                    <input id="searchInput" type="search"></form></body></html>"""
+                    listing="""<html><title>WB results</title><body>
+                    <article><a href="https://www.wildberries.ru/catalog/123456789/detail.aspx">
+                    Яндекс Станция Мини 3 Про</a><span>11 200 ₽</span></article>
+                    </body></html>"""
+                    requested=[]
+                    async def mock_store(route):
+                        url=route.request.url
+                        requested.append(url)
+                        if "sort=priceup" in url:
+                            await route.fulfill(status=498,content_type="text/html",
+                                body="<html><body>Проверяем браузер</body></html>")
+                        elif "/catalog/0/search.aspx" in url:
+                            await route.fulfill(status=200,
+                                content_type="text/html; charset=utf-8",body=listing)
+                        else:
+                            await route.fulfill(status=200,
+                                content_type="text/html; charset=utf-8",body=home)
+                    await browser.context.route("https://www.wildberries.ru/**",mock_store)
+                    result=await browser.snapshot(
+                        "https://www.wildberries.ru/catalog/0/search.aspx?search="
+                        "%D0%AF%D0%BD%D0%B4%D0%B5%D0%BA%D1%81+"
+                        "%D0%A1%D1%82%D0%B0%D0%BD%D1%86%D0%B8%D1%8F+"
+                        "%D0%9C%D0%B8%D0%BD%D0%B8+3+%D0%9F%D1%80%D0%BE")
+                    self.assertEqual("ok",result["state"],result)
+                    self.assertEqual(11200,result["links"][0]["price"],result)
+                    nav=result["audit"]["navigation"]
+                    self.assertTrue(nav["search_ui_submitted"],nav)
+                    self.assertFalse(nav["sort_ui_selected"],nav)
+                    self.assertFalse(nav["sort_url_requested"],nav)
+                    self.assertEqual("ui_search_sort_unconfirmed",nav["strategy"])
+                    self.assertFalse(any("sort=priceup" in url for url in requested),
+                                     requested)
+                finally:
+                    await browser.close()
+        asyncio.run(run())
+
+
 if __name__=="__main__":
     unittest.main()
