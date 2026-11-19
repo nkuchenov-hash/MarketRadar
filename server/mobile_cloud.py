@@ -98,7 +98,8 @@ async def run_market(job: dict, shop_id: str):
     state = job["markets"][shop_id]
     state["state"] = "searching"
     url = MARKETS[market]["search"].format(q=quote(job["query"]))
-    engine = CloudBrowser(market=market)
+    engine = CloudBrowser()
+    engine.market = market  # Keep existing test/browser adapters constructor-compatible.
     try:
         await engine.start()
         listing = await engine.snapshot(url)
