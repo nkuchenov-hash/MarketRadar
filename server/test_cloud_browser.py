@@ -178,6 +178,47 @@ class CloudSearchTests(unittest.TestCase):
                     await browser.close()
         asyncio.run(run())
 
+    def test_wildberries_lazy_images_are_bound_to_the_right_card(self):
+        """Use card-owned lazy images rather than empty placeholder src values."""
+        async def run():
+            from playwright.async_api import async_playwright
+            async with async_playwright() as p:
+                browser=await p.chromium.launch(headless=True)
+                try:
+                    page=await browser.new_page()
+                    await page.set_content("""
+                     <div class="grid">
+                       <article>
+                         <a href="https://www.wildberries.ru/catalog/123456789/detail.aspx">
+                           <picture><source srcset="//images.wbstatic.net/one.webp 1x">
+                             <img src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs="
+                                  data-src="//images.wbstatic.net/one.jpg"
+                                  alt="Умная колонка Яндекс Станция Мини 3 Про"></picture>
+                           Умная колонка Яндекс Станция Мини 3 Про</a>
+                         <span>10 990 ₽</span>
+                       </article>
+                       <article>
+                         <a href="https://www.wildberries.ru/catalog/123456790/detail.aspx">
+                           <span style="background-image: url('https://images.wbstatic.net/two.jpg'); width:40px;height:40px;display:block"></span>
+                           Умная колонка Яндекс Станция Мини 3 Про
+                         </a>
+                         <span>12 500 ₽</span>
+                       </article>
+                     </div>
+                    """)
+                    snapshot=await page.evaluate(_DOM_SNAPSHOT)
+                    by_id={x["url"].split("/")[-2]:x for x in snapshot["products"]}
+                    self.assertEqual(2,len(by_id))
+                    self.assertEqual("https://images.wbstatic.net/one.jpg",
+                                     by_id["123456789"]["image_url"])
+                    self.assertEqual("https://images.wbstatic.net/two.jpg",
+                                     by_id["123456790"]["image_url"])
+                    self.assertEqual(10990,by_id["123456789"]["price"])
+                    self.assertEqual(12500,by_id["123456790"]["price"])
+                finally:
+                    await browser.close()
+        asyncio.run(run())
+
     def test_never_assigns_grid_wide_price_to_every_child(self):
         async def run():
             from playwright.async_api import async_playwright
