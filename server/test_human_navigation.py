@@ -16,6 +16,46 @@ class HumanStorefrontTests(unittest.TestCase):
         self.assertEqual("Станция",search_term(target,"Wildberries"))
         self.assertTrue(is_store_search(target,"Wildberries"))
 
+    def test_yandex_brand_filter_and_cheapest_sort_via_ui(self):
+        """A real Chromium fixture replicates typed search, brand filter, sorting."""
+        async def run():
+            with patch.dict(os.environ,{
+                "CLOUD_BROWSER_ENABLED":"true",
+                "CLOUD_BROWSER_HUMAN_FLOW":"true",
+                "CLOUD_BROWSER_HEADFUL":"false",
+                "CLOUD_BROWSER_PERSISTENT":"false",
+                "CLOUD_SEARCH_SCROLLS":"2",
+            }):
+                browser=CloudBrowser(market="Яндекс Маркет")
+                await browser.start()
+                try:
+                    home="""<html><title>Yandex home</title><body>
+                    <form onsubmit="event.preventDefault();location.href='/search?text='+encodeURIComponent(document.getElementById('header-search').value)">
+                    <input id="header-search" type="search"></form></body></html>"""
+                    listing="""<html><title>Yandex search</title><body>
+                    <label><input type="checkbox" id="brand">Яндекс</label>
+                    <button id="sort" onclick="document.getElementById('cheap').hidden=false">По популярности</button>
+                    <div role="option" id="cheap" hidden onclick="document.getElementById('sort').innerText='Подешевле';this.hidden=true;history.replaceState(null,'',location.pathname+location.search+'&how=aprice')">Подешевле</div>
+                    <article><a href="https://market.yandex.ru/card/thing/12345678">Яндекс Станция Мини 3 Про</a><span>12 447 ₽</span></article>
+                    <article><a href="https://market.yandex.ru/card/thing/12345679">Яндекс Станция Мини 3 Про</a><span>11 693 ₽</span></article>
+                    </body></html>"""
+                    async def mock_store(route):
+                        await route.fulfill(status=200, content_type="text/html",
+                            body=listing if "/search?" in route.request.url else home)
+                    await browser.context.route("https://market.yandex.ru/**",mock_store)
+                    result=await browser.snapshot(
+                        "https://market.yandex.ru/search?text=%D0%AF%D0%BD%D0%B4%D0%B5%D0%BA%D1%81+%D0%A1%D1%82%D0%B0%D0%BD%D1%86%D0%B8%D1%8F+%D0%9C%D0%B8%D0%BD%D0%B8+3+%D0%9F%D1%80%D0%BE")
+                    nav=result["audit"]["navigation"]
+                    self.assertEqual("ok",result["state"],result)
+                    self.assertEqual(11693,result["links"][0]["price"])
+                    self.assertTrue(nav["search_ui_submitted"],nav)
+                    self.assertTrue(nav["brand_filter_selected"],nav)
+                    self.assertTrue(nav["sort_ui_selected"],nav)
+                    self.assertFalse(nav["sort_url_requested"],nav)
+                finally:
+                    await browser.close()
+        asyncio.run(run())
+
     def test_real_browser_reaches_sort_via_homepage_search_ui(self):
         async def run():
             # Mocked storefront fixture, not a claim of live WB access.
