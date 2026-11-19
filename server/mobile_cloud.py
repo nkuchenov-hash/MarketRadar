@@ -57,7 +57,7 @@ def plausible_listing(query: str, title: str) -> bool:
     t = normalize(title).replace("mini","мини").replace("pro","про")
     accessory = ("чехол", "крепление", "кронштейн", "держатель", "адаптер",
                  "кабель", "защитное стекло", "блок питания", "подставка")
-    if any(x in t.split() for x in accessory) and not any(x in q.split() for x in accessory):
+    if any(x in t for x in accessory) and not any(x in q for x in accessory):
         return False
     meaningful=[w for w in q.split() if len(w)>2 or w.isdigit()]
     return sum(w in t.split() for w in meaningful)>=min(2,len(meaningful))
