@@ -146,7 +146,9 @@ jobs:
               for market,record in findings.items():
                   audit=record.get("audit") or {}
                   nav=audit.get("navigation") or audit.get("browser_navigation") or {}
-                  if not (nav.get("search_ui_submitted") and
+                  if not (nav.get("search_query_typed") and
+                          nav.get("search_ui_submitted") and
+                          nav.get("sort_ui_selected") and
                           audit.get("sort_ui_confirmed")):
                       not_human.append(market)
               errors=[]
@@ -154,24 +156,10 @@ jobs:
                   errors.append("No genuine exact-model priced listings from: " +
                                 ", ".join(failed))
               if not_human:
-                  errors.append("Typed search and cheap-first sort NOT proven in live Chromium for: " +
+                  errors.append("Live Chromium did not type, submit and select cheapest-first sort for: " +
                                 ", ".join(not_human))
               if errors:
                   raise RuntimeError("; ".join(errors))
-              # The acceptance gate must catch a priced HTML extraction
-              # that never typed into the real website or clicked its sort.
-              # A successful search URL request is NOT human-style browsing.
-              not_human=[]
-              for market,record in findings.items():
-                  nav=(record.get("audit") or {}).get("navigation") or {}
-                  if not (nav.get("search_query_typed") and
-                          nav.get("search_ui_submitted") and
-                          nav.get("sort_ui_selected")):
-                      not_human.append(market)
-              if not_human:
-                  raise RuntimeError(
-                      "Shopper UI sequence was NOT completed (type, submit, sort): " +
-                      ", ".join(not_human))
           asyncio.run(main())
           PY
       - uses: actions/upload-artifact@v4
