@@ -708,6 +708,7 @@ class CloudBrowser:
                 "price_fragments": [str(n)+" ₽" for n in sorted(visual_prices)[:70]],
                 "diagnostic": diagnostic,
                 "coverage_complete": bool(complete and not blocked
+                                          and (not search or bool(links))
                                           and not navigation.get("plain_search_fallback")
                                           and (not use_shop_ui or navigation.get("sort_ui_selected"))
                                            and not network_truncated[0]
