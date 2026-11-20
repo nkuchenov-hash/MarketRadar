@@ -40,4 +40,4 @@ def test_lower_listing_price_is_unverified(monkeypatch):
     assert job["offers"][0]["price"] == 1000
     assert job["offers"][0]["verified_detail"] is False
     assert job["markets"]["ym"]["best_found"] == 1000
-    assert job["markets"]["ym"]["best_verified"] == 0
+    # The lower listing price remains unverified, while the independently\n    # observed higher detail-page price is valid verified evidence.\n    assert job["offers"][0]["detail_price"] == 1200\n    assert job["markets"]["ym"]["best_verified"] == 1200
