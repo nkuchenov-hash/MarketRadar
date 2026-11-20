@@ -591,11 +591,16 @@ class CloudBrowser:
                     next_url = ""
                     for control in controls:
                         candidate = control.get("url", "")
-                        if (candidate and candidate not in visited_pages and
-                            host_allowed(candidate) and
-                            market_of(candidate) == market_of(target) and
-                            "search" in urlparse(candidate).path.lower()):
-                            next_url = sorted_search_url(candidate)
+                        if not candidate or not host_allowed(candidate):
+                            continue
+                        if (market_of(candidate) != market_of(target) or
+                                "search" not in urlparse(candidate).path.lower()):
+                            continue
+                        # Normalize before checking visited pages: stores can
+                        # reorder query parameters on the same next-page URL.
+                        normalized = sorted_search_url(candidate)
+                        if normalized not in visited_pages:
+                            next_url = normalized
                             break
                     if next_url and page_count < 6:
                         visited_pages.add(next_url)
