@@ -177,15 +177,21 @@ _DOM_SNAPSHOT = r"""() => {
             titleCandidates.find(s=>!!(s||'').trim()) || '').trim().slice(0,300);
         price.lastIndex = 0;
         const matches = [...context.matchAll(price)];
-        // Instalment labels such as "6×1 949 ₽ в Сплит" are NOT the
-        // one-time purchase price. Do not promote a monthly instalment to
-        // the cheapest offer when reading a Yandex Market product tile.
+        // A split/instalment payment is not the full purchase price.
+        // WB and Yandex may show "Оплата частями 3 577 ₽" beside the
+        // complete 12 990 ₽ price. Choosing the lowest monetary number
+        // would falsely turn a payment into the cheapest product.
         const upfront = matches.filter(m => {
-            const before = context.slice(Math.max(0, m.index - 28), m.index);
-            const after = context.slice(m.index + m[0].length,
-                                        m.index + m[0].length + 32);
-            return !/[\d]{1,2}\s*[×xх*]\s*$/i.test(before) &&
-                   !/^\s*(?:в\s+сплит|сплит|в\s+рассрочку)/i.test(after);
+            const before = context.slice(
+                Math.max(context.lastIndexOf('\\n',m.index)+1,m.index-85),
+                m.index).trim();
+            const after = context.slice(m.index+m[0].length,
+                                        m.index+m[0].length+40);
+            const fullPriceCue = /(?:цена(?: товара)?|стоимость|итого|к оплате|с кошельком|без скидки)\s*[:—-]?\s*$/i.test(before);
+            const partBefore = /(?:оплата\s+частями|плат[её]ж(?:а|ей|и)?\s+по|в\s+сплит|в\s+рассрочк|рассрочк|в\s+кредит|ежемесячн|за\s+месяц|в\s+мес|частями\s+по)\b/i.test(before);
+            const multiplied = /\d{1,2}\s*[×xх*]\s*$/i.test(before);
+            const partAfter = /^\s*(?:в\s+сплит|сплит|в\s+рассрочк|за\s+месяц|\/\s*мес|в\s+мес|ежемесячно)/i.test(after);
+            return !multiplied && !partAfter && (!partBefore || fullPriceCue);
         });
         const prices = upfront.map(m => Number(m[1].replace(/\D/g,'')))
             .filter(n => n >= 100 && n <= 50000000);
