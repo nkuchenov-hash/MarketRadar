@@ -183,8 +183,7 @@ _DOM_SNAPSHOT = r"""() => {
         // would falsely turn a payment into the cheapest product.
         const upfront = matches.filter(m => {
             const before = context.slice(
-                Math.max(context.lastIndexOf('\n',m.index)+1,m.index-85),
-                m.index).trim();
+                context.lastIndexOf('\n',m.index)+1, m.index).trim();
             const after = context.slice(m.index+m[0].length,
                                         m.index+m[0].length+40);
             const fullPriceCue = /(?:цена(?: товара)?|стоимость|итого|к оплате|с кошельком|без скидки)\s*[:—-]?\s*$/i.test(before);
