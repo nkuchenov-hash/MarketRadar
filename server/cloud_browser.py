@@ -60,7 +60,7 @@ def _amount(value):
     return 0
 
 
-def network_products(payload, origin: str, max_nodes=12000, market: str | None = None):
+def network_products(payload, origin: str, max_nodes=60000, market: str | None = None):
     """Preserve first-party listings, including WB's documented numeric product route."""
     market = market or market_of(origin)
     products = []
@@ -491,7 +491,7 @@ class CloudBrowser:
                 # An incomplete traversal must be visible in the coverage audit.
                 data = await response.json()
                 found, visited = network_products(data, response.url, market=source_market)
-                if visited >= 12000:
+                if visited >= 60000:
                     network_truncated[0] += 1
                 network_count += len(found)
                 for item in found:
