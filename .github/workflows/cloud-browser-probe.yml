@@ -39,6 +39,8 @@ jobs:
       - name: Compile server Python modules
         run: python -m compileall -q server
       - name: Run offline browser and API unit tests
+        id: offline_tests
+        continue-on-error: true
         run: python -m unittest server.test_cloud_browser server.test_human_navigation server.test_mobile_api server.test_public_html -v
       - name: Browser search with price ordering and captured network responses
         env:
@@ -170,3 +172,9 @@ jobs:
           name: cloud-chromium-live-search
           path: live-storefront-search.json
           retention-days: 7
+
+      - name: Enforce offline regression gate after live evidence capture
+        if: always() && steps.offline_tests.outcome == 'failure'
+        run: |
+          echo 'Offline regression tests failed; live probe was allowed to run for diagnostic evidence.' >&2
+          exit 1
