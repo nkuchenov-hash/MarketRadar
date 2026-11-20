@@ -318,6 +318,45 @@ class CloudSearchTests(unittest.TestCase):
                     await browser.close()
         asyncio.run(run())
 
+    def test_installment_amount_is_not_mistaken_for_full_product_price(self):
+        """Full WB/Yandex price must win over smaller instalment labels."""
+        async def run():
+            from playwright.async_api import async_playwright
+            async with async_playwright() as p:
+                browser=await p.chromium.launch(headless=True)
+                try:
+                    page=await browser.new_page()
+                    await page.set_content("""
+                    <html><body>
+                      <article><a href="https://www.wildberries.ru/catalog/123456789/detail.aspx">
+                        Умная колонка Яндекс Станция Мини 3 Про</a>
+                        <p>Оплата частями 3 577 ₽</p>
+                        <p>Цена товара 12 990 ₽</p>
+                      </article>
+                      <article><a href="https://www.wildberries.ru/catalog/123456790/detail.aspx">
+                        Умная колонка Яндекс Станция Мини 3 Про</a>
+                        <p>4× 2 995 ₽ в Сплит</p>
+                        <p>11 980 ₽</p>
+                      </article>
+                      <article><a href="https://www.wildberries.ru/catalog/123456791/detail.aspx">
+                        Умная колонка Яндекс Станция Мини 3 Про</a>
+                        <p>В рассрочку 3 100 ₽</p>
+                      </article>
+                      <article><a href="https://www.wildberries.ru/catalog/123456792/detail.aspx">
+                        Умная колонка Яндекс Станция Мини 3 Про</a>
+                        <p>10 990 ₽</p><p>Было 13 000 ₽</p>
+                      </article>
+                    </body></html>""")
+                    view=await page.evaluate(_DOM_SNAPSHOT)
+                    by_id={x["url"].split("/")[-2]:x for x in view["products"]}
+                    self.assertEqual(12990,by_id["123456789"]["price"],by_id)
+                    self.assertEqual(11980,by_id["123456790"]["price"],by_id)
+                    self.assertEqual(0,by_id["123456791"]["price"],by_id)
+                    self.assertEqual(10990,by_id["123456792"]["price"],by_id)
+                finally:
+                    await browser.close()
+        asyncio.run(run())
+
     def test_never_assigns_grid_wide_price_to_every_child(self):
         async def run():
             from playwright.async_api import async_playwright
