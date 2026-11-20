@@ -144,6 +144,9 @@ async def run_market(job: dict, shop_id: str):
         max_checked = min(180, len(candidates))
         cutoff_due_to_limit = False
         verified_urls = set()
+        processed = 0
+        unavailable_detail_streak = 0
+        detail_pages_unavailable = False
         for pos in range(0,len(candidates),4):
             if job["state"] != "running":
                 break
@@ -153,7 +156,7 @@ async def run_market(job: dict, shop_id: str):
                 # offer can be the cheapest one deliverable within the user's
                 # deadline. Listing prices can also differ from product pages.
                 # Check candidates in ascending order until the explicit cap.
-                if state["checked"] + len(batch) >= max_checked:
+                if processed + len(batch) >= max_checked:
                     cutoff_due_to_limit = True
                     break
                 batch.append(candidate)
@@ -161,11 +164,22 @@ async def run_market(job: dict, shop_id: str):
                 break
             if not batch:
                 continue
-            pages = await asyncio.gather(
-                *(engine.snapshot(c["url"]) for c in batch),
-                return_exceptions=True)
+            # When eight consecutive product detail pages fail or only
+            # display a generic storefront shell, further requests cannot
+            # verify model/price. Keep exact-model search-card evidence rather
+            # than spending minutes revisiting the same denial.
+            if detail_pages_unavailable:
+                pages = [None] * len(batch)
+                state["detail_pages_not_attempted"] = (
+                    state.get("detail_pages_not_attempted", 0) + len(batch))
+            else:
+                pages = await asyncio.gather(
+                    *(engine.snapshot(c["url"]) for c in batch),
+                    return_exceptions=True)
             for candidate,page in zip(batch,pages):
-                state["checked"] += 1
+                processed += 1
+                if not detail_pages_unavailable:
+                    state["checked"] += 1
                 detail_accessible = (
                     isinstance(page,dict) and page.get("state")=="ok")
                 detail_title = ((page.get("heading") or page.get("title") or "")
@@ -182,6 +196,11 @@ async def run_market(job: dict, shop_id: str):
                 detail_identity_seen = detail_accessible and bool(
                     (page.get("heading") or "").strip() or
                     (detail_title.strip() and not generic_title))
+                if not detail_pages_unavailable:
+                    if not detail_identity_seen:
+                        unavailable_detail_streak += 1
+                    else:
+                        unavailable_detail_streak = 0
                 listing_price = int(candidate.get("price") or 0)
                 listing_match = exact_product(
                     job["query"],candidate.get("title",""))
@@ -241,9 +260,13 @@ async def run_market(job: dict, shop_id: str):
                 if detail_match and structured > 0:
                     if best_detail_verified == 0 or structured < best_detail_verified:
                         best_detail_verified = structured
+            if unavailable_detail_streak >= 8 and not detail_pages_unavailable:
+                detail_pages_unavailable = True
+                state["detail_access_limited"] = True
+                state["coverage_complete"] = False
             state["message"] = (
-                f"Подтверждено {len(verified_urls)}; проверено {state['checked']}; "
-                f"лучшее предложение {best or '—'} ₽")
+                f"Найдено {len(verified_urls)}; страниц проверено {state['checked']}; "
+                f"лучшая наблюдаемая цена {best or '—'} ₽")
         if cutoff_due_to_limit:
             state["coverage_complete"] = False
             state["message"] = "Достигнут предел проверки карточек; проверка неполная"
