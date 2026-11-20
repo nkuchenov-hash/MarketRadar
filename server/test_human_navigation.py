@@ -242,7 +242,7 @@ class HumanStorefrontTests(unittest.TestCase):
                                 body="<html><title>Restricted</title></html>")
                         else:
                             await route.fulfill(status=200,content_type="text/html",
-                                body="""<html><title>WB results</title><body>
+                                body="""<html><head><meta charset="utf-8"><title>WB results</title></head><body>
                                   <article><a href="https://www.wildberries.ru/catalog/123456789/detail.aspx">
                                   Яндекс Станция Мини 3 Про</a><span>11 200 ₽</span>
                                   </article></body></html>""")
