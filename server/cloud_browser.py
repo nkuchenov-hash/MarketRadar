@@ -187,7 +187,7 @@ _DOM_SNAPSHOT = r"""() => {
             const after = context.slice(m.index+m[0].length,
                                         m.index+m[0].length+40);
             const fullPriceCue = /(?:цена(?: товара)?|стоимость|итого|к оплате|с кошельком|без скидки)\s*[:—-]?\s*$/i.test(before);
-            const partBefore = /(?:оплата\s+частями|плат[её]ж(?:а|ей|и)?\s+по|в\s+сплит|в\s+рассрочк[а-я]*|рассрочк[а-я]*|в\s+кредит|ежемесячн|за\s+месяц|в\s+мес|частями\s+по)\b/i.test(before);
+            const partBefore = /(?:оплата\s+частями|плат[её]ж(?:а|ей|и)?\s+по|в\s+сплит|в\s+рассрочк[а-я]*|рассрочк[а-я]*|в\s+кредит|ежемесячн|за\s+месяц|в\s+мес|частями\s+по)(?:\s|$|[:—-])/i.test(before);
             const multiplied = /\d{1,2}\s*[×xх*]\s*$/i.test(before);
             const partAfter = /^\s*(?:в\s+сплит|сплит|в\s+рассрочк[а-я]*|за\s+месяц|\/\s*мес|в\s+мес|ежемесячно)/i.test(after);
             return !multiplied && !partAfter && (!partBefore || fullPriceCue);
