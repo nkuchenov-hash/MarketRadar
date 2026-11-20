@@ -64,8 +64,10 @@ jobs:
               findings = {}
               for market,url in urls.items():
                   browser = CloudBrowser(market=market)
-                  await browser.start()
                   try:
+                      # Startup can fail before navigation (missing executable,
+                      # profile lock, launch timeout). Record it per storefront.
+                      await browser.start()
                       result = await browser.snapshot(url)
                       links = result.get("links", [])
                       examples = [{
@@ -111,7 +113,7 @@ jobs:
                           "coverage_complete": False,
                           "total_products": 0,
                           "exact_priced_matches": 0,
-                          "audit": {"failure_stage": "chromium_snapshot"},
+                          "audit": {"failure_stage": "chromium_start_or_snapshot"},
                       }
                       # Continue probing the other stores: one blocked IP must
                       # not suppress independent live evidence from them.
