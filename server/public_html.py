@@ -372,9 +372,25 @@ def extract_public_html(html: str, origin: str) -> dict:
             if _links(node, origin, market) != {url}:
                 break
             text = _text(node)
-            amounts = [int(re.sub(r"\D","",m.group(1)))
-                       for m in PRICE.finditer(text)]
-            amounts = [x for x in amounts if 100 <= x <= 50_000_000]
+            amounts = []
+            for match in PRICE.finditer(text):
+                # An installment payment must not become the product minimum.
+                before = text[max(0, match.start()-85):match.start()]
+                after = text[match.end():match.end()+35]
+                installment = re.search(
+                    r"(?:оплата\s+частями|плат[её]ж(?:а|ей|и)?\s+по|"
+                    r"в\s+сплит|рассрочк\w*|ежемесячн\w*|"
+                    r"частями\s+по|в\s+мес|за\s+месяц)\s*[:—-]?\s*$",
+                    before, re.I)
+                multiplied = re.search(r"\d{1,2}\s*[×xх*]\s*$", before)
+                after_installment = re.match(
+                    r"\s*(?:в\s+сплит|сплит|в\s+рассрочк\w*|"
+                    r"/\s*мес|в\s+мес|ежемесячно)", after, re.I)
+                if installment or multiplied or after_installment:
+                    continue
+                amount = int(re.sub(r"\D", "", match.group(1)))
+                if 100 <= amount <= 50_000_000:
+                    amounts.append(amount)
             if amounts:
                 context = text[:1200]
                 raw_prices = amounts
