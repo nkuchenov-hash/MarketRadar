@@ -119,7 +119,7 @@ class PublicCloudApiTests(unittest.TestCase):
                 return {"state":"ok","coverage_complete":False,"links":[
                     {"url":f"https://www.wildberries.ru/catalog/{i}/detail.aspx",
                      "title":"Умная колонка Яндекс Станция Мини 3 Про",
-                     "price":11000+i,"source":"dom","delivery_hint":"завтра"}
+                     "price":11000+(i-123456700),"source":"dom","delivery_hint":"завтра"}
                     for i in range(123456700,123456724)
                 ]}
 
