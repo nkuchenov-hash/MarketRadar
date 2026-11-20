@@ -120,7 +120,16 @@ jobs:
                       # before closing Chromium, even if close itself fails.
                       Path("live-storefront-search.json").write_text(
                           json.dumps(findings,ensure_ascii=False,indent=2), encoding="utf-8")
-                      await browser.close()
+                      try:
+                          await browser.close()
+                      except Exception as close_exc:
+                          # Browser shutdown must not prevent probing the next store.
+                          # Preserve a separate cleanup diagnostic without erasing
+                          # the actual search result or its original exception.
+                          findings[market]["browser_close_error"] = (
+                              type(close_exc).__name__ + ": " + str(close_exc))
+                          Path("live-storefront-search.json").write_text(
+                              json.dumps(findings,ensure_ascii=False,indent=2), encoding="utf-8")
               Path("live-storefront-search.json").write_text(
                   json.dumps(findings,ensure_ascii=False,indent=2), encoding="utf-8")
               failed=[market for market,record in findings.items()
