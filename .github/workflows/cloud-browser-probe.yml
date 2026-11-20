@@ -102,6 +102,9 @@ jobs:
                       }
                       print(market, json.dumps(findings[market],ensure_ascii=False))
                   finally:
+                      # Persist partial live evidence even if a later market fails.
+                      Path("live-storefront-search.json").write_text(
+                          json.dumps(findings,ensure_ascii=False,indent=2), encoding="utf-8")
                       await browser.close()
               Path("live-storefront-search.json").write_text(
                   json.dumps(findings,ensure_ascii=False,indent=2), encoding="utf-8")
