@@ -326,10 +326,14 @@ def browser_proxy(market: str | None):
 class CloudBrowser:
     """Limited parallel Chromium workers, full listing scans and evidence ledger."""
     _slots = asyncio.Semaphore(max(1, min(int(os.getenv("CLOUD_BROWSER_PARALLEL","2")), 3)))
+    # Persistent Chromium refuses to launch two processes using one profile.
+    # Serialize only searches sharing a storefront profile; other stores remain parallel.
+    _profile_locks = {key: asyncio.Lock() for key in ("wb", "ozon", "ym", "diagnostic")}
 
     def __init__(self, market=None):
         self.playwright = self.browser = self.context = None
         self.acquired = False
+        self.profile_lock = None
         self.market = market
         self.headful = os.getenv("CLOUD_BROWSER_HEADFUL", "false").lower() in ("true","1","yes")
         self.persistent = os.getenv("CLOUD_BROWSER_PERSISTENT", "false").lower() in ("true","1","yes")
@@ -341,6 +345,11 @@ class CloudBrowser:
         await self._slots.acquire()
         self.acquired = True
         try:
+            if self.persistent and not os.getenv("MARKETRADAR_CHROMIUM_CDP_URL", "").strip():
+                profile = {"Wildberries": "wb", "Ozon": "ozon",
+                           "Яндекс Маркет": "ym"}.get(self.market, "diagnostic")
+                self.profile_lock = self._profile_locks[profile]
+                await self.profile_lock.acquire()
             from playwright.async_api import async_playwright
             self.playwright = await async_playwright().start()
             cdp = os.getenv("MARKETRADAR_CHROMIUM_CDP_URL","").strip()
@@ -400,6 +409,11 @@ class CloudBrowser:
                 await self.playwright.stop()
         finally:
             self.context = self.browser = self.playwright = None
+            if self.profile_lock is not None:
+                lock = self.profile_lock
+                self.profile_lock = None
+                if lock.locked():
+                    lock.release()
             if self.acquired:
                 self.acquired = False
                 self._slots.release()
