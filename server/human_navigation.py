@@ -17,7 +17,8 @@ SEARCH_INPUTS = {
     "Wildberries": (
         "#searchInput", "input[name='search']", "input[type='search']",
         "input[placeholder*='Найти']", "input[placeholder*='Поиск']",
-        "input[aria-label*='Поиск']",
+        "input[aria-label*='Поиск']", "[role='searchbox']",
+        "[role='combobox'][contenteditable='true']",
     ),
     "Ozon": (
         "input[name='text']", "input[type='search']",
@@ -30,6 +31,33 @@ SEARCH_INPUTS = {
         "input[placeholder*='Искать']", "input[aria-label*='Поиск']",
     ),
 }
+# Wait for client-side storefront hydration. Locator.is_visible(timeout=...)
+# only checks the current state and does NOT wait for a React/Vue header.
+async def visible_search_input(page, market: str, wait_ms: int = 4500):
+    selectors = SEARCH_INPUTS.get(market, ())
+    if not selectors:
+        return None
+    locator = page.locator(", ".join(s + ":visible" for s in selectors)).first
+    try:
+        await locator.wait_for(state="visible", timeout=wait_ms)
+        return locator
+    except Exception:
+        return None
+
+
+async def visible_sort_control(page):
+    for control, timeout in (
+        (page.get_by_role("button", name=SORT_MENU).first, 2500),
+        (page.get_by_text(SORT_MENU).first, 1200),
+    ):
+        try:
+            await control.wait_for(state="visible", timeout=timeout)
+            return control
+        except Exception:
+            pass
+    return None
+
+
 SORT_MENU = re.compile(r"популярност|сортиров|по цене|по умолчанию|подешевле|подороже|рейтинг", re.IGNORECASE)
 SORT_ASC = re.compile(
     r"подешевле|сначала деш[её]в|по возрастанию цен|цен[аы]:?\s*по возрастанию",
@@ -101,15 +129,11 @@ async def open_search_via_ui(page, market: str, target: str, on_search_start=Non
     except Exception as e:
         result["home_error"] = type(e).__name__
 
-    search_input = None
-    for selector in SEARCH_INPUTS[market]:
-        try:
-            item = page.locator(selector).first
-            if await item.is_visible(timeout=650):
-                search_input=item
-                break
-        except Exception:
-            continue
+    home_ok = (result["home_http_status"] == 200 and not any(
+        s in result["home_title"].lower() for s in (
+            "вы не робот", "похоже, нет соединения", "access denied")))
+    search_input = (await visible_search_input(page,market)
+                    if home_ok else None)
 
     if search_input is not None:
         result["search_ui_found"] = True
@@ -154,14 +178,7 @@ async def open_search_via_ui(page, market: str, target: str, on_search_start=Non
                     if await selected.is_visible(timeout=650):
                         result["sort_ui_selected"] = True
                     else:
-                        control=None
-                        for item in (
-                            page.get_by_role("button",name=SORT_MENU).first,
-                            page.get_by_text(SORT_MENU).first,
-                        ):
-                            if await item.is_visible(timeout=600):
-                                control=item
-                                break
+                        control=await visible_sort_control(page)
                         if control is not None:
                             await control.click(timeout=3500)
                             await page.wait_for_timeout(350)
@@ -170,7 +187,11 @@ async def open_search_via_ui(page, market: str, target: str, on_search_start=Non
                                 page.get_by_role("menuitem",name=SORT_ASC).first,
                                 page.get_by_text(SORT_ASC).last,
                             ):
-                                if await option.is_visible(timeout=650):
+                                try:
+                                    await option.wait_for(state="visible",timeout=900)
+                                except Exception:
+                                    continue
+                                if await option.is_visible():
                                     await option.click(timeout=3500)
                                     await page.wait_for_timeout(1150)
                                     # Verify the visible selection or a site-
@@ -212,15 +233,7 @@ async def open_search_via_ui(page, market: str, target: str, on_search_start=Non
                           "подтвердите, что запросы отправляли вы"))
             if (plain_response and plain_response.status==200
                     and not result["plain_blocked"]):
-                entry=None
-                for selector in SEARCH_INPUTS[market]:
-                    try:
-                        item=page.locator(selector).first
-                        if await item.is_visible(timeout=600):
-                            entry=item
-                            break
-                    except Exception:
-                        continue
+                entry=await visible_search_input(page,market,wait_ms=4000)
                 if entry is not None:
                     result["search_ui_found"]=True
                     try:
@@ -260,12 +273,16 @@ async def open_search_via_ui(page, market: str, target: str, on_search_start=Non
                     if await selected.is_visible(timeout=550):
                         result["sort_ui_selected"]=True
                     else:
-                        control=page.get_by_text(SORT_MENU).first
-                        if await control.is_visible(timeout=900):
+                        control=await visible_sort_control(page)
+                        if control is not None:
                             await control.click(timeout=3500)
                             await page.wait_for_timeout(350)
                             choice=page.get_by_text(SORT_ASC).last
-                            if await choice.is_visible(timeout=900):
+                            try:
+                                await choice.wait_for(state="visible",timeout=1200)
+                            except Exception:
+                                pass
+                            if await choice.is_visible():
                                 await choice.click(timeout=3500)
                                 await page.wait_for_timeout(950)
                                 chosen=page.get_by_role("button",name=re.compile(
