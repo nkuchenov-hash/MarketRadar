@@ -103,6 +103,42 @@ class PublicCloudApiTests(unittest.TestCase):
         self.assertFalse(job["offers"][0]["verified_detail"])
         self.assertIn("подтверждения",job["offers"][0]["note"])
 
+    def test_blocked_detail_pages_do_not_discard_remaining_wb_offers(self):
+        """Eight denied product pages do not require another 172 slow requests."""
+        import asyncio
+        from server import mobile_cloud
+
+        class FakeBrowser:
+            requests = 0
+            async def start(self): pass
+            async def close(self): pass
+            async def snapshot(self,url):
+                if "/detail.aspx" in url:
+                    self.requests += 1
+                    return {"state":"blocked","title":"Проверяем браузер"}
+                return {"state":"ok","coverage_complete":False,"links":[
+                    {"url":f"https://www.wildberries.ru/catalog/{i}/detail.aspx",
+                     "title":"Умная колонка Яндекс Станция Мини 3 Про",
+                     "price":11000+i,"source":"dom","delivery_hint":"завтра"}
+                    for i in range(123456700,123456724)
+                ]}
+
+        job={"id":"blocked-details","query":"Яндекс Станция Мини 3 Про",
+             "state":"running",
+             "markets":{"wb":{"state":"pending","checked":0}},
+             "offers":[],"errors":[]}
+        browser=FakeBrowser()
+        with patch("server.mobile_cloud.CloudBrowser",return_value=browser):
+            asyncio.run(mobile_cloud.run_market(job,"wb"))
+        self.assertEqual(8,browser.requests)
+        self.assertEqual(8,job["markets"]["wb"]["checked"])
+        self.assertEqual(16,job["markets"]["wb"]["detail_pages_not_attempted"])
+        self.assertTrue(job["markets"]["wb"]["detail_access_limited"])
+        self.assertFalse(job["markets"]["wb"]["coverage_complete"])
+        self.assertEqual(24,len(job["offers"]))
+        self.assertEqual(11000,job["offers"][0]["price"])
+        self.assertTrue(all(o["verified_detail"] is False for o in job["offers"]))
+
     def test_invalid_shops_rejected(self):
         with patch("server.main.cloud_browser.available",return_value=(True,"ok")):
             with TestClient(app) as client:
