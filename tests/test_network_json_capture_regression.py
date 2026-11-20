@@ -69,3 +69,17 @@ def test_deeply_nested_first_party_feed_keeps_product():
     assert len(offers) == 1
     assert offers[0]["url"].endswith("/catalog/987654321/detail.aspx")
     assert offers[0]["price"] == 8999
+
+
+def test_large_feed_exceeding_previous_12000_node_budget():
+    # 15k products plus list/dict containers exceed the previous traversal
+    # ceiling. The parser must retain the tail, not silently drop it.
+    count = 15000
+    offers, visited = network_products(
+        _wb_feed(count),
+        "https://www.wildberries.ru/catalog/0/search.aspx",
+        market="Wildberries",
+    )
+    assert len(offers) == count
+    assert visited > 12000
+    assert offers[-1]["url"].endswith("/catalog/514999/detail.aspx")
