@@ -92,6 +92,31 @@ class SSRExtractionTests(unittest.TestCase):
         self.assertIn(2,r["audit"]["pages_recovered_after_retry"])
         self.assertFalse(r["coverage_complete"])
 
+    def test_installment_is_not_mistaken_for_full_ssr_price(self):
+        html = """
+        <article>
+          <a href="/card/yandeks-stantsiya-mini-3-pro/4554877195">
+            Яндекс Станция Мини 3 Про
+          </a>
+          <p>12 990 ₽</p>
+          <p>Оплата частями 3 247 ₽</p>
+        </article>"""
+        result = extract_public_html(html, self.ORIGIN)
+        self.assertEqual(1, result["unique_products"])
+        self.assertEqual(12990, result["links"][0]["price"])
+
+    def test_installment_only_is_not_a_product_price(self):
+        html = """
+        <article>
+          <a href="/card/yandeks-stantsiya-mini-3-pro/4554877195">
+            Яндекс Станция Мини 3 Про
+          </a>
+          <p>Оплата частями 3 247 ₽</p>
+        </article>"""
+        result = extract_public_html(html, self.ORIGIN)
+        self.assertEqual(1, result["unique_products"])
+        self.assertEqual(0, result["links"][0]["price"])
+
     def test_shared_price_is_never_attributed_to_each_product(self):
         html = """
         <div id="grid">
