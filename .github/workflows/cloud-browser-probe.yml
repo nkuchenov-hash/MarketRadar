@@ -113,7 +113,8 @@ jobs:
                           "exact_priced_matches": 0,
                           "audit": {"failure_stage": "chromium_snapshot"},
                       }
-                      raise
+                      # Continue probing the other stores: one blocked IP must
+                      # not suppress independent live evidence from them.
                   finally:
                       # Persist both successful and failed marketplace outcomes
                       # before closing Chromium, even if close itself fails.
