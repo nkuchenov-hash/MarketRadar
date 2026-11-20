@@ -36,8 +36,10 @@ jobs:
           sudo apt-get install -y -qq xvfb
           python -m pip install -r requirements.txt
           python -m playwright install --with-deps chromium
-          python -m compileall -q server
-          python -m unittest server.test_cloud_browser server.test_human_navigation server.test_mobile_api server.test_public_html -v
+      - name: Compile server Python modules
+        run: python -m compileall -q server
+      - name: Run offline browser and API unit tests
+        run: python -m unittest server.test_cloud_browser server.test_human_navigation server.test_mobile_api server.test_public_html -v
       - name: Browser search with price ordering and captured network responses
         env:
           CLOUD_BROWSER_ENABLED: "true"
