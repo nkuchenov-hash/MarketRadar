@@ -24,7 +24,7 @@ concurrency:
 jobs:
   live-browser-probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 18
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -46,9 +46,10 @@ jobs:
           CLOUD_BROWSER_PERSISTENT: "true"
           CLOUD_BROWSER_HUMAN_FLOW: "true"
           CLOUD_BROWSER_PROFILE_DIR: /tmp/market-profiles
+          CLOUD_STORE_TIMEOUT_SECONDS: "150"
         run: |
           xvfb-run -a python - <<'PY'
-          import asyncio, json
+          import asyncio, json, os
           from pathlib import Path
           from urllib.parse import quote
           from server.cloud_browser import CloudBrowser, sorted_search_url, network_products
@@ -68,7 +69,11 @@ jobs:
                       # Startup can fail before navigation (missing executable,
                       # profile lock, launch timeout). Record it per storefront.
                       await browser.start()
-                      result = await browser.snapshot(url)
+                      # Bound each storefront independently: a hanging site must not
+                      # consume the entire CI job before the other stores are tested.
+                      result = await asyncio.wait_for(
+                          browser.snapshot(url),
+                          timeout=float(os.environ.get("CLOUD_STORE_TIMEOUT_SECONDS", "150")))
                       links = result.get("links", [])
                       examples = [{
                           "price": x.get("price"),
@@ -123,7 +128,7 @@ jobs:
                       Path("live-storefront-search.json").write_text(
                           json.dumps(findings,ensure_ascii=False,indent=2), encoding="utf-8")
                       try:
-                          await browser.close()
+                          await asyncio.wait_for(browser.close(), timeout=20)
                       except Exception as close_exc:
                           # Browser shutdown must not prevent probing the next store.
                           # Preserve a separate cleanup diagnostic without erasing
