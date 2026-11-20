@@ -68,7 +68,8 @@ jobs:
                   try:
                       # Startup can fail before navigation (missing executable,
                       # profile lock, launch timeout). Record it per storefront.
-                      await browser.start()
+                      await asyncio.wait_for(
+                          browser.start(), timeout=45)
                       # Bound each storefront independently: a hanging site must not
                       # consume the entire CI job before the other stores are tested.
                       result = await asyncio.wait_for(
