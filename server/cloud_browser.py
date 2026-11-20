@@ -373,9 +373,19 @@ class CloudBrowser:
                     headless=not self.headful, proxy=browser_proxy(self.market),
                     args=["--disable-dev-shm-usage"])
             if self.context is None:
-                self.context = await self.browser.new_context(
-                    locale="ru-RU", viewport={"width": 1280, "height": 900},
-                    service_workers="allow")
+                # Apply per-store network routing to remote CDP contexts too.
+                # Previously proxy configuration only affected local launches,
+                # leaving remote Chromium on its potentially blocked exit IP.
+                context_options = {
+                    "locale": "ru-RU",
+                    "viewport": {"width": 1280, "height": 900},
+                    "service_workers": "allow",
+                }
+                if cdp:
+                    proxy = browser_proxy(self.market)
+                    if proxy:
+                        context_options["proxy"] = proxy
+                self.context = await self.browser.new_context(**context_options)
         except Exception:
             await self.close()
             raise
