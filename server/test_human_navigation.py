@@ -220,6 +220,68 @@ class HumanStorefrontTests(unittest.TestCase):
                     await browser.close()
         asyncio.run(run())
 
+    def test_hydrated_search_field_and_sort_are_really_clicked(self):
+        """Delayed React-like controls must be awaited, not marked missing."""
+        async def run():
+            with patch.dict(os.environ,{
+                "CLOUD_BROWSER_ENABLED":"true",
+                "CLOUD_BROWSER_HUMAN_FLOW":"true",
+                "CLOUD_BROWSER_HEADFUL":"false",
+                "CLOUD_BROWSER_PERSISTENT":"false",
+                "CLOUD_SEARCH_SCROLLS":"1",
+            }):
+                browser=CloudBrowser(market="Wildberries")
+                await browser.start()
+                try:
+                    listing="""<html><title>WB search</title><body>
+                      <article><a href="https://www.wildberries.ru/catalog/123456789/detail.aspx">
+                        Яндекс Станция Мини 3 Про</a><b>11 200 ₽</b></article>
+                      <script>
+                        setTimeout(()=>{
+                          const form=document.createElement('form');
+                          form.innerHTML='<input id="searchInput" type="search">';
+                          form.onsubmit=e=>{e.preventDefault();
+                            history.replaceState(null,'','/catalog/0/search.aspx?search='+encodeURIComponent(document.getElementById('searchInput').value));};
+                          document.body.prepend(form);
+                        },1400);
+                        setTimeout(()=>{
+                          const menu=document.createElement('button');
+                          menu.innerText='По популярности';
+                          menu.onclick=()=>document.getElementById('cheap').hidden=false;
+                          menu.id='sort-menu';
+                          const cheap=document.createElement('button');
+                          cheap.id='cheap';cheap.hidden=true;
+                          cheap.innerText='Сначала дешёвые';
+                          cheap.onclick=()=>{menu.innerText='Подешевле';cheap.hidden=true;};
+                          document.body.prepend(menu,cheap);
+                        },3400);
+                      </script>
+                    </body></html>"""
+                    async def store(route):
+                        if route.request.url=="https://www.wildberries.ru/":
+                            await route.fulfill(status=498,content_type="text/html",
+                                body="<html><title>Denied</title></html>")
+                        elif "/catalog/0/search.aspx" in route.request.url:
+                            await route.fulfill(status=200,
+                                content_type="text/html; charset=utf-8",body=listing)
+                        else:
+                            await route.fulfill(status=498,content_type="text/html",
+                                body="<html><title>Denied</title></html>")
+                    await browser.context.route("https://www.wildberries.ru/**",store)
+                    result=await browser.snapshot(
+                        "https://www.wildberries.ru/catalog/0/search.aspx?search=test")
+                    nav=result["audit"]["navigation"]
+                    self.assertEqual("ok",result["state"],result)
+                    self.assertEqual(11200,result["links"][0]["price"],result)
+                    self.assertTrue(nav["search_ui_found"],nav)
+                    self.assertTrue(nav["search_query_typed"],nav)
+                    self.assertTrue(nav["search_ui_submitted"],nav)
+                    self.assertTrue(nav["sort_ui_selected"],nav)
+                    self.assertFalse(nav["sort_url_requested"],nav)
+                finally:
+                    await browser.close()
+        asyncio.run(run())
+
     def test_plain_200_without_search_control_must_not_reopen_blocked_sorted_url(self):
         """Preserve real WB search even when website hides its search input."""
         async def run():
