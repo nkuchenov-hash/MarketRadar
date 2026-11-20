@@ -35,7 +35,9 @@ def sorted_search_url(url: str) -> str:
         params["sort"] = "priceup"
     elif market == "Ozon":
         params["sorting"] = "price"
-    # Stable parameter ordering prevents duplicate page visits when the storefront\n    # reorders query arguments (e.g. page=2&how=aprice vs how=aprice&page=2).\n    return urlunparse(p._replace(query=urlencode(sorted(params.items()))))
+    # Stable parameter ordering prevents duplicate page visits when the storefront
+    # reorders query arguments (e.g. page=2&how=aprice vs how=aprice&page=2).
+    return urlunparse(p._replace(query=urlencode(sorted(params.items()))))
 
 
 def _amount(value):
