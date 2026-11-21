@@ -139,6 +139,38 @@ class PublicCloudApiTests(unittest.TestCase):
         self.assertEqual(11000,job["offers"][0]["price"])
         self.assertTrue(all(o["verified_detail"] is False for o in job["offers"]))
 
+    def test_network_json_exact_model_survives_blocked_detail(self):
+        """First-party linked JSON offers survive a denied product page."""
+        import asyncio
+        from server import mobile_cloud
+
+        class Browser:
+            async def start(self): pass
+            async def close(self): pass
+            async def snapshot(self, url):
+                if "/detail.aspx" in url:
+                    return {"state": "blocked", "links": []}
+                return {"state": "ok", "coverage_complete": False, "links": [
+                    {"url": "https://www.wildberries.ru/catalog/123456789/detail.aspx",
+                     "title": "Яндекс Станция Мини 3 Про",
+                     "price": 12345, "source": "network",
+                     "image_url": "https://example.com/product.jpg",
+                     "delivery_hint": "послезавтра"},
+                    {"url": "https://www.wildberries.ru/catalog/123456790/detail.aspx",
+                     "title": "Климатический модуль для Яндекс Станции Мини 3 Про",
+                     "price": 2345, "source": "network"},
+                ]}
+        job = {"id": "network-recovery", "query": "Яндекс Станция Мини 3 Про",
+               "state": "running", "markets": {"wb": {"state": "pending", "checked": 0}},
+               "offers": [], "errors": []}
+        with patch("server.mobile_cloud.CloudBrowser", Browser):
+            asyncio.run(mobile_cloud.run_market(job, "wb"))
+        self.assertEqual(1, len(job["offers"]), job)
+        self.assertEqual(12345, job["offers"][0]["price"])
+        self.assertEqual("послезавтра", job["offers"][0]["delivery"])
+        self.assertFalse(job["offers"][0]["verified_detail"])
+        self.assertFalse(job["markets"]["wb"]["coverage_complete"])
+
     def test_invalid_shops_rejected(self):
         with patch("server.main.cloud_browser.available",return_value=(True,"ok")):
             with TestClient(app) as client:
