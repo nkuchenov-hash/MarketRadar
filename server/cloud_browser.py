@@ -54,7 +54,7 @@ def _amount(value):
     if isinstance(value, str):
         # Decimal JSON amounts are rubles, not integer strings of kopecks.
         raw = value.strip()
-        decimal = re.fullmatch(r"([0-9\\s.,]+)[.,]([0-9]{2})", raw)
+        decimal = re.fullmatch(r"([0-9\s.,]+)[.,]([0-9]{2})", raw)
         if decimal:
             digits = re.sub(r"[^0-9]", "", decimal.group(1))
         else:
