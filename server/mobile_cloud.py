@@ -148,7 +148,7 @@ async def run_market(job: dict, shop_id: str):
         state["message"] = "Проверяем дешёвые карточки товаров"
         best = 0
         best_detail_verified = 0
-        max_checked = min(180, len(candidates))
+        # Preserve full search coverage: an arbitrary 180-card ceiling can hide\n        # the cheapest eligible delivery offer. An optional operator limit is\n        # explicit and always marks coverage incomplete when reached.\n        configured_limit = max(0, int(os.getenv("CLOUD_DETAIL_CHECK_LIMIT", "0")))\n        max_checked = min(configured_limit, len(candidates)) if configured_limit else len(candidates)
         cutoff_due_to_limit = False
         verified_urls = set()
         processed = 0
