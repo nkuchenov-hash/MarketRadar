@@ -211,14 +211,14 @@ async def run_market(job: dict, shop_id: str):
                 listing_price = int(candidate.get("price") or 0)
                 listing_match = exact_product(
                     job["query"],candidate.get("title",""))
-                # A listing-specific price from the store's own SSR or DOM
+                # A listing-specific price from the store's own SSR, DOM or JSON
                 # is useful even if opening the item returns HTTP 403/498.
                 # Keep exact-model offers as LISTING-ONLY, not detail verified.
-                # The DOM extractor associates prices with one product tile;
+                # The extractors associate prices with one linked product record;
                 # generic page-wide/unlinked prices are never candidates.
                 listing_only = (
                     (not detail_accessible or not detail_identity_seen) and
-                    candidate.get("source") in ("public_ssr", "dom") and
+                    candidate.get("source") in ("public_ssr", "dom", "network") and
                     listing_match and listing_price>0)
                 if not (detail_match or listing_only):
                     continue
