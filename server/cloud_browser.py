@@ -737,11 +737,41 @@ class CloudBrowser:
                 },
             }
         except Exception as exc:
-            return {"state": "timeout" if "Timeout" in type(exc).__name__ else "error",
-                    "url": url, "title": title, "text": page_text[:60000],
-                    "links": list(ledger.values())[:6000],
-                    "diagnostic": type(exc).__name__,
-                    "coverage_complete": False}
+            # A failed page turn, navigation or DOM evaluation must not discard
+            # product evidence already captured from earlier pages or JSON feeds.
+            # Keep the failure visible and never claim full search coverage.
+            if network_tasks:
+                _, pending = await asyncio.wait(network_tasks, timeout=2)
+                network_pending[0] = len(pending)
+            preserved = sorted(
+                ledger.values(),
+                key=lambda item: (
+                    not bool(item.get("price")),
+                    item.get("price") or 10**12,
+                    item["url"],
+                ),
+            )
+            return {
+                "state": "timeout" if "Timeout" in type(exc).__name__ else "error",
+                "url": page.url, "title": title, "text": page_text[:60000],
+                "links": preserved[:6000],
+                "diagnostic": type(exc).__name__ + ": " + str(exc)[:250],
+                "coverage_complete": False,
+                "audit": {
+                    "failure_stage": "browser_snapshot",
+                    "raw_seen": raw_count,
+                    "unique_products": len(ledger),
+                    "network_products": network_count,
+                    "network_truncated_responses": network_truncated[0],
+                    "network_parse_errors": network_parse_errors[0],
+                    "network_pending_responses": network_pending[0],
+                    "output_truncated_products": max(0, len(preserved) - 6000),
+                    "dom_snapshots": visited_snapshots,
+                    "pages": page_count,
+                    "blocked_statuses": blocked_http[:5],
+                    "navigation": navigation,
+                },
+            }
         finally:
             page.remove_listener("response", on_response)
             for task in network_tasks:
