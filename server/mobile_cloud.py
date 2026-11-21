@@ -73,7 +73,13 @@ def plausible_listing(query: str, title: str) -> bool:
     if any(x in t for x in accessory) and not any(x in q for x in accessory):
         return False
     meaningful=[w for w in q.split() if len(w)>2 or w.isdigit()]
-    return sum(w in t.split() for w in meaningful)>=min(2,len(meaningful))
+    overlap = sum(w in t.split() for w in meaningful)
+    # Short, truncated marketplace titles can contain only one recognizable
+    # model token. Inspect their product pages rather than silently dropping
+    # a potentially cheaper exact match before the detail evidence gate.
+    if overlap >= min(2, len(meaningful)):
+        return True
+    return bool(overlap and len(t) <= 32)
 
 
 def _job(job_id):
