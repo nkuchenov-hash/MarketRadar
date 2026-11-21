@@ -120,8 +120,20 @@ def network_products(payload, origin: str, max_nodes=60000, market: str | None =
                     amount = _amount(node[key])
                     if amount:
                         break
+        # Keep first-party JSON image evidence when the virtualized DOM card
+        # has not yet appeared.
+        image_url = ""
+        for image_key in ("imageUrl", "image_url", "pictureUrl", "thumbnailUrl", "photoUrl"):
+            candidate = node.get(image_key)
+            if isinstance(candidate, str) and candidate:
+                image = urljoin(origin, candidate)
+                parsed_image = urlparse(image)
+                if parsed_image.scheme == "https" and parsed_image.hostname:
+                    image_url = image[:900]
+                    break
         products.append({"url": canonical(candidate_url), "title": title[:240],
-                         "context": "", "price": amount, "source": "network"})
+                         "context": "", "price": amount, "source": "network",
+                         "image_url": image_url})
     return products, visited
 
 
