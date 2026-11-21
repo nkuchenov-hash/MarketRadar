@@ -299,8 +299,16 @@ async def run_market(job: dict, shop_id: str):
         state["message"] = "Остановлено"
         raise
     except Exception as exc:
-        state["state"] = "error"
-        state["message"] = type(exc).__name__
+        # A late browser/verification failure must not erase already captured
+        # offers or present their coverage as complete. Preserve evidence and
+        # report the market as partial when useful records survived.
+        surviving = [offer for offer in job["offers"]
+                     if offer.get("market_id") == shop_id]
+        state["coverage_complete"] = False
+        state["state"] = "partial" if surviving else "error"
+        state["message"] = ("Поиск прерван; сохранены найденные предложения"
+                            if surviving else type(exc).__name__)
+        state["failure_type"] = type(exc).__name__
         job["errors"].append(f"{market}: {type(exc).__name__}")
     finally:
         await engine.close()
