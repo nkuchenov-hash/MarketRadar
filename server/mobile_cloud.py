@@ -177,10 +177,8 @@ async def run_market(job: dict, shop_id: str):
                     cutoff_due_to_limit = True
                     break
                 batch.append(candidate)
-            if cutoff_due_to_limit:
-                break
             if not batch:
-                continue
+                break
             # When eight consecutive product detail pages fail or only
             # display a generic storefront shell, further requests cannot
             # verify model/price. Keep exact-model search-card evidence rather
