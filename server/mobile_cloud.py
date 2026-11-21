@@ -121,12 +121,19 @@ async def run_market(job: dict, shop_id: str):
         state["coverage_complete"] = bool(listing.get("coverage_complete", False))
         state["candidates"] = len(listing.get("links", []))
         state["message"] = listing.get("diagnostic","")[:180]
-        if listing.get("state") != "ok":
-            state["state"] = listing.get("state", "error")
-            if state["state"] not in VALID_STATES: state["state"] = "error"
-            state["message"] = "Магазин не предоставил поисковую выдачу"
-            return
+        # Chromium may have captured genuine DOM/JSON products before a later
+        # navigation timeout or storefront denial. Do not discard that ledger.
+        # Such a result remains partial regardless of how many details succeed.
+        listing_state = listing.get("state", "error")
         all_cards = listing.get("links", [])
+        if listing_state != "ok":
+            state["coverage_complete"] = False
+            state["listing_failure_state"] = listing_state
+            if not all_cards:
+                state["state"] = listing_state if listing_state in VALID_STATES else "error"
+                state["message"] = "Магазин не предоставил поисковую выдачу"
+                return
+            state["message"] = "Частичная выдача: проверяем сохранённые карточки"
         # Preserve the entire ledger, even cards whose search snippets are
         # truncated or whose price is missing. Only likely accessories can be
         # skipped without requesting another product page.
