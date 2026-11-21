@@ -6,10 +6,15 @@ import unittest
 
 from unittest.mock import patch
 
-from server.cloud_browser import CloudBrowser, _DOM_SNAPSHOT, network_products, sorted_search_url, browser_proxy
+from server.cloud_browser import CloudBrowser, _DOM_SNAPSHOT, network_products, sorted_search_url, browser_proxy, _amount
 
 
 class CloudSearchTests(unittest.TestCase):
+    def test_spaced_decimal_prices_are_rubles_not_kopecks(self):
+        for value in ("3 590,00", "3\u00a0590,00", "3\u202f590.00", "3590.00"):
+            with self.subTest(value=value):
+                self.assertEqual(3590, _amount(value))
+
     def test_price_sort_requests(self):
         urls = {
             "https://market.yandex.ru/search?text=phone": "how=aprice",
