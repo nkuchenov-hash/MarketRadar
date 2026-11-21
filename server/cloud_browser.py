@@ -52,10 +52,14 @@ def _amount(value):
         n = int(value)
         return n if 100 <= n <= 50_000_000 else 0
     if isinstance(value, str):
-        cleaned = re.sub(r"[^0-9]", "", value)
-        if not cleaned:
-            return 0
-        n = int(cleaned)
+        # Decimal JSON amounts are rubles, not integer strings of kopecks.
+        raw = value.strip()
+        decimal = re.fullmatch(r"([0-9\\s.,]+)[.,]([0-9]{2})", raw)
+        if decimal:
+            digits = re.sub(r"[^0-9]", "", decimal.group(1))
+        else:
+            digits = re.sub(r"[^0-9]", "", raw)
+        n = int(digits) if digits else 0
         return n if 100 <= n <= 50_000_000 else 0
     return 0
 
