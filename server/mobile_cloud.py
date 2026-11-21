@@ -236,6 +236,8 @@ async def run_market(job: dict, shop_id: str):
                 price = min(p for p in (listing_price, structured) if p > 0)
                 price_verified = bool(detail_match and structured > 0 and
                                       price == structured)
+                if not price_verified:
+                    state["coverage_complete"] = False
                 image = candidate.get("image_url") or (
                     page.get("primary_image") if detail_accessible else "") or ""
                 if not image.startswith("https://"):
@@ -246,6 +248,10 @@ async def run_market(job: dict, shop_id: str):
                 verified_urls.add(link)
                 if listing_only:
                     state["listing_only"] = state.get("listing_only",0)+1
+                    # Search-card evidence is not a verified product-page result.
+                    # Never report complete coverage while any offer remains
+                    # unverified, even when the listing crawl itself finished.
+                    state["coverage_complete"] = False
                 job["offers"].append({
                     "market_id":shop_id,
                     "title":(detail_title if detail_match
