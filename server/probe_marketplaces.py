@@ -6,7 +6,8 @@ Usage:
 
 This is intentionally NOT an offline test and never uses fixture prices.
 Exit 0 only when all three storefronts return priced exact-title candidates
-with a product URL and image; this does not prove detail-page accuracy.
+with a product URL and image THROUGH CHROMIUM, not SSR fallback.
+This does not prove detail-page accuracy or complete search coverage.
 """
 import asyncio
 import json
@@ -36,10 +37,11 @@ async def probe_one(market, config):
         # complete offer for the Android comparison screen. Keep it in
         # diagnostics, but do not mark the storefront as accepted.
         usable = [p for p in exact if (p.get("url") or p.get("href")) and str(p.get("image_url") or "").startswith("https://")]
-        source = audit.get("source") or "chromium"
+        # Missing source is unknown, never proof of Chromium access.
+        source = audit.get("source") or "unknown"
         browser_http_status = audit.get("browser_http_status")
         browser_blocked = browser_http_status in (403, 429, 498, 503)
-        chromium_listing_access = (source != "public_html" and not browser_blocked
+        chromium_listing_access = (source == "chromium" and not browser_blocked
                                    and result.get("state") == "ok" and bool(exact))
         cheapest = min(exact, key=lambda p: p["price"], default=None)
         cheapest_usable = min(usable, key=lambda p: p["price"], default=None)
@@ -87,10 +89,14 @@ async def main():
         "all_markets_accessible": all(x["live_listing_access"] for x in results),
         "all_markets_chromium_accessible": all(x.get("chromium_listing_access", False) for x in results),
         "all_markets_have_usable_offers": all(x["usable_offer_access"] for x in results),
+        "all_markets_have_usable_chromium_offers": all(
+            x.get("chromium_listing_access", False) and x.get("usable_offer_access", False)
+            for x in results),
         "note": "SSR fallback is reported separately from Chromium access. Exact-title listing evidence with link/image required for acceptance; not detail-page confirmation, full coverage, or Android end-to-end.",
     }
     print(json.dumps(report, ensure_ascii=False, indent=2))
-    return 0 if report["all_markets_have_usable_offers"] else 2
+    # An SSR-only success must not make the Chromium acceptance gate green.
+    return 0 if report["all_markets_have_usable_chromium_offers"] else 2
 
 
 if __name__ == "__main__":
