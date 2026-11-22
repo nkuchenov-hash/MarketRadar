@@ -577,20 +577,16 @@ class CloudBrowser:
                 response = await page.goto(target, wait_until="domcontentloaded", timeout=35000)
             if (search and response
                     and response.status in (403,429,498,503)):
-                ssr_attempted = True
-                from .public_html import fetch_public_search_html
-                fallback = await asyncio.to_thread(fetch_public_search_html,target)
-                if fallback:
-                    return await browser_evidence(fallback,response)
-                # A marketplace can deny a URL with a price-sort parameter
-                # while still serving the regular search. Preserve genuine
-                # first-party cards and sort observed prices in our ledger.
-                # Do not claim complete coverage or confirmed store sorting.
-                if (market_of(target) in ("Wildberries","Ozon")
+                # Try the ordinary public search in Chromium BEFORE SSR.
+                # Some storefronts reject price-sort query parameters while
+                # serving the unsorted listing. SSR must not preempt this
+                # browser recovery path merely because HTML is available.
+                blocked_sorted_response = response
+                if (market_of(target) in ("Wildberries", "Ozon")
                         and url != target):
                     try:
                         plain = await page.goto(
-                            url,wait_until="domcontentloaded",timeout=22000)
+                            url, wait_until="domcontentloaded", timeout=22000)
                         navigation["plain_search_fallback"] = True
                         navigation["plain_search_http_status"] = (
                             plain.status if plain else None)
@@ -598,6 +594,13 @@ class CloudBrowser:
                             response = plain
                     except Exception as exc:
                         navigation["plain_search_error"] = type(exc).__name__
+                if not response or response.status in (403,429,498,503):
+                    ssr_attempted = True
+                    from .public_html import fetch_public_search_html
+                    fallback = await asyncio.to_thread(fetch_public_search_html,target)
+                    if fallback:
+                        return await browser_evidence(
+                            fallback, blocked_sorted_response)
             await page.wait_for_timeout(1800)
             if not host_allowed(page.url) or market_of(page.url) != market_of(url):
                 return {"state": "error", "url": url, "title": "", "text": "",
