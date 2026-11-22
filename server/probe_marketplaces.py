@@ -31,6 +31,7 @@ async def probe_one(market, config):
         priced = [p for p in links if isinstance(p.get("price"), int) and p["price"] > 0]
         exact = [p for p in priced if exact_product(QUERY, p.get("title") or "")]
         with_images = [p for p in exact if p.get("image_url")]
+        cheapest = min(exact, key=lambda p: p["price"], default=None)
         return {
             "market": market,
             "state": result.get("state", "error"),
@@ -40,7 +41,11 @@ async def probe_one(market, config):
             "priced_cards": len(priced),
             "exact_priced_cards": len(exact),
             "exact_cards_with_images": len(with_images),
-            "cheapest_exact_listing_price": min((p["price"] for p in exact), default=None),
+            "cheapest_exact_listing_price": cheapest["price"] if cheapest else None,
+            "cheapest_exact_listing_title": cheapest.get("title") if cheapest else None,
+            "cheapest_exact_listing_url": (cheapest.get("url") or cheapest.get("href")) if cheapest else None,
+            "cheapest_exact_listing_image_url": cheapest.get("image_url") if cheapest else None,
+            "cheapest_exact_listing_delivery": (cheapest.get("delivery") or cheapest.get("delivery_text") or cheapest.get("delivery_date")) if cheapest else None,
             "network_cards": audit.get("network_products", 0),
             "coverage_complete": result.get("coverage_complete", False),
             "diagnostic": result.get("diagnostic", ""),
