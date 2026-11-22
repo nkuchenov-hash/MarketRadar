@@ -338,7 +338,9 @@ def fetch_public_search_html(url: str) -> dict:
         "coverage_complete":False,
         "diagnostic":f"HTML: просмотрено страниц {len(visited)}, охват неполный",
         "audit":{
-            "source":"public_html","http_status":200,
+            "source":"public_html","http_status":200 if first else None,
+            "first_page_available":bool(first),
+            "pages_requested":max_pages,
             "raw_seen":raw_seen,"unique_products":len(products),
             "priced_products":len(priced),
             "pages_visited":visited,"pages_failed":failed,
