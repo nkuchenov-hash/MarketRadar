@@ -706,7 +706,14 @@ class CloudBrowser:
             all_products = list(ledger.values())
             blocked = ((bool(blocked_http) and not all_products) or
                 any(t in page_text.lower() for t in BLOCK_WORDS))
-            if blocked and search and not ssr_attempted:
+            # HTTP 200 can be a challenge shell or an empty hydrated grid.
+            # Treat zero observed product links as missing browser evidence,
+            # and try public SSR without claiming Chromium search succeeded.
+            empty_search = bool(search and not all_products)
+            if empty_search and not diagnostic:
+                diagnostic = "Chromium returned no product cards (HTTP status alone is insufficient)"
+            if (blocked or empty_search) and search and not ssr_attempted:
+                ssr_attempted = True
                 from .public_html import fetch_public_search_html
                 fallback = await asyncio.to_thread(fetch_public_search_html,target)
                 if fallback:
@@ -717,7 +724,7 @@ class CloudBrowser:
             seen_prices = {v["price"] for v in links if v["price"]}
             orphans = sorted(p for p in visual_prices if p not in seen_prices)[:20]
             return {
-                "state": "blocked" if blocked else "ok",
+                "state": "blocked" if blocked else ("partial" if empty_search else "ok"),
                 "url": page.url, "title": title[:250],
                 "heading": str(last_snapshot.get("heading",""))[:300],
                 "primary_price": _amount(last_snapshot.get("primary_price",0)),
