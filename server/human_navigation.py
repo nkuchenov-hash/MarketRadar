@@ -228,9 +228,12 @@ async def open_search_via_ui(page, market: str, target: str, on_search_start=Non
             response=plain_response
             await page.wait_for_timeout(900)
             initial_plain_title=(await page.title()).lower()
-            result["plain_blocked"]=any(x in initial_plain_title
-                for x in ("похоже, нет соединения","вы не робот","access denied",
-                          "подтвердите, что запросы отправляли вы"))
+            result["plain_blocked"]=(
+                not plain_response or plain_response.status in (403, 429, 498, 503)
+                or any(x in initial_plain_title
+                    for x in ("похоже, нет соединения","вы не робот","access denied",
+                              "подтвердите, что запросы отправляли вы",
+                              "подозрительная активность")))
             if (plain_response and plain_response.status==200
                     and not result["plain_blocked"]):
                 entry=await visible_search_input(page,market,wait_ms=4000)
