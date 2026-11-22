@@ -294,10 +294,21 @@ async def run_market(job: dict, shop_id: str):
         # Listing-only SSR evidence is not a verified product-detail price.
         state["best_found"] = best
         state["best_verified"] = best_detail_verified
-        state["state"] = "complete" if state["coverage_complete"] else "partial"
-        state["message"] = (
-            f"Найдено {sum(o['market_id']==shop_id for o in job['offers'])} "
-            f"подходящих предложений из {len(all_cards)} товаров")
+        found_count = sum(o["market_id"] == shop_id for o in job["offers"])
+        # A technically exhausted search is not a successful price comparison
+        # when it contains zero actual matching offers. Distinguish "no match"
+        # from a store that returned a blank or blocked storefront shell.
+        if found_count == 0:
+            state["coverage_complete"] = False
+            state["state"] = "partial" if all_cards else "blocked"
+            state["message"] = (
+                "Не подтверждено ни одного предложения точной модели; "
+                "полнота поиска не доказана")
+        else:
+            state["state"] = "complete" if state["coverage_complete"] else "partial"
+            state["message"] = (
+                f"Найдено {found_count} "
+                f"подходящих предложений из {len(all_cards)} товаров")
     except asyncio.CancelledError:
         state["state"] = "partial"
         state["message"] = "Остановлено"
