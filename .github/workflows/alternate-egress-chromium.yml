@@ -1,0 +1,56 @@
+name: Real Chromium storefront access - independent cloud networks
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'server/cloud_browser.py'
+      - 'server/human_navigation.py'
+      - 'server/probe_marketplaces.py'
+      - '.github/workflows/alternate-egress-chromium.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  real-chromium:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 23
+    env:
+      CLOUD_BROWSER_ENABLED: "true"
+      CLOUD_BROWSER_HUMAN_FLOW: "true"
+      CLOUD_BROWSER_HEADFUL: "false"
+      CLOUD_BROWSER_PERSISTENT: "false"
+      CLOUD_BROWSER_PARALLEL: "3"
+      CLOUD_SEARCH_SCROLLS: "35"
+      PYTHONIOENCODING: "utf-8"
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install genuine Playwright Chromium
+        shell: bash
+        run: |
+          python -m pip install -r requirements.txt
+          python -m playwright install chromium
+      - name: Search all three live stores using their search box and price sort UI
+        shell: bash
+        run: |
+          set +e
+          python -m server.probe_marketplaces > browser-evidence.json
+          code=$?
+          cat browser-evidence.json
+          # Failing means no confirmed UI search, not an offline unit-test failure.
+          exit "$code"
+      - name: Preserve evidence (including blocked or incomplete browser sessions)
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: real-chromium-${{ matrix.os }}
+          path: browser-evidence.json
+          if-no-files-found: warn
+          retention-days: 7
