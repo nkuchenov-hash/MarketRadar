@@ -442,7 +442,7 @@ class CloudBrowser:
         search = "search" in urlparse(url).path.lower()
         target = sorted_search_url(url) if search else url
         use_shop_ui = (search and market_of(target) in ("Wildberries","Ozon","Яндекс Маркет")
-                       and os.getenv("CLOUD_BROWSER_HUMAN_FLOW","false").lower()
+                       and os.getenv("CLOUD_BROWSER_HUMAN_FLOW","true").lower()
                        in ("true","yes","1"))
         capturing_search = [not use_shop_ui]
         navigation = {}
