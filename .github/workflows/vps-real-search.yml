@@ -1,0 +1,83 @@
+name: Real MarketRadar search on deployed Russian VPS
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/vps-real-search.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  browser-search:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      MARKETRADAR_API_URL: https://45-147-178-109.sslip.io
+      MARKETRADAR_ACCESS_KEY: ${{ secrets.MARKETRADAR_MOBILE_ACCESS_KEY }}
+      PYTHONIOENCODING: utf-8
+    steps:
+      - name: Run real browser search on existing VPS and audit each store
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json,os,time,urllib.request,urllib.error
+          from pathlib import Path
+          base=os.environ["MARKETRADAR_API_URL"].rstrip("/")
+          key=os.environ.get("MARKETRADAR_ACCESS_KEY","")
+          if not key:
+              print("DEPLOYMENT BLOCKED: GitHub secret MARKETRADAR_MOBILE_ACCESS_KEY is not configured; cannot invoke authenticated browser job.")
+              raise SystemExit(3)
+          headers={"X-MarketRadar-Key":key,"Content-Type":"application/json"}
+          query="Яндекс Станция Мини 3 Про"
+          payload=json.dumps({"query":query,"shops":["wb","ozon","ym"]},ensure_ascii=False).encode()
+          request=urllib.request.Request(base+"/api/mobile/browser/start",data=payload,headers=headers,method="POST")
+          with urllib.request.urlopen(request,timeout=25) as r:
+              if r.status!=202:
+                  raise RuntimeError(f"Browser job HTTP {r.status}")
+              job=json.load(r)
+          print("VPS browser job created",job.get("id","")[:8],flush=True)
+          deadline=time.monotonic()+900
+          status={}
+          while time.monotonic()<deadline:
+              url=base+"/api/mobile/browser/jobs/"+job["id"]
+              with urllib.request.urlopen(urllib.request.Request(url,headers=headers),timeout=25) as r:
+                  status=json.load(r)
+              if status.get("state") in ("finished","failed","error","cancelled"):
+                  break
+              time.sleep(8)
+          result={"run_utc":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime()),
+                  "query":query,"job_state":status.get("state"),"markets":{}}
+          passed=True
+          for shop in ("wb","ozon","ym"):
+              state=(status.get("markets") or {}).get(shop) or {}
+              audit=state.get("audit") or {}
+              nav=audit.get("navigation") or audit.get("browser_navigation") or {}
+              offers=[x for x in status.get("offers",[]) if x.get("market_id")==shop]
+              verified=[x for x in offers if x.get("verified_detail") and x.get("price",0)>0]
+              success=bool(
+                  audit.get("source")=="chromium" and
+                  nav.get("search_query_typed") and
+                  nav.get("search_ui_submitted") and
+                  nav.get("sort_ui_selected") and verified)
+              result["markets"][shop]={
+                  "state":state.get("state"),"chromium_source":audit.get("source"),
+                  "navigation":nav,"coverage_complete":state.get("coverage_complete",False),
+                  "total_offers":len(offers),"detail_verified":len(verified),
+                  "best_detail_verified":min((v["price"] for v in verified),default=None),
+                  "best_detail_url":min(verified,key=lambda v:v["price"])["url"] if verified else None,
+                  "success":success,"message":state.get("message")}
+              if not success: passed=False
+          result["all_shops_confirmed"]=passed
+          Path("vps-real-search-evidence.json").write_text(
+              json.dumps(result,ensure_ascii=False,indent=2),encoding="utf-8")
+          print(json.dumps(result,ensure_ascii=False,indent=2))
+          if not passed:
+              raise SystemExit("Live cloud Chromium did not finish verified UI searches on all marketplaces")
+          PY
+      - name: Upload server browser evidence
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: real-vps-browser-search
+          path: vps-real-search-evidence.json
+          if-no-files-found: warn
+          retention-days: 7
