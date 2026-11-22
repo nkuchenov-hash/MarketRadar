@@ -289,13 +289,13 @@ def fetch_public_search_html(url: str) -> dict:
         return {}
 
     first=fetch_one(1)
-    if not first:
-        return {}
-    products={x["url"]:x for x in first["links"]}
-    raw_seen=first["observed_product_anchors"]
-    visited=[1]
-    failed=[]
-    recovered=[]
+    # A denial on page 1 does not prove that later public pages are blocked.
+    # Keep probing configured pages, but report the missing first page.
+    products={x["url"]:x for x in first["links"]} if first else {}
+    raw_seen=first["observed_product_anchors"] if first else 0
+    visited=[1] if first else []
+    failed=[] if first else [1]
+    recovered=[1] if first and first.get("retried") else []
     with ThreadPoolExecutor(max_workers=3) as workers:
         # Fetch bounded batches; stop when an entire batch contributes no
         # new card. Different storefront pages may overlap in results.
@@ -325,6 +325,8 @@ def fetch_public_search_html(url: str) -> dict:
             # Overlapping or empty batches do not prove pagination ended.
             # Probe every configured page; report incomplete coverage in audit.
 
+    if not products:
+        return {}
     links=sorted(products.values(),key=lambda item: (
         item["price"]<=0,item["price"] or 10**12,item["url"]))
     priced=[x for x in links if x["price"]>0]
