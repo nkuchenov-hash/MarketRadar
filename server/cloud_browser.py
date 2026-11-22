@@ -339,6 +339,48 @@ def browser_proxy(market: str | None):
     return proxy
 
 
+def merge_browser_and_public_evidence(fallback: dict, browser_records: dict) -> dict:
+    """Retain observed Chromium cards when public HTML is used after a denial.
+
+    A browser record must never be erased by a later HTTP failure. The merged
+    result remains partial and cannot be advertised as a successful UI crawl.
+    """
+    if not browser_records:
+        return fallback
+    combined = {}
+    for item in fallback.get("links", []):
+        url = item.get("url", "")
+        if url:
+            combined[canonical(url)] = dict(item)
+    for item in browser_records.values():
+        url = item.get("url", "")
+        if not url:
+            continue
+        key = canonical(url)
+        previous = combined.get(key)
+        if previous is None:
+            combined[key] = dict(item)
+            continue
+        for field in ("title", "context", "image_url", "delivery_hint"):
+            if not previous.get(field) and item.get(field):
+                previous[field] = item[field]
+        price = _amount(item.get("price"))
+        old_price = _amount(previous.get("price"))
+        if price and (not old_price or price < old_price):
+            previous["price"] = price
+            previous["source"] = item.get("source", "network")
+    records = sorted(combined.values(), key=lambda x: (
+        not bool(x.get("price")), x.get("price") or 10**12, x["url"]))
+    fallback["links"] = records[:6000]
+    fallback["coverage_complete"] = False
+    fallback["state"] = "partial"
+    audit = fallback.setdefault("audit", {})
+    audit["chromium_preserved_products"] = len(browser_records)
+    audit["merged_unique_products"] = len(records)
+    audit["output_truncated_products"] = max(0, len(records) - 6000)
+    return fallback
+
+
 class CloudBrowser:
     """Limited parallel Chromium workers, full listing scans and evidence ledger."""
     _slots = asyncio.Semaphore(max(1, min(int(os.getenv("CLOUD_BROWSER_PARALLEL","2")), 3)))
@@ -599,8 +641,12 @@ class CloudBrowser:
                     from .public_html import fetch_public_search_html
                     fallback = await asyncio.to_thread(fetch_public_search_html,target)
                     if fallback:
+                        if network_tasks:
+                            _, pending = await asyncio.wait(network_tasks, timeout=4)
+                            network_pending[0] = len(pending)
                         return await browser_evidence(
-                            fallback, blocked_sorted_response)
+                            merge_browser_and_public_evidence(fallback, ledger),
+                            blocked_sorted_response)
             await page.wait_for_timeout(1800)
             if not host_allowed(page.url) or market_of(page.url) != market_of(url):
                 return {"state": "error", "url": url, "title": "", "text": "",
@@ -717,7 +763,12 @@ class CloudBrowser:
                 from .public_html import fetch_public_search_html
                 fallback = await asyncio.to_thread(fetch_public_search_html,target)
                 if fallback:
-                    return await browser_evidence(fallback,response)
+                    if network_tasks:
+                        _, pending = await asyncio.wait(network_tasks, timeout=4)
+                        network_pending[0] = len(pending)
+                    return await browser_evidence(
+                        merge_browser_and_public_evidence(fallback, ledger),
+                        response)
             all_products.sort(key=lambda c:(c["price"] <= 0,
                                       c["price"] if c["price"] else 10**12,c["url"]))
             links = all_products
