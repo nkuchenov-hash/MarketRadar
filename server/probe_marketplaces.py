@@ -39,6 +39,13 @@ async def probe_one(market, config):
         usable = [p for p in exact if (p.get("url") or p.get("href")) and str(p.get("image_url") or "").startswith("https://")]
         # Missing source is unknown, never proof of Chromium access.
         source = audit.get("source") or "unknown"
+        navigation = audit.get("navigation") or audit.get("browser_navigation") or {}
+        human_flow_confirmed = all((
+            navigation.get("search_query_typed"),
+            navigation.get("search_ui_submitted"),
+            navigation.get("sort_ui_selected"),
+            audit.get("sort_ui_confirmed"),
+        ))
         browser_http_status = audit.get("browser_http_status")
         browser_blocked = browser_http_status in (403, 429, 498, 503)
         chromium_listing_access = (source == "chromium" and not browser_blocked
@@ -52,6 +59,8 @@ async def probe_one(market, config):
             "browser_http_status": browser_http_status,
             "source": source,
             "chromium_listing_access": chromium_listing_access,
+            "human_flow_confirmed": human_flow_confirmed,
+            "navigation": navigation,
             "blocked_statuses": audit.get("blocked_statuses", []),
             "unique_cards": len(links),
             "priced_cards": len(priced),
@@ -92,11 +101,14 @@ async def main():
         "all_markets_have_usable_chromium_offers": all(
             x.get("chromium_listing_access", False) and x.get("usable_offer_access", False)
             for x in results),
-        "note": "SSR fallback is reported separately from Chromium access. Exact-title listing evidence with link/image required for acceptance; not detail-page confirmation, full coverage, or Android end-to-end.",
+        "all_markets_have_verified_human_ui_flow": all(
+            x.get("chromium_listing_access", False) and x.get("usable_offer_access", False)
+            and x.get("human_flow_confirmed", False) for x in results),
+        "note": "SSR fallback is reported separately from Chromium. Requires Chromium to type the query, submit it, visibly choose price ascending, and return exact priced offers with links/images. Does not prove detail-page accuracy, full coverage, human price parity or Android end-to-end.",
     }
     print(json.dumps(report, ensure_ascii=False, indent=2))
     # An SSR-only success must not make the Chromium acceptance gate green.
-    return 0 if report["all_markets_have_usable_chromium_offers"] else 2
+    return 0 if report["all_markets_have_verified_human_ui_flow"] else 2
 
 
 if __name__ == "__main__":
