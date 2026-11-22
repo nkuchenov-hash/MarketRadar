@@ -746,6 +746,10 @@ class CloudBrowser:
                     "sort_ui_confirmed": bool(navigation.get("sort_ui_selected")),
                     "plain_search_fallback": bool(navigation.get("plain_search_fallback")),
                     "http_status": response.status if response else None,
+                    # Explicit provenance for live acceptance: this ledger is
+                    # populated by Chromium DOM and network responses, not SSR.
+                    "source": "chromium",
+                    "browser_http_status": response.status if response else None,
                     "blocked_statuses": blocked_http[:5],
                     "browser_headful": self.headful,
                     "browser_persistent": self.persistent,
