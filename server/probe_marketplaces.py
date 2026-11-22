@@ -5,7 +5,7 @@ Usage:
   MARKETRADAR_CHROMIUM_CDP_URL=wss://... CLOUD_BROWSER_ENABLED=true python -m server.probe_marketplaces
 
 This is intentionally NOT an offline test and never uses fixture prices.
-Exit 0 only when all three storefronts return real product cards.
+Exit 0 only when all three storefronts return priced exact-title candidates.
 """
 import asyncio
 import json
@@ -15,6 +15,7 @@ from urllib.parse import quote
 
 from .cloud_browser import CloudBrowser
 from .core import MARKETS
+from .mobile_cloud import exact_product
 
 QUERY = "Яндекс Станция Мини 3 Про"
 
@@ -28,6 +29,8 @@ async def probe_one(market, config):
         audit = result.get("audit") or {}
         links = result.get("links") or []
         priced = [p for p in links if isinstance(p.get("price"), int) and p["price"] > 0]
+        exact = [p for p in priced if exact_product(QUERY, p.get("title") or "")]
+        with_images = [p for p in exact if p.get("image_url")]
         return {
             "market": market,
             "state": result.get("state", "error"),
@@ -35,10 +38,13 @@ async def probe_one(market, config):
             "blocked_statuses": audit.get("blocked_statuses", []),
             "unique_cards": len(links),
             "priced_cards": len(priced),
+            "exact_priced_cards": len(exact),
+            "exact_cards_with_images": len(with_images),
+            "cheapest_exact_listing_price": min((p["price"] for p in exact), default=None),
             "network_cards": audit.get("network_products", 0),
             "coverage_complete": result.get("coverage_complete", False),
             "diagnostic": result.get("diagnostic", ""),
-            "live_listing_access": result.get("state") == "ok" and bool(priced),
+            "live_listing_access": result.get("state") == "ok" and bool(exact),
         }
     except Exception as exc:
         return {"market": market, "state": "error",
@@ -57,7 +63,7 @@ async def main():
         "test_type": "live_cloud_chromium",
         "markets": results,
         "all_markets_accessible": all(x["live_listing_access"] for x in results),
-        "note": "Listing access only; not Android end-to-end or exact-model verification.",
+        "note": "Exact-title listing evidence only; not detail-page confirmation, full coverage, or Android end-to-end.",
     }
     print(json.dumps(report, ensure_ascii=False, indent=2))
     return 0 if report["all_markets_accessible"] else 2
