@@ -1,0 +1,32 @@
+name: Verify existing Russian VPS as real browser host
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/vps-access.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  vps:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Reach existing MarketRadar backend from public runner
+        shell: bash
+        run: |
+          python - <<'PY'
+          import socket, ssl, urllib.request, urllib.error
+          host='45.147.178.109'
+          for port in (22, 80, 443):
+              try:
+                  with socket.create_connection((host,port), timeout=8) as sock:
+                      print(f'VPS {host}:{port} TCP OPEN', flush=True)
+              except Exception as e:
+                  print(f'VPS {host}:{port} TCP UNREACHABLE {type(e).__name__}: {e}',flush=True)
+          for url in ('https://45-147-178-109.sslip.io/health','http://45.147.178.109/health'):
+              try:
+                  with urllib.request.urlopen(url,timeout=12) as r:
+                      print(f'BACKEND {url} HTTP {r.status} {r.read(500).decode("utf8","replace")}',flush=True)
+              except Exception as e:
+                  print(f'BACKEND {url} FAILED {type(e).__name__}: {str(e)[:250]}',flush=True)
+          PY
