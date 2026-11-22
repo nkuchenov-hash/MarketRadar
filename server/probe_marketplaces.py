@@ -5,7 +5,7 @@ Usage:
   MARKETRADAR_CHROMIUM_CDP_URL=wss://... CLOUD_BROWSER_ENABLED=true python -m server.probe_marketplaces
 
 This is intentionally NOT an offline test and never uses fixture prices.
-Exit 0 only when all three storefronts return priced exact-title candidates.
+Exit 0 only when all three storefronts return priced exact-title candidates\nwith a product URL and image; this does not prove detail-page accuracy.
 """
 import asyncio
 import json
@@ -31,7 +31,7 @@ async def probe_one(market, config):
         priced = [p for p in links if isinstance(p.get("price"), int) and p["price"] > 0]
         exact = [p for p in priced if exact_product(QUERY, p.get("title") or "")]
         with_images = [p for p in exact if p.get("image_url")]
-        cheapest = min(exact, key=lambda p: p["price"], default=None)
+        # A priced title without a usable product link or image is not a\n        # complete offer for the Android comparison screen. Keep it in\n        # diagnostics, but do not mark the storefront as accepted.\n        usable = [p for p in exact if (p.get("url") or p.get("href")) and p.get("image_url")]\n        cheapest = min(exact, key=lambda p: p["price"], default=None)\n        cheapest_usable = min(usable, key=lambda p: p["price"], default=None)
         return {
             "market": market,
             "state": result.get("state", "error"),
@@ -40,7 +40,7 @@ async def probe_one(market, config):
             "unique_cards": len(links),
             "priced_cards": len(priced),
             "exact_priced_cards": len(exact),
-            "exact_cards_with_images": len(with_images),
+            "exact_cards_with_images": len(with_images),\n            "exact_cards_with_link_and_image": len(usable),\n            "cheapest_usable_listing_price": cheapest_usable["price"] if cheapest_usable else None,
             "cheapest_exact_listing_price": cheapest["price"] if cheapest else None,
             "cheapest_exact_listing_title": cheapest.get("title") if cheapest else None,
             "cheapest_exact_listing_url": (cheapest.get("url") or cheapest.get("href")) if cheapest else None,
@@ -49,12 +49,12 @@ async def probe_one(market, config):
             "network_cards": audit.get("network_products", 0),
             "coverage_complete": result.get("coverage_complete", False),
             "diagnostic": result.get("diagnostic", ""),
-            "live_listing_access": result.get("state") == "ok" and bool(exact),
+            "live_listing_access": result.get("state") == "ok" and bool(exact),\n            "usable_offer_access": result.get("state") == "ok" and bool(usable),
         }
     except Exception as exc:
         return {"market": market, "state": "error",
                 "diagnostic": type(exc).__name__ + ": " + str(exc)[:180],
-                "live_listing_access": False}
+                "live_listing_access": False, "usable_offer_access": False}
     finally:
         await browser.close()
 
@@ -67,11 +67,11 @@ async def main():
         "query": QUERY,
         "test_type": "live_cloud_chromium",
         "markets": results,
-        "all_markets_accessible": all(x["live_listing_access"] for x in results),
-        "note": "Exact-title listing evidence only; not detail-page confirmation, full coverage, or Android end-to-end.",
+        "all_markets_accessible": all(x["live_listing_access"] for x in results),\n        "all_markets_have_usable_offers": all(x["usable_offer_access"] for x in results),
+        "note": "Exact-title listing evidence with link/image required for acceptance; not detail-page confirmation, full coverage, or Android end-to-end.",
     }
     print(json.dumps(report, ensure_ascii=False, indent=2))
-    return 0 if report["all_markets_accessible"] else 2
+    return 0 if report["all_markets_have_usable_offers"] else 2
 
 
 if __name__ == "__main__":
