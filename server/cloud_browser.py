@@ -371,13 +371,13 @@ def merge_browser_and_public_evidence(fallback: dict, browser_records: dict) -> 
             previous["source"] = item.get("source", "network")
     records = sorted(combined.values(), key=lambda x: (
         not bool(x.get("price")), x.get("price") or 10**12, x["url"]))
-    fallback["links"] = records[:6000]
+    fallback["links"] = records
     fallback["coverage_complete"] = False
     fallback["state"] = "partial"
     audit = fallback.setdefault("audit", {})
     audit["chromium_preserved_products"] = len(browser_records)
     audit["merged_unique_products"] = len(records)
-    audit["output_truncated_products"] = max(0, len(records) - 6000)
+    audit["output_truncated_products"] = 0
     return fallback
 
 
