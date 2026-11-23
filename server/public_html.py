@@ -271,8 +271,12 @@ def fetch_public_search_html(url: str) -> dict:
         for attempt in range(2):
             try:
                 with urllib.request.urlopen(request,timeout=18) as response:
-                    if (response.status == 200 and host_allowed(response.url)
-                            and market_of(response.url) == market_of(url)):
+                    # A cross-market redirect is not a transient storefront
+                    # denial. Never retry it or read the redirected page.
+                    if (not host_allowed(response.url)
+                            or market_of(response.url) != market_of(url)):
+                        return {}
+                    if response.status == 200:
                         if "text/html" in response.headers.get("Content-Type","").lower():
                             raw=response.read(8_000_001)
                             if len(raw)<=8_000_000:
