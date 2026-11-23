@@ -30,7 +30,7 @@ final class DeliveryPolicy {
     }
 
     static DeliveryPolicy standard(){
-        return new DeliveryPolicy(3,false,15,LocalDate.now());
+        return new DeliveryPolicy(3,false,20,LocalDate.now());
     }
 
     int days(String delivery){
