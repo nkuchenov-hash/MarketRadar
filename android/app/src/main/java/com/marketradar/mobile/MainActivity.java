@@ -459,7 +459,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         discountPercentInput.setTextColor(TEXT);
         discountPercentInput.setBackground(bg(SURFACE,13,BORDER));
         discountPercentInput.setPadding(dp(13),0,dp(13),0);
-        discountPercentInput.setText(Integer.toString(prefs.getInt("late_discount_percent",15)));
+        discountPercentInput.setText(Integer.toString(prefs.getInt("late_discount_percent",20)));
         discountPercentInput.setEnabled(allowLateDiscount.isChecked());
         allowLateDiscount.setOnCheckedChangeListener((v,checked)->
             discountPercentInput.setEnabled(checked));
@@ -564,7 +564,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
     }
     private void persistSearchOptions(){
         int days=boundedField(deliveryDaysInput,3,0,90);
-        int discount=boundedField(discountPercentInput,15,1,90);
+        int discount=boundedField(discountPercentInput,20,1,90);
         boolean allowSlow=allowLateDiscount.isChecked();
         deliveryDaysInput.setText(Integer.toString(days));
         discountPercentInput.setText(Integer.toString(discount));
@@ -882,7 +882,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
             return;
         }
         int days=boundedField(deliveryDaysInput,3,0,90);
-        int discount=boundedField(discountPercentInput,15,1,90);
+        int discount=boundedField(discountPercentInput,20,1,90);
         boolean allowSlow=allowLateDiscount.isChecked();
         deliveryDaysInput.setText(Integer.toString(days));
         discountPercentInput.setText(Integer.toString(discount));
@@ -973,7 +973,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
         return new DeliveryPolicy(
             boundedField(deliveryDaysInput,prefs.getInt("delivery_days",3),0,90),
             allowLateDiscount!=null&&allowLateDiscount.isChecked(),
-            boundedField(discountPercentInput,prefs.getInt("late_discount_percent",15),1,90),
+            boundedField(discountPercentInput,prefs.getInt("late_discount_percent",20),1,90),
             java.time.LocalDate.now());
     }
     private void updateDeadlineButton(){
@@ -983,7 +983,7 @@ public final class MainActivity extends Activity implements ScanEngine.Listener 
     private void updateDeadlinePreview(){
         if(deadlinePreview==null||deliveryDaysInput==null)return;
         DeliveryPolicy policy=new DeliveryPolicy(
-            boundedField(deliveryDaysInput,3,0,90),false,15,java.time.LocalDate.now());
+            boundedField(deliveryDaysInput,3,0,90),false,20,java.time.LocalDate.now());
         deadlinePreview.setText("Крайняя дата: "+
             OfferPresentation.deadline(policy).replace("Доставка до ",""));
     }
