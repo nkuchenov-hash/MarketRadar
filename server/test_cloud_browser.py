@@ -323,6 +323,62 @@ class CloudSearchTests(unittest.TestCase):
                     await browser.close()
         asyncio.run(run())
 
+    def test_wb_sibling_photo_is_scoped_to_its_own_product(self):
+        """Browser cards often have picture and title in sibling branches."""
+        async def run():
+            from playwright.async_api import async_playwright
+            async with async_playwright() as playwright:
+                browser = await playwright.chromium.launch(headless=True)
+                try:
+                    page = await browser.new_page()
+                    await page.set_content("""
+                      <div class="search-grid">
+                        <section class="wb-tile">
+                          <div class="media"><a href="https://www.wildberries.ru/catalog/123456789/detail.aspx">
+                            <img data-src="//images.wbstatic.net/first.jpg"
+                                 src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=">
+                          </a></div>
+                          <div class="description">
+                            <a href="https://www.wildberries.ru/catalog/123456789/detail.aspx">
+                              Яндекс Станция Мини 3 Про</a><span>11 400 ₽</span>
+                          </div>
+                        </section>
+                        <section class="wb-tile">
+                          <div class="media"><a href="https://www.wildberries.ru/catalog/123456790/detail.aspx">
+                            <img data-src="https://images.wbstatic.net/second.jpg"
+                                 src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=">
+                          </a></div>
+                          <div class="description">
+                            <a href="https://www.wildberries.ru/catalog/123456790/detail.aspx">
+                              Яндекс Станция Мини 3 Про</a><span>12 100 ₽</span>
+                          </div>
+                        </section>
+                        <section class="wb-tile">
+                          <div class="description">
+                            <a href="https://www.wildberries.ru/catalog/123456791/detail.aspx">
+                              Яндекс Станция Мини 3 Про</a><span>13 100 ₽</span>
+                          </div>
+                        </section>
+                      </div>
+                    """)
+                    snap = await page.evaluate(_DOM_SNAPSHOT)
+                    records = {}
+                    for item in snap["products"]:
+                        product_id = item["url"].split("/")[-2]
+                        records.setdefault(product_id, []).append(item)
+                    self.assertEqual({"123456789","123456790","123456791"}, set(records))
+                    for item in records["123456789"]:
+                        self.assertEqual("https://images.wbstatic.net/first.jpg",
+                                         item["image_url"], records)
+                    for item in records["123456790"]:
+                        self.assertEqual("https://images.wbstatic.net/second.jpg",
+                                         item["image_url"], records)
+                    for item in records["123456791"]:
+                        self.assertEqual("", item["image_url"], records)
+                finally:
+                    await browser.close()
+        asyncio.run(run())
+
     def test_installment_amount_is_not_mistaken_for_full_product_price(self):
         """Full WB/Yandex price must win over smaller instalment labels."""
         async def run():
