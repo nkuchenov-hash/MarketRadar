@@ -1,0 +1,55 @@
+name: Ozon real Chromium and product-page acceptance
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'server/cloud_browser.py'
+      - 'server/human_navigation.py'
+      - 'server/probe_marketplaces.py'
+      - 'server/probe_ozon.py'
+      - '.github/workflows/ozon-live-acceptance.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ozon-live-acceptance
+  cancel-in-progress: true
+jobs:
+  ozon:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      CLOUD_BROWSER_ENABLED: "true"
+      CLOUD_BROWSER_HUMAN_FLOW: "true"
+      CLOUD_BROWSER_HEADFUL: "true"
+      CLOUD_BROWSER_PERSISTENT: "true"
+      CLOUD_BROWSER_PROFILE_DIR: /tmp/marketradar-ozon-profile
+      CLOUD_SEARCH_SCROLLS: "28"
+      # Optional WSS worker on an egress where Ozon serves public pages.
+      # Missing secret uses local Chromium and must FAIL if Ozon blocks it.
+      MARKETRADAR_OZON_CHROMIUM_CDP_URL: ${{ secrets.MARKETRADAR_OZON_CHROMIUM_CDP_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install genuine Playwright Chromium
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq xvfb
+          python -m pip install -r requirements.txt
+          python -m playwright install --with-deps chromium
+      - name: Search Ozon using browser UI then verify exact product page
+        run: |
+          set +e
+          xvfb-run -a python -m server.probe_ozon > ozon-live-report.json
+          code=$?
+          cat ozon-live-report.json
+          exit "$code"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ozon-live-acceptance
+          path: ozon-live-report.json
+          if-no-files-found: warn
+          retention-days: 7
