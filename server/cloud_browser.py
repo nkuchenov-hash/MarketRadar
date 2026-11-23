@@ -349,6 +349,20 @@ def browser_proxy(market: str | None):
     return proxy
 
 
+def browser_cdp_url(market: str | None) -> str:
+    """Select a secure remote Chromium for one storefront, if provisioned.
+
+    Ozon can use a separate browser host/egress while WB and Yandex keep
+    the existing Beget Chromium. Endpoint credentials stay in server env.
+    An unconfigured market preserves the original shared CDP or local flow.
+    """
+    slug = {"Ozon": "OZON", "Wildberries": "WB",
+            "Яндекс Маркет": "YM"}.get(market)
+    dedicated = (os.getenv(f"MARKETRADAR_{slug}_CHROMIUM_CDP_URL", "").strip()
+                 if slug else "")
+    return dedicated or os.getenv("MARKETRADAR_CHROMIUM_CDP_URL", "").strip()
+
+
 def merge_browser_and_public_evidence(fallback: dict, browser_records: dict) -> dict:
     """Retain observed Chromium cards when public HTML is used after a denial.
 
@@ -413,14 +427,14 @@ class CloudBrowser:
         await self._slots.acquire()
         self.acquired = True
         try:
-            if self.persistent and not os.getenv("MARKETRADAR_CHROMIUM_CDP_URL", "").strip():
+            if self.persistent and not browser_cdp_url(self.market):
                 profile = {"Wildberries": "wb", "Ozon": "ozon",
                            "Яндекс Маркет": "ym"}.get(self.market, "diagnostic")
                 self.profile_lock = self._profile_locks[profile]
                 await self.profile_lock.acquire()
             from playwright.async_api import async_playwright
             self.playwright = await async_playwright().start()
-            cdp = os.getenv("MARKETRADAR_CHROMIUM_CDP_URL","").strip()
+            cdp = browser_cdp_url(self.market)
             if cdp:
                 # A persistent Chromium worker may run in a network where
                 # storefronts actually serve public pages. Endpoint credentials
