@@ -443,8 +443,16 @@ class CloudBrowser:
                         cdp.startswith("ws://127.0.0.1:") or
                         cdp.startswith("http://127.0.0.1:")):
                     raise RuntimeError("Удалённый Chromium должен использовать WSS")
-                self.browser = await self.playwright.chromium.connect_over_cdp(
-                    cdp, timeout=30000)
+                try:
+                    self.browser = await self.playwright.chromium.connect_over_cdp(
+                        cdp, timeout=30000)
+                except Exception as exc:
+                    # Remote browser URLs may contain API tokens. Playwright's
+                    # exception text can echo the full endpoint; never expose
+                    # those credentials in an API job or a CI artifact.
+                    raise RuntimeError(
+                        "Remote Chromium connection failed: " +
+                        type(exc).__name__) from None
             elif self.persistent:
                 # Preserve first-party storefront state on the VPS between
                 # searches, as a normal installed browser does. One Chromium
