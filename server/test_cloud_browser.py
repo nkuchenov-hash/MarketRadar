@@ -6,7 +6,7 @@ import unittest
 
 from unittest.mock import patch
 
-from server.cloud_browser import CloudBrowser, _DOM_SNAPSHOT, network_products, sorted_search_url, browser_proxy, _amount
+from server.cloud_browser import CloudBrowser, _DOM_SNAPSHOT, network_products, sorted_search_url, browser_proxy, browser_cdp_url, _amount
 
 
 class CloudSearchTests(unittest.TestCase):
@@ -23,6 +23,25 @@ class CloudSearchTests(unittest.TestCase):
         }
         for link, marker in urls.items():
             self.assertIn(marker, sorted_search_url(link))
+
+    def test_ozon_dedicated_remote_chromium_does_not_change_other_shops(self):
+        """Keep Ozon browser routing distinct from Yandex/WB egress."""
+        env = {
+            "MARKETRADAR_CHROMIUM_CDP_URL": "wss://default.example.test/devtools/browser/shared",
+            "MARKETRADAR_OZON_CHROMIUM_CDP_URL": "wss://ozon.example.test/devtools/browser/ozon",
+        }
+        with patch.dict(os.environ, env, clear=False):
+            self.assertEqual(env["MARKETRADAR_OZON_CHROMIUM_CDP_URL"],
+                             browser_cdp_url("Ozon"))
+            self.assertEqual(env["MARKETRADAR_CHROMIUM_CDP_URL"],
+                             browser_cdp_url("Wildberries"))
+            self.assertEqual(env["MARKETRADAR_CHROMIUM_CDP_URL"],
+                             browser_cdp_url("Яндекс Маркет"))
+        with patch.dict(os.environ, {
+            "MARKETRADAR_CHROMIUM_CDP_URL": "",
+            "MARKETRADAR_OZON_CHROMIUM_CDP_URL": "",
+        }):
+            self.assertEqual("", browser_cdp_url("Ozon"))
 
     def test_configurable_ozon_browser_egress_is_isolated_from_other_markets(self):
         """Proxy credentials remain server-only and other shops keep direct egress."""
