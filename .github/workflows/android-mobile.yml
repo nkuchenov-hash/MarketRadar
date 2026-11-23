@@ -1,4 +1,4 @@
-name: MarketRadar Android v2 stable signing
+name: MarketRadar Android build and offline tests (no publication)
 on:
   push:
     branches: [main]
@@ -7,7 +7,7 @@ on:
       - '.github/workflows/android-mobile.yml'
   workflow_dispatch:
 permissions:
-  contents: write
+  contents: read
 concurrency:
   group: marketradar-android-preview
   cancel-in-progress: true
@@ -55,122 +55,14 @@ jobs:
           gradle -p android --no-daemon --console=plain testDebugUnitTest assembleRelease
           test -s android/app/build/outputs/apk/release/app-release-unsigned.apk
 
-      - name: Persist signing key privately and produce installable APK
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          umask 077
-          mkdir -p dist /tmp/market-signing /tmp/market-prev
-          backup_tag=marketradar-private-v2-signing
-          signer="$(find "$ANDROID_SDK_ROOT/build-tools" -maxdepth 2 -type f -name apksigner | sort -V | tail -1)"
-          aapt="$(find "$ANDROID_SDK_ROOT/build-tools" -maxdepth 2 -type f -name aapt | sort -V | tail -1)"
-          test -x "$signer" && test -x "$aapt"
-          if gh release view "$backup_tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            draft="$(gh release view "$backup_tag" --repo "$GITHUB_REPOSITORY" --json isDraft --jq '.isDraft')"
-            if [[ "$draft" != "true" ]]; then
-              echo "::error::Signing backup is public; refusing to sign."
-              exit 1
-            fi
-            gh release download "$backup_tag" --repo "$GITHUB_REPOSITORY" \
-              --pattern 'marketradar-release.jks' \
-              --pattern 'marketradar-signing-pass.txt' \
-              --pattern 'marketradar-signing-fingerprint.txt' \
-              --dir /tmp/market-signing
-          else
-            echo "Initializing persistent private signing credentials for a NEW Android app identity."
-            pass="$(openssl rand -hex 36)"
-            printf '%s' "$pass" > /tmp/market-signing/marketradar-signing-pass.txt
-            keytool -genkeypair -noprompt \
-              -keystore /tmp/market-signing/marketradar-release.jks \
-              -storepass "$pass" -keypass "$pass" \
-              -alias marketradar-v2 -keyalg RSA -keysize 3072 -validity 36500 \
-              -dname "CN=MarketRadar Android v2,O=MarketRadar,C=US" >/dev/null 2>&1
-            keytool -list -v -keystore /tmp/market-signing/marketradar-release.jks \
-              -storepass "$pass" -alias marketradar-v2 |
-              sed -n 's/^[[:space:]]*SHA256: //p' | tr -d ':' |
-              tr '[:upper:]' '[:lower:]' \
-              > /tmp/market-signing/marketradar-signing-fingerprint.txt
-            test -s /tmp/market-signing/marketradar-signing-fingerprint.txt
-            gh release create "$backup_tag" \
-              /tmp/market-signing/marketradar-release.jks \
-              /tmp/market-signing/marketradar-signing-pass.txt \
-              /tmp/market-signing/marketradar-signing-fingerprint.txt \
-              --repo "$GITHUB_REPOSITORY" --draft \
-              --title "PRIVATE Android v2 signing backup — DO NOT PUBLISH" \
-              --notes "Private long-lived signing credentials for com.marketradar.mobile.next. Never publish this draft release or its assets. Repository write access should be strictly limited."
-          fi
-          test -s /tmp/market-signing/marketradar-release.jks
-          test -s /tmp/market-signing/marketradar-signing-pass.txt
-          test -s /tmp/market-signing/marketradar-signing-fingerprint.txt
-          export MR_SIGNING_PASS="$(cat /tmp/market-signing/marketradar-signing-pass.txt)"
-          "$signer" sign \
-            --ks /tmp/market-signing/marketradar-release.jks \
-            --ks-key-alias marketradar-v2 --ks-pass env:MR_SIGNING_PASS \
-            --key-pass env:MR_SIGNING_PASS \
-            --out dist/MarketRadar-Android-0.37.0.apk \
-            android/app/build/outputs/apk/release/app-release-unsigned.apk
-          "$signer" verify --verbose --print-certs \
-            dist/MarketRadar-Android-0.37.0.apk > /tmp/signature.txt
-          current="$(grep -i 'sha-256 digest' /tmp/signature.txt | head -1 | sed -E 's/.*digest:[[:space:]]*//' | tr '[:upper:]' '[:lower:]' | tr -dc '0-9a-f')"
-          expected="$(keytool -exportcert \
-            -keystore /tmp/market-signing/marketradar-release.jks \
-            -storepass "$MR_SIGNING_PASS" -alias marketradar-v2 2>/dev/null \
-            | sha256sum | awk '{print $1}')"
-          [[ -n "$current" && "$current" == "$expected" ]] || {
-            echo "::error::Signing fingerprint does not match persistent backup."; exit 1;
-          }
-          "$aapt" dump badging dist/MarketRadar-Android-0.37.0.apk > /tmp/badging.txt
-          grep -Fq "package: name='com.marketradar.mobile.next' versionCode='37' versionName='0.37.0'" /tmp/badging.txt
-          if gh release view marketradar-android-0.4.0 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release download marketradar-android-0.4.0 \
-              --repo "$GITHUB_REPOSITORY" \
-              --pattern 'MarketRadar-Android-0.4.0.apk' --dir /tmp/market-prev
-            original="$( "$signer" verify --print-certs /tmp/market-prev/MarketRadar-Android-0.4.0.apk | grep -i 'certificate sha-256 digest' | head -1 | sed -E 's/.*digest:[[:space:]]*//' | tr '[:upper:]' '[:lower:]' | tr -dc '0-9a-f' )"
-            [[ -n "$original" && "$original" == "$current" ]] || {
-              echo "::error::Published v2 signing certificate mismatch"; exit 1;
-            }
-          fi
-          (cd dist && sha256sum MarketRadar-Android-0.37.0.apk > SHA256SUMS.txt)
-
-      - name: Publish isolated stable-signed MarketRadar v2 APK
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          tag=marketradar-android-0.37.0
-          cat > /tmp/notes.md <<'EOF'
-          # MarketRadar Android 0.37.0 — secure Russian-VPS-ready cloud search
-          - Settings now accept HTTPS server address and a private access code.
-          - Cloud searches run in isolated Chromium on the configured server.
-          - API access key never exposes marketplace passwords or cookies.
-          - Search jobs can continue on the server when Android is closed.
-          - Preserve original local search when server is not configured.
-          - VPS Docker/Caddy package supports automatic HTTPS and temporary
-            sslip.io hostname without buying a custom domain.
-          - Successful APK build does not mean a VPS is purchased or deployed.
-          - Latest Android release remains signed with the same app certificate.
-          EOF
-          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release edit "$tag" --repo "$GITHUB_REPOSITORY" \
-              --title "MarketRadar Android 0.37.0 — stable-signing preview" \
-              --notes-file /tmp/notes.md --prerelease
-            gh release upload "$tag" --repo "$GITHUB_REPOSITORY" \
-              dist/MarketRadar-Android-0.37.0.apk dist/SHA256SUMS.txt --clobber
-          else
-            gh release create "$tag" --repo "$GITHUB_REPOSITORY" \
-              dist/MarketRadar-Android-0.37.0.apk dist/SHA256SUMS.txt \
-              --title "MarketRadar Android 0.37.0 — stable-signing preview" \
-              --notes-file /tmp/notes.md --prerelease
-          fi
-          gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets \
-            --jq '.assets[] | [.name,.size] | @tsv'
-      - uses: actions/upload-artifact@v4
+      # Do not sign, publish or overwrite any APK until the deployed
+      # backend has passed the real three-storefront Chromium + Android
+      # end-to-end acceptance check. Build success alone is not release approval.
+      - name: Keep Android unit-test results (no APK distribution)
         if: always()
+        uses: actions/upload-artifact@v4
         with:
-          name: MarketRadar-Android-test-APK
-          path: dist/*
+          name: MarketRadar-Android-unit-tests
+          path: android/app/build/test-results/testDebugUnitTest/
           if-no-files-found: ignore
           retention-days: 10
