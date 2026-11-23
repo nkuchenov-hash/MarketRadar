@@ -781,7 +781,7 @@ class CloudBrowser:
                 "primary_price": _amount(last_snapshot.get("primary_price",0)),
                 "primary_image": str(last_snapshot.get("primary_image",""))[:900],
                 "text": page_text[:60000],
-                "links": links[:6000],
+                "links": links,
                 "price_fragments": [str(n)+" ₽" for n in sorted(visual_prices)[:70]],
                 "diagnostic": diagnostic,
                 "coverage_complete": bool(complete and not blocked
@@ -791,14 +791,14 @@ class CloudBrowser:
                                            and not network_truncated[0]
                                           and not network_parse_errors[0]
                                           and not network_pending[0]
-                                          and len(links) <= 6000),
+                                          ),
                 "audit": {
                     "raw_seen": raw_count, "unique_products": len(ledger),
                     "network_products": network_count,
                      "network_truncated_responses": network_truncated[0],
                     "network_parse_errors": network_parse_errors[0],
                     "network_pending_responses": network_pending[0],
-                    "output_truncated_products": max(0, len(links) - 6000),
+                    "output_truncated_products": 0,
                     "dom_snapshots": visited_snapshots, "pages": page_count,
                     "load_more_clicks": load_more_count,
                     "priced_products": sum(x["price"] > 0 for x in links),
@@ -835,7 +835,7 @@ class CloudBrowser:
             return {
                 "state": "timeout" if "Timeout" in type(exc).__name__ else "error",
                 "url": page.url, "title": title, "text": page_text[:60000],
-                "links": preserved[:6000],
+                "links": preserved,
                 "diagnostic": type(exc).__name__ + ": " + str(exc)[:250],
                 "coverage_complete": False,
                 "audit": {
@@ -846,7 +846,7 @@ class CloudBrowser:
                     "network_truncated_responses": network_truncated[0],
                     "network_parse_errors": network_parse_errors[0],
                     "network_pending_responses": network_pending[0],
-                    "output_truncated_products": max(0, len(preserved) - 6000),
+                    "output_truncated_products": 0,
                     "dom_snapshots": visited_snapshots,
                     "pages": page_count,
                     "blocked_statuses": blocked_http[:5],
