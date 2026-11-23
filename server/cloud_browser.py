@@ -214,8 +214,18 @@ _DOM_SNAPSHOT = r"""() => {
         // in <picture> source/srcset rather than a populated <img src>.
         // Only inspect a node containing at most this one product, never
         // steal a neighbouring product's image from the whole grid.
-        const imageRoot = tile || (uniqueProducts(a.parentElement || a) <= 1
-            ? a.parentElement : a);
+        // Real storefronts frequently put the photo and title/price in
+        // sibling branches of one tile. Start at the anchor and climb while
+        // the ancestor contains no OTHER product. Stopping at the first
+        // price-bearing node can otherwise miss every lazy-loaded WB image.
+        // Never borrow a photo from a neighbouring card/grid.
+        let imageRoot = tile || a;
+        let scope = a;
+        for (let depth = 0; scope && depth < 10; depth++, scope = scope.parentElement) {
+            if (uniqueProducts(scope) > 1) break;
+            if (scope.querySelector('img,picture source,[style*="background"]'))
+                imageRoot = scope;
+        }
         function safeImage(raw) {
             if (!raw || /^data:|^blob:/i.test(raw)) return '';
             try {
