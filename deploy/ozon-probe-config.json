@@ -1,0 +1,11 @@
+{
+  "query": "Яндекс Станция Мини 3 Про",
+  "alternateQuery": "YNDX-00059",
+  "matchAny": [
+    "Мини 3 Про",
+    "Mini 3 Pro",
+    "YNDX-00059"
+  ],
+  "pages": 5,
+  "lowerRatio": 0.5
+}
