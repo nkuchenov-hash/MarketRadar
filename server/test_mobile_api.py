@@ -192,7 +192,9 @@ class PublicCloudApiTests(unittest.TestCase):
                 ]}
         job={"id":"ai-wb","query":"Яндекс Станция Мини 3 Про","state":"running",
              "markets":{"wb":{"checked":0}},"offers":[],"errors":[]}
-        model=AsyncMock(return_value=["reject","match"])
+        async def assess(query,cards):
+            return ["reject" if "чехол" in card.get("context","") else "match" for card in cards]
+        model=AsyncMock(side_effect=assess)
         with patch("server.mobile_cloud.CloudBrowser",Browser), patch(
             "server.semantic_identity.enabled",return_value=True), patch(
             "server.semantic_identity.assess",model):
@@ -201,7 +203,7 @@ class PublicCloudApiTests(unittest.TestCase):
         self.assertTrue(job["offers"][0]["identity_verified_ai"])
         self.assertFalse(job["offers"][0]["verified_detail"])
         self.assertEqual(2,job["markets"]["wb"]["identity_ai_checked"])
-        self.assertIn("Только чехол",model.call_args.args[1][0]["context"])
+        self.assertTrue(any("Только чехол" in card["context"] for card in model.call_args.args[1]))
 
     def test_semantic_explicit_card_conflict_overrides_title_similarity(self):
         from server.semantic_identity import _decide
@@ -241,6 +243,43 @@ class PublicCloudApiTests(unittest.TestCase):
         self.assertEqual([10470,12884],[o["price"] for o in job["offers"]])
         self.assertTrue(all(o["verified_detail"] for o in job["offers"]))
         self.assertEqual(3221,job["offers"][1]["listing_price"])
+
+    def test_wb_semantic_streams_results_and_bounds_detail_enrichment(self):
+        import asyncio
+        from server import mobile_cloud
+        from unittest.mock import AsyncMock
+        job={"query":"Яндекс Станция Мини 3 Про","state":"running",
+             "markets":{"wb":{"checked":0}},"offers":[],"errors":[]}
+        class Browser:
+            detail_calls=0
+            async def start(self):pass
+            async def close(self):pass
+            async def snapshot(self,url):
+                if "search.aspx" in url:
+                    return {"state":"ok","coverage_complete":True,"links":[
+                        {"url":f"https://www.wildberries.ru/catalog/{10000000+i}/detail.aspx",
+                         "title":job["query"],"price":10470+i*20,"source":"dom",
+                         "delivery_hint":"послезавтра","price_condition":"с WB Кошельком"}
+                        for i in range(180)]}
+                self.detail_calls+=1
+                # This is the prior live failure: heading present, no price.
+                # All valid listings must already be accessible to the app.
+                assert len(job["offers"])==180
+                return {"state":"ok","heading":job["query"],"primary_price":0}
+        browser=Browser()
+        async def model(query,cards):return ["match"]*len(cards)
+        with patch("server.mobile_cloud.CloudBrowser",return_value=browser), patch(
+            "server.semantic_identity.enabled",return_value=True),patch(
+            "server.semantic_identity.assess",AsyncMock(side_effect=model)),patch.dict(
+            os.environ,{"CLOUD_WB_DETAIL_BUDGET":"8"}):
+            asyncio.run(mobile_cloud.run_market(job,"wb"))
+        self.assertEqual(180,len(job["offers"]))
+        self.assertLessEqual(browser.detail_calls,8)
+        self.assertEqual(180,job["markets"]["wb"]["identity_ai_checked"])
+        self.assertEqual(10470,job["markets"]["wb"]["best_found"])
+        self.assertEqual("partial",job["markets"]["wb"]["state"])
+        self.assertTrue(all(not o["verified_detail"] for o in job["offers"]))
+        self.assertEqual("с WB Кошельком",job["offers"][0]["condition"])
 
     def test_invalid_shops_rejected(self):
         with patch("server.main.cloud_browser.available",return_value=(True,"ok")):

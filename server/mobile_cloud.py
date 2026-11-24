@@ -181,6 +181,34 @@ async def run_market(job: dict, shop_id: str):
         state["omitted_as_unrelated"] = len(all_cards) - len(candidates)
         semantic = semantic_identity.enabled(shop_id)
         decisions = {}
+        # WB's live listing was already manually confirmed at 10 470 rubles.
+        # Do not hold useful listing results until every detail page has loaded.
+        # Optional detail enrichment is separate from listing coverage.
+        fast_wb = shop_id == "wb" and semantic
+        provisional = {}
+        def publish_listing(card):
+            link=card["url"]
+            if link in provisional or decisions.get(link)!="match":
+                return
+            price=int(card.get("price") or 0)
+            if price<=0 or card.get("source") not in ("dom","network","public_ssr"):
+                return
+            if not exact_product(job["query"],card.get("title","")):
+                return
+            image=str(card.get("image_url",""))
+            offer={"market_id":shop_id,"title":str(card.get("title",""))[:240],
+                   "url":link,"price":price,"listing_price":price,
+                   "image_url":image[:900] if image.startswith("https://") else "",
+                   "delivery":str(card.get("delivery_hint",""))[:100],
+                   "verified_detail":False,"identity_verified_ai":True,
+                   "identity_evidence":"local_nli_and_card_evidence",
+                   "detail_price":None,"detail_price_source":"",
+                   "condition":str(card.get("price_condition",""))[:100],
+                   "note":"Цена из карточки поисковой выдачи; подтверждения на странице товара нет"}
+            provisional[link]=offer
+            job["offers"].append(offer)
+            state["coverage_complete"]=False
+            state["listing_only"]=len(provisional)
         if semantic:
             state["message"] = "ИИ оценивает название и текст карточек"
             state["identity_ai_state"] = "running"
@@ -197,6 +225,10 @@ async def run_market(job: dict, shop_id: str):
                     decisions.update((card["url"], verdict)
                                      for card, verdict in zip(batch, verdicts))
                     state["identity_ai_checked"] = len(decisions)
+                    if fast_wb:
+                        for card in batch:
+                            publish_listing(card)
+                        state["message"]=f"ИИ проверил {len(decisions)}; найдено {len(provisional)} предложений"
                 state["identity_ai_state"] = "ready"
                 state["identity_ai_rejected"] = sum(v=="reject" for v in decisions.values())
                 state["identity_ai_unclear"] = sum(v=="unclear" for v in decisions.values())
@@ -212,6 +244,32 @@ async def run_market(job: dict, shop_id: str):
                 return
         state["state"] = "checking"
         state["message"] = "Проверяем дешёвые карточки товаров"
+        if fast_wb:
+            # Detail enrichment is NOT another full crawl. The complete
+            # candidate ledger has already gone through the identity model.
+            # Rank timely offers first. Late/unknown offers only warrant extra
+            # work if they can improve the price (20% late-delivery exception).
+            timely=[c for c in candidates if delivery_days(c) is not None
+                    and delivery_days(c)<=3 and c.get("price",0)>0]
+            reference=min((c["price"] for c in timely
+                           if decisions.get(c["url"])=="match"),default=0)
+            other=[c for c in candidates if c not in timely and
+                   (not reference or not c.get("price") or
+                    c["price"] <= reference*(.8 if delivery_days(c) is not None else 1))]
+            other.sort(key=lambda c:(not bool(c.get("price")),c.get("price") or 10**12))
+            # Verify a small, explicit shortlist, not an arbitrary search
+            # result limit. Keep every positively assessed listing visible.
+            # Reserve checks for genuine discount exceptions too.
+            budget=max(2,min(12,int(os.getenv("CLOUD_WB_DETAIL_BUDGET","8"))))
+            first=min(len(timely),max(1,budget//2))
+            shortlist=timely[:first]+other[:budget-first]
+            if len(shortlist)<budget:
+                used={c["url"] for c in shortlist}
+                shortlist.extend(c for c in timely if c["url"] not in used)
+            state["detail_shortlist"]=min(budget,len(shortlist))
+            state["detail_reference_price"]=reference or None
+            state["detail_pages_not_attempted"]=len(candidates)-min(budget,len(shortlist))
+            candidates=shortlist[:budget]
         best = 0
         best_detail_verified = 0
         # Preserve full search coverage: an arbitrary 180-card ceiling can hide
@@ -248,8 +306,14 @@ async def run_market(job: dict, shop_id: str):
                 state["detail_pages_not_attempted"] = (
                     state.get("detail_pages_not_attempted", 0) + len(batch))
             else:
+                async def inspect(card):
+                    if fast_wb:
+                        # Bound only the optional page enrichment, never the
+                        # listing crawl. A slow SPA cannot hold all results.
+                        return await asyncio.wait_for(engine.snapshot(card["url"]),timeout=16)
+                    return await engine.snapshot(card["url"])
                 pages = await asyncio.gather(
-                    *(engine.snapshot(c["url"]) for c in batch),
+                    *(inspect(c) for c in batch),
                     return_exceptions=True)
             for candidate,page in zip(batch,pages):
                 processed += 1
@@ -272,7 +336,7 @@ async def run_market(job: dict, shop_id: str):
                     (page.get("heading") or "").strip() or
                     (detail_title.strip() and not generic_title))
                 if not detail_pages_unavailable:
-                    if not detail_identity_seen:
+                    if not detail_identity_seen or (fast_wb and not page.get("primary_price")):
                         unavailable_detail_streak += 1
                     else:
                         unavailable_detail_streak = 0
@@ -299,10 +363,18 @@ async def run_market(job: dict, shop_id: str):
                             job["query"], [detail_card])
                         verdict = detail_verdicts[0] if detail_verdicts else "unclear"
                     if verdict != "match":
+                        # Explicitly contradictory detail evidence must retract
+                        # the provisional offer; mere missing detail must not.
+                        if fast_wb and detail_identity_seen and verdict=="reject":
+                            old=provisional.pop(candidate["url"],None)
+                            if old in job["offers"]:job["offers"].remove(old)
                         state["coverage_complete"] = False
                         state["identity_ai_unconfirmed"] = state.get("identity_ai_unconfirmed",0)+1
                         continue
                 if not (detail_match or listing_only):
+                    if fast_wb and detail_identity_seen and not detail_match:
+                        old=provisional.pop(candidate["url"],None)
+                        if old in job["offers"]:job["offers"].remove(old)
                     continue
                 structured = (int(page.get("primary_price") or 0)
                               if detail_accessible else 0)
@@ -335,7 +407,7 @@ async def run_market(job: dict, shop_id: str):
                     # Never report complete coverage while any offer remains
                     # unverified, even when the listing crawl itself finished.
                     state["coverage_complete"] = False
-                job["offers"].append({
+                offer={
                     "market_id":shop_id,
                     "title":(detail_title if detail_match
                               else candidate.get("title",""))[:240],
@@ -358,7 +430,22 @@ async def run_market(job: dict, shop_id: str):
                         "Цена из публичной выдачи; модель сверена по странице"
                         if listing_price and (not structured or listing_price<structured)
                         else "Цена из данных страницы товара"),
-                })
+                }
+                if fast_wb and link in provisional:
+                    # Preserve the real listing-price condition. A different
+                    # unqualified buybox amount is not proof the wallet offer
+                    # has vanished. Expose both and mark the conditional
+                    # listing amount unverified unless independently equal.
+                    old=provisional[link]
+                    if (old.get("condition") and visible_wb_price
+                            and structured!=listing_price):
+                        old["detail_price"]=structured
+                        old["detail_price_source"]=offer["detail_price_source"]
+                    elif price_verified:
+                        old.update(offer)
+                    # Missing/ambiguous detail must not erase listing evidence.
+                else:
+                    job["offers"].append(offer)
                 if best == 0 or price < best:
                     best = price
                 # Record a higher detail-page price as independent evidence too.
@@ -381,6 +468,11 @@ async def run_market(job: dict, shop_id: str):
             state["coverage_complete"] = False
             state["message"] = "Достигнут предел проверки карточек; проверка неполная"
         # Listing-only SSR evidence is not a verified product-detail price.
+        if fast_wb:
+            market_offers=[o for o in job["offers"] if o.get("market_id")==shop_id]
+            best=min((o["price"] for o in market_offers),default=0)
+            best_detail_verified=min((o["price"] for o in market_offers if o.get("verified_detail")),default=0)
+            state["listing_only"]=sum(not o.get("verified_detail") for o in market_offers)
         state["best_found"] = best
         state["best_verified"] = best_detail_verified
         found_count = sum(o["market_id"] == shop_id for o in job["offers"])

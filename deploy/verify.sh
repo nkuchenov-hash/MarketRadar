@@ -134,7 +134,7 @@ print("NOTE: delivery eligibility and global minimum still require separate live
     printf '%s' "$output" | python3 -c '
 import sys,json
 d=json.load(sys.stdin)
-print("Search in progress:",", ".join(k+"="+v.get("state","") for k,v in d.get("markets",{}).items()))
+print("Search in progress:",", ".join(k+"="+v.get("state","")+" AI "+str(v.get("identity_ai_checked",0))+" details "+str(v.get("checked",0))+"/"+str(v.get("detail_shortlist","?")) for k,v in d.get("markets",{}).items()),"offers:",len(d.get("offers",[])))
 '
   fi
   sleep 4

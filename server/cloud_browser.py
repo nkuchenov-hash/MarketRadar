@@ -273,7 +273,12 @@ _DOM_SNAPSHOT = r"""() => {
             }
         }
         const date = context.match(/(?:сегодня|завтра|послезавтра|через\s*\d{1,2}\s*дн|\d{1,2}\s*(?:января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря|янв\.?|фев\.?|мар\.?|апр\.?|июн\.?|июл\.?|авг\.?|сен\.?|окт\.?|нояб?\.?|дек\.?))/i);
+        // Record the actual WB Wallet label from the same visible tile.
+        // Do not infer a discount merely from the marketplace name.
+        const priceCondition=/(^|\.)wildberries\.ru$/.test(location.hostname) &&
+            /с\s+WB\s+кошельком/i.test(context) ? 'с WB Кошельком':'';
         products.push({url:a.href, title, context,
+            price_condition:priceCondition,
             price:prices.length ? Math.min(...prices) : 0,
             image_url:/^https:\/\//i.test(imageUrl)?imageUrl:'',
             delivery_hint:date?date[0]:'',
@@ -609,6 +614,7 @@ class CloudBrowser:
                 ledger[key] = {"url": key, "title": str(item.get("title",""))[:300],
                                "context": str(item.get("context",""))[:1800],
                                "price": amount, "source": item.get("source","unknown"),
+                               "price_condition": str(item.get("price_condition",""))[:100],
                                "image_url": str(item.get("image_url",""))[:900],
                                "delivery_hint": str(item.get("delivery_hint",""))[:100]}
             else:
@@ -631,6 +637,9 @@ class CloudBrowser:
                 if amount and (not existing["price"] or amount < existing["price"]):
                     existing["price"] = amount
                     existing["source"] = item.get("source", existing["source"])
+                    existing["price_condition"] = str(item.get("price_condition",""))[:100]
+                elif amount and amount==existing["price"] and item.get("price_condition"):
+                    existing["price_condition"] = str(item["price_condition"])[:100]
 
         network_truncated = [0]
         network_parse_errors = [0]
