@@ -1,0 +1,99 @@
+name: WB live semantic product search
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'server/semantic_identity.py'
+      - 'server/mobile_cloud.py'
+      - 'server/cloud_browser.py'
+      - 'server/human_navigation.py'
+      - '.github/workflows/wb-live-semantic.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: wb-live-semantic
+  cancel-in-progress: true
+jobs:
+  actual-wb-search:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build actual deployable backend and model
+        run: docker build -t marketradar-wb-live .
+      - name: Require model acceptance
+        run: docker run --rm --entrypoint python marketradar-wb-live -m server.probe_identity
+      - name: Search WB through production mobile pipeline
+        shell: bash
+        run: |
+          mkdir -p evidence
+          chmod a+w evidence
+          docker run --rm -i --shm-size=512m \
+            -e CLOUD_BROWSER_ENABLED=true -e CLOUD_BROWSER_HEADFUL=true \
+            -e CLOUD_BROWSER_PERSISTENT=true -e CLOUD_BROWSER_HUMAN_FLOW=true \
+            -e CLOUD_SEMANTIC_MARKETS=wb -e CLOUD_SEARCH_SCROLLS=20 \
+            -v "$PWD/evidence:/evidence" --entrypoint sh marketradar-wb-live \
+            -c 'Xvfb :99 -screen 0 1440x900x24 -nolisten tcp >/tmp/xvfb.log 2>&1 & exec python -' <<'PY'
+          import asyncio,json
+          from datetime import datetime,timezone
+          from pathlib import Path
+          from server import mobile_cloud,semantic_identity
+          from server.cloud_browser import CloudBrowser
+          from server.core import MARKETS
+          from urllib.parse import quote
+
+          query="Яндекс Станция Мини 3 Про"
+          async def main():
+              # Run the actual Android job. No mocked prices or identity decisions.
+              started=mobile_cloud.start_job(query,["wb"])
+              job=mobile_cloud.JOBS[started["id"]]
+              await mobile_cloud.TASKS[started["id"]]
+              result=mobile_cloud.job_status(started["id"])
+              offers=result["offers"]
+              market=result["markets"]["wb"]
+              audit=market.get("audit",{})
+              nav=audit.get("navigation",{})
+              print("ACTUAL MOBILE SEARCH",json.dumps({
+                  "state":result["state"], "market_state":market["state"],
+                  "cards":market.get("candidates"),"ai_checked":market.get("identity_ai_checked"),
+                  "ai_rejected":market.get("identity_ai_rejected"),
+                  "ai_unclear":market.get("identity_ai_unclear"),
+                  "offers":len(offers), "detail_verified":sum(bool(o.get("verified_detail")) for o in offers),
+                  "ui_search":nav.get("search_ui_submitted"),"ui_sort":nav.get("sort_ui_selected"),
+                  "cheapest":offers[:12]},ensure_ascii=False),flush=True)
+              # Preserve first-party public listing context for the actual cheapest
+              # card IDs. This does NOT establish price parity or permit invented data.
+              browser=CloudBrowser(market="Wildberries")
+              cards=[]
+              try:
+                  await browser.start()
+                  listing=await browser.snapshot(MARKETS["Wildberries"]["search"].format(q=quote(query)))
+                  cards=[{k:c.get(k) for k in ("url","title","context","price","source","image_url","delivery_hint")}
+                         for c in listing.get("links",[]) if c.get("price",0)>0]
+                  cards.sort(key=lambda c:c["price"])
+                  sample=[c for c in cards if mobile_cloud.plausible_listing(query,c.get("title") or "")][:20]
+                  decisions=await semantic_identity.assess(query,sample)
+                  for card,decision in zip(sample,decisions):
+                      card["identity_decision"]=decision
+                      print("ACTUAL CARD",json.dumps(card,ensure_ascii=False),flush=True)
+              finally:
+                  await browser.close()
+              Path("/evidence/wb-mobile-search.json").write_text(json.dumps({
+                  "timestamp_utc":datetime.now(timezone.utc).isoformat(),
+                  "query":query,"mobile_result":result,"sample":sample,
+                  "human_parity_verified":False
+              },ensure_ascii=False,indent=2),encoding="utf-8")
+              assert market.get("identity_ai_state")=="ready", "Real semantic assessment did not run"
+              assert offers and all(o.get("identity_verified_ai") for o in offers), "No AI-confirmed real offers"
+              assert nav.get("search_query_typed") and nav.get("search_ui_submitted") and nav.get("sort_ui_selected"), "Live shopper UI not confirmed"
+              assert any(o.get("verified_detail") and o.get("image_url") for o in offers), "No detail-confirmed price with image"
+          asyncio.run(main())
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wb-real-semantic-evidence
+          path: evidence/
+          if-no-files-found: warn
+          retention-days: 7
