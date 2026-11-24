@@ -2,7 +2,7 @@
 set -euo pipefail
 [[ $EUID -eq 0 ]] || { echo "Run as root"; exit 1; }
 base="$(cd "$(dirname "$0")" && pwd)"
-key="$(cat)"
+key="$(tr -d '\r')"
 [[ "$key" =~ ^ssh-ed25519\ [A-Za-z0-9+/=]+$ ]] || { echo "Invalid dedicated Ed25519 public key"; exit 1; }
 docker image inspect ozon-customer-mcp:latest >/dev/null
 id marketradar-probe >/dev/null 2>&1 || useradd --create-home --shell /bin/sh marketradar-probe
