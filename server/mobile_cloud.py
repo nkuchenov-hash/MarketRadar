@@ -13,6 +13,7 @@ import time
 from urllib.parse import quote
 from .core import MARKETS, model_match, normalize
 from .cloud_browser import CloudBrowser
+from . import semantic_identity
 
 SHOP_IDS = {"ozon": "Ozon", "wb": "Wildberries", "ym": "Яндекс Маркет"}
 MARKET_IDS = {v: k for k, v in SHOP_IDS.items()}
@@ -150,6 +151,37 @@ async def run_market(job: dict, shop_id: str):
                                         c.get("price",0) or 10**12, c["url"]))
         state["matching_cards"] = len(candidates)
         state["omitted_as_unrelated"] = len(all_cards) - len(candidates)
+        semantic = semantic_identity.enabled(shop_id)
+        decisions = {}
+        if semantic:
+            state["message"] = "ИИ оценивает название и текст карточек"
+            state["identity_ai_state"] = "running"
+            try:
+                # Evaluate in price order, with bounded batches. Do not let a
+                # cheap lookalike establish the price frontier.
+                for offset in range(0, len(candidates), 24):
+                    if job["state"] != "running":
+                        return
+                    batch = candidates[offset:offset+24]
+                    verdicts = await semantic_identity.assess(job["query"], batch)
+                    if len(verdicts) != len(batch):
+                        raise RuntimeError("Missing semantic decisions")
+                    decisions.update((card["url"], verdict)
+                                     for card, verdict in zip(batch, verdicts))
+                    state["identity_ai_checked"] = len(decisions)
+                state["identity_ai_state"] = "ready"
+                state["identity_ai_rejected"] = sum(v=="reject" for v in decisions.values())
+                state["identity_ai_unclear"] = sum(v=="unclear" for v in decisions.values())
+                candidates = [card for card in candidates
+                              if decisions.get(card["url"]) != "reject"]
+            except Exception as exc:
+                # Do not silently revert to title matching when AI was required.
+                state["identity_ai_state"] = "unavailable"
+                state["identity_ai_error"] = type(exc).__name__
+                state["coverage_complete"] = False
+                state["state"] = "partial"
+                state["message"] = "Локальная ИИ-проверка не запустилась"
+                return
         state["state"] = "checking"
         state["message"] = "Проверяем дешёвые карточки товаров"
         best = 0
@@ -228,6 +260,20 @@ async def run_market(job: dict, shop_id: str):
                     (not detail_accessible or not detail_identity_seen) and
                     candidate.get("source") in ("public_ssr", "dom", "network") and
                     listing_match and listing_price>0)
+                if semantic:
+                    verdict = decisions.get(candidate["url"], "unclear")
+                    # Use the fuller accessible product text to resolve uncertain
+                    # listing evidence. A conflicting detail title is never ignored.
+                    if detail_identity_seen:
+                        detail_card = {"title":detail_title,
+                                       "context":str(page.get("text",""))[:1800]}
+                        detail_verdicts = await semantic_identity.assess(
+                            job["query"], [detail_card])
+                        verdict = detail_verdicts[0] if detail_verdicts else "unclear"
+                    if verdict != "match":
+                        state["coverage_complete"] = False
+                        state["identity_ai_unconfirmed"] = state.get("identity_ai_unconfirmed",0)+1
+                        continue
                 if not (detail_match or listing_only):
                     continue
                 structured = (int(page.get("primary_price") or 0)
@@ -264,6 +310,9 @@ async def run_market(job: dict, shop_id: str):
                     "image_url":image[:900],
                     "delivery":str(candidate.get("delivery_hint",""))[:100],
                     "verified_detail":price_verified,
+                    "identity_verified_ai":semantic,
+                    "identity_evidence":("local_nli_card" if semantic and not detail_identity_seen
+                                         else "local_nli_detail" if semantic else "title_rules"),
                     "detail_price":structured if detail_match and structured > 0 else None,
                     "condition":str(candidate.get("price_condition",""))[:100],
                     "note":(

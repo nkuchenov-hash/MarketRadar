@@ -6,6 +6,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends libatomic1 xvfb
     && rm -rf /var/lib/apt/lists/* \
     && pip install --no-cache-dir -r requirements.txt \
     && python -m playwright install --with-deps chromium
+# Bundle the same pinned public offline model used by Android. The runtime
+# needs no OpenAI key, model download, or external inference requests.
+RUN pip install --no-cache-dir 'onnxruntime==1.31.1' 'tokenizers==0.22.1' 'numpy<3' \
+    && mkdir -p /app/identity-model \
+    && python -c "import urllib.request,pathlib; base='https://huggingface.co/onnx-community/multilingual-MiniLMv2-L6-mnli-xnli-ONNX/resolve/ca5daf3/'; root=pathlib.Path('/app/identity-model'); urllib.request.urlretrieve(base+'onnx/model_quantized.onnx', root/'model.onnx'); urllib.request.urlretrieve(base+'tokenizer.json', root/'tokenizer.json'); assert (root/'model.onnx').stat().st_size>90000000" \
+    && chmod -R a+rX /app/identity-model
 # The VPS bootstrap runs with umask 077: Git can create 0600 files and
 # 0700 directories. Docker COPY preserves those modes; the unprivileged
 # radar user must be able to traverse and read application code/assets.

@@ -171,6 +171,38 @@ class PublicCloudApiTests(unittest.TestCase):
         self.assertFalse(job["offers"][0]["verified_detail"])
         self.assertFalse(job["markets"]["wb"]["coverage_complete"])
 
+    def test_cloud_wb_semantic_rejects_lookalike_with_matching_title(self):
+        """Cloud WB must consult card text, not automatically trust title."""
+        import asyncio
+        from unittest.mock import AsyncMock
+        from server import mobile_cloud
+        class Browser:
+            async def start(self): pass
+            async def close(self): pass
+            async def snapshot(self,url):
+                if "/detail.aspx" in url:
+                    return {"state":"blocked","links":[]}
+                return {"state":"ok","coverage_complete":False,"links":[
+                    {"url":"https://www.wildberries.ru/catalog/123456789/detail.aspx",
+                     "title":"Яндекс Станция Мини 3 Про","context":"Только чехол, без колонки",
+                     "price":3221,"source":"dom"},
+                    {"url":"https://www.wildberries.ru/catalog/123456790/detail.aspx",
+                     "title":"Яндекс Станция Мини 3 Про","context":"Оригинальная умная колонка 18 Вт",
+                     "price":10990,"source":"dom","delivery_hint":"завтра"}
+                ]}
+        job={"id":"ai-wb","query":"Яндекс Станция Мини 3 Про","state":"running",
+             "markets":{"wb":{"checked":0}},"offers":[],"errors":[]}
+        model=AsyncMock(return_value=["reject","match"])
+        with patch("server.mobile_cloud.CloudBrowser",Browser), patch(
+            "server.semantic_identity.enabled",return_value=True), patch(
+            "server.semantic_identity.assess",model):
+            asyncio.run(mobile_cloud.run_market(job,"wb"))
+        self.assertEqual([10990],[o["price"] for o in job["offers"]],job)
+        self.assertTrue(job["offers"][0]["identity_verified_ai"])
+        self.assertFalse(job["offers"][0]["verified_detail"])
+        self.assertEqual(2,job["markets"]["wb"]["identity_ai_checked"])
+        self.assertIn("Только чехол",model.call_args.args[1][0]["context"])
+
     def test_invalid_shops_rejected(self):
         with patch("server.main.cloud_browser.available",return_value=(True,"ok")):
             with TestClient(app) as client:

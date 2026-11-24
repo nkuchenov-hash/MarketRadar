@@ -47,6 +47,9 @@ jobs:
         run: |
           docker run --rm --entrypoint python marketradar-backend:smoke -c "import os, pathlib; assert os.getuid() == 10001; [pathlib.Path(p).read_bytes() for p in ('/app/server/__init__.py','/app/web/index.html')]; print('App source is readable to non-root runtime')"
 
+      - name: Exercise actual bundled offline NLI weights on product card text
+        run: |
+          docker run --rm --entrypoint python marketradar-backend:smoke -c "import asyncio; from server.semantic_identity import assess,_scores; q='Яндекс Станция Мини 3 Про'; cards=[{'title':q,'context':'Оригинальная умная колонка с Алисой Zigbee 18 Вт'},{'title':'Чехол для '+q,'context':'Защитный чехол, колонка не входит в комплект'}]; scores=_scores(q,cards); print('Real local NLI scores:',scores); results=asyncio.run(assess(q,cards)); print('Semantic decisions:',results); assert len(results)==2 and results[1]!='match',results"
       - name: Launch actual FastAPI container
         run: |
           docker run --detach --rm --name marketradar-backend-smoke \

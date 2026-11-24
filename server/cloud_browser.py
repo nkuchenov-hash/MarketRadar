@@ -135,8 +135,14 @@ def network_products(payload, origin: str, max_nodes=60000, market: str | None =
                 if parsed_image.scheme == "https" and parsed_image.hostname:
                     image_url = image[:900]
                     break
+        # Preserve actual product description and attributes from this same
+        # linked JSON record, never surrounding unrelated catalogue records.
+        descriptions = [str(node[k])[:750] for k in
+                        ("description", "shortDescription", "brand", "subjectName",
+                         "categoryName", "model", "vendorCode", "name")
+                        if isinstance(node.get(k), str) and node[k].strip()]
         products.append({"url": canonical(candidate_url), "title": title[:240],
-                         "context": "", "price": amount, "source": "network",
+                         "context": " | ".join(descriptions)[:1800], "price": amount, "source": "network",
                          "image_url": image_url})
     return products, visited
 
@@ -551,7 +557,7 @@ class CloudBrowser:
             amount = _amount(item.get("price", 0))
             if existing is None:
                 ledger[key] = {"url": key, "title": str(item.get("title",""))[:300],
-                               "context": str(item.get("context",""))[:1100],
+                               "context": str(item.get("context",""))[:1800],
                                "price": amount, "source": item.get("source","unknown"),
                                "image_url": str(item.get("image_url",""))[:900],
                                "delivery_hint": str(item.get("delivery_hint",""))[:100]}
@@ -567,7 +573,7 @@ class CloudBrowser:
                 if quality(new_title) > quality(existing["title"]):
                     existing["title"] = new_title
                 if len(str(item.get("context",""))) > len(existing["context"]):
-                    existing["context"] = str(item["context"])[:1100]
+                    existing["context"] = str(item["context"])[:1800]
                 if not existing.get("image_url") and item.get("image_url"):
                     existing["image_url"] = str(item["image_url"])[:900]
                 if not existing.get("delivery_hint") and item.get("delivery_hint"):
