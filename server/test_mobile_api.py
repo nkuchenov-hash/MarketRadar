@@ -203,6 +203,18 @@ class PublicCloudApiTests(unittest.TestCase):
         self.assertEqual(2,job["markets"]["wb"]["identity_ai_checked"])
         self.assertIn("Только чехол",model.call_args.args[1][0]["context"])
 
+    def test_semantic_explicit_card_conflict_overrides_title_similarity(self):
+        from server.semantic_identity import _decide
+        q="Яндекс Станция Мини 3 Про"
+        # Simulate the known misleading scores from the previous actual model
+        # run. The evidence gate must not discard an explicitly original speaker.
+        misleading=(.37,.15,.04,.186,.364,.018)
+        good={"title":q,"context":"Оригинальная умная колонка Zigbee 18 Вт"}
+        bad={"title":q,"context":"Только чехол, без колонки"}
+        self.assertEqual("match",_decide(q,good,misleading))
+        self.assertEqual("reject",_decide(q,bad,misleading))
+        self.assertEqual("reject",_decide(q,{"title":"Яндекс Станция Мини 3","context":""},misleading))
+
     def test_invalid_shops_rejected(self):
         with patch("server.main.cloud_browser.available",return_value=(True,"ok")):
             with TestClient(app) as client:

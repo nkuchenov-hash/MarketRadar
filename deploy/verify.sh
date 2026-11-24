@@ -24,6 +24,14 @@ case "$mode" in
     shops='["ym"]'
     echo "Testing Yandex Market from this VPS."
     ;;
+  --wb)
+    shops='["wb"]'
+    echo "Testing Wildberries from this VPS."
+    ;;
+  --ozon)
+    shops='["ozon"]'
+    echo "Testing Ozon from this VPS."
+    ;;
   --other)
     shops='["wb","ozon"]'
     echo "Testing Wildberries and Ozon from this VPS."
@@ -33,7 +41,7 @@ case "$mode" in
     echo "Testing all three marketplaces from this VPS."
     ;;
   *)
-    echo "Usage: bash deploy/verify.sh [--basic|--live|--other|--all]" >&2
+    echo "Usage: bash deploy/verify.sh [--basic|--live|--wb|--ozon|--other|--all]" >&2
     exit 2
     ;;
 esac
@@ -79,10 +87,15 @@ for code,market in data["markets"].items():
               "searchSubmitted:",nav.get("search_ui_submitted"),
               "sortSelected:",nav.get("sort_ui_selected"),
               "searchHTTP:",nav.get("search_http_status"))
+    if market.get("identity_ai_state"):
+        print("  AI:",market["identity_ai_state"],"checked:",market.get("identity_ai_checked",0),
+              "rejected:",market.get("identity_ai_rejected",0),"unclear:",market.get("identity_ai_unclear",0),
+              "accepted:",sum(o.get("identity_verified_ai") is True for o in offers))
     if market.get("message"):
         print("  status:",market["message"][:220])
-    for item in sorted(offers,key=lambda x:x.get("price",10**15))[:3]:
-        print("  ",item.get("price"),"₽",str(item.get("title",""))[:90],"delivery:",item.get("delivery",""),"detail-verified:",item.get("verified_detail",False))
+    for item in sorted(offers,key=lambda x:x.get("price",10**15))[:8]:
+        print("  ",item.get("price"),"₽",str(item.get("title",""))[:140],"delivery:",item.get("delivery",""),"detail-verified:",item.get("verified_detail",False),"identity-ai:",item.get("identity_verified_ai",False))
+        print("     ",item.get("url",""))
 print("Job:",data.get("state"),"errors:",data.get("errors",[]))
 missing=[
     code for code in data.get("markets",{})

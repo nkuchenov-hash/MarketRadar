@@ -311,8 +311,8 @@ async def run_market(job: dict, shop_id: str):
                     "delivery":str(candidate.get("delivery_hint",""))[:100],
                     "verified_detail":price_verified,
                     "identity_verified_ai":semantic,
-                    "identity_evidence":("local_nli_card" if semantic and not detail_identity_seen
-                                         else "local_nli_detail" if semantic else "title_rules"),
+                    "identity_evidence":("local_nli_and_card_evidence" if semantic and not detail_identity_seen
+                                         else "local_nli_and_detail_evidence" if semantic else "title_rules"),
                     "detail_price":structured if detail_match and structured > 0 else None,
                     "condition":str(candidate.get("price_condition",""))[:100],
                     "note":(
