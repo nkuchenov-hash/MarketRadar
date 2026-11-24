@@ -1,0 +1,48 @@
+name: Ozon MCP VPS live probe
+on:
+  push:
+    branches: [main]
+    paths:
+      - deploy/ozon-probe-config.json
+      - .github/workflows/ozon-mcp-probe.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ozon-mcp-vps-probe
+  cancel-in-progress: false
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 13
+    steps:
+      - uses: actions/checkout@v4
+      - name: Execute restricted live probe
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.MARKETRADAR_OZON_TEST_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$SSH_KEY" ]]; then
+            echo "SETUP REQUIRED: configure dedicated test key and restricted VPS command."
+            exit 1
+          fi
+          umask 077
+          d="$(mktemp -d)"
+          trap 'rm -rf "$d"' EXIT
+          printf '%s\n' "$SSH_KEY" > "$d/key"
+          ssh-keyscan -T 15 -t ed25519 45.147.178.109 > "$d/known_hosts" 2>/dev/null
+          fingerprint="$(ssh-keygen -lf "$d/known_hosts" | awk 'NR==1 {print $2}')"
+          [[ "$fingerprint" == "SHA256:4l/pLS5IaMUdBIGsHSVgnXTrKFu1+5IkqheJiD6Dua4" ]] || { echo "VPS host key mismatch"; exit 1; }
+          ssh -T -i "$d/key" -o IdentitiesOnly=yes -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$d/known_hosts" \
+            -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 \
+            marketradar-probe@45.147.178.109 < deploy/ozon-probe-config.json \
+            2>&1 | tee ozon-probe.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ozon-mcp-probe
+          path: ozon-probe.log
+          if-no-files-found: ignore
+          retention-days: 7
