@@ -461,6 +461,33 @@ class CloudSearchTests(unittest.TestCase):
                     await browser.close()
         asyncio.run(run())
 
+    def test_wb_detail_waits_for_visible_purchase_price(self):
+        async def run():
+            with patch.dict(os.environ,{"CLOUD_BROWSER_ENABLED":"true","CLOUD_BROWSER_PERSISTENT":"false",
+                                       "CLOUD_BROWSER_HEADFUL":"false"}):
+                engine=CloudBrowser()
+                await engine.start()
+                try:
+                    html="""<html><head><title>Wildberries</title>
+                    <meta property="og:price:amount" content="3221"></head>
+                    <body><main id="product"></main>
+                    <article class="product-card"><div class="price-block"><span class="price-block__final-price">199 ₽</span></div></article>
+                    <script>setTimeout(()=>{document.querySelector('#product').innerHTML=
+                    '<h1>Яндекс Станция Мини 3 Про</h1><div class="product-page__aside"><div class="price-block"><del class="price-block__old-price">15990 ₽</del><span class="price-block__final-price">12 884 ₽</span><span>4 × 3221 ₽</span></div>Послезавтра</div><div class="product-page__description">Оригинальная умная колонка</div>';},2500);</script>
+                    </body></html>"""
+                    async def route_handler(route):
+                        await route.fulfill(status=200,content_type="text/html",body=html)
+                    await engine.context.route("https://www.wildberries.ru/**",route_handler)
+                    result=await engine.snapshot("https://www.wildberries.ru/catalog/1581330974/detail.aspx")
+                    self.assertEqual("Яндекс Станция Мини 3 Про",result["heading"])
+                    self.assertEqual(12884,result["primary_price"])
+                    self.assertEqual("wb_visible_buybox",result["detail_price_source"])
+                    self.assertEqual("Послезавтра",result["detail_delivery"])
+                    self.assertIn("Оригинальная умная колонка",result["detail_text"])
+                finally:
+                    await engine.close()
+        asyncio.run(run())
+
     def test_complete_chromium_search_with_live_network_interception_fixture(self):
         """A real Chromium page fetches JSON and paints sibling price labels."""
         async def run():

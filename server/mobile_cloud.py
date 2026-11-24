@@ -147,8 +147,36 @@ async def run_market(job: dict, shop_id: str):
         candidates = [card for card in all_cards
                       if card.get("url") and plausible_listing(job["query"],
                                                                card.get("title",""))]
-        candidates.sort(key=lambda c: (not bool(c.get("price",0)),
-                                        c.get("price",0) or 10**12, c["url"]))
+        def delivery_days(card):
+            # Use Moscow-local calendar for the Russian storefront's date
+            # labels; unknown delivery remains eligible for inspection.
+            from datetime import datetime,timedelta
+            from zoneinfo import ZoneInfo
+            value=normalize(str(card.get("delivery_hint","")))
+            today=datetime.now(ZoneInfo("Europe/Moscow")).date()
+            if value.startswith("послезавтра"):return 2
+            if value.startswith("завтра"):return 1
+            if value.startswith("сегодня"):return 0
+            relative=re.search(r"через\s+(\d+)\s+дн",value)
+            if relative:return int(relative.group(1))
+            months=("января","февраля","марта","апреля","мая","июня","июля","августа","сентября","октября","ноября","декабря")
+            date=re.search(r"(\d{1,2})\s+([а-я]+)",value)
+            if date and date.group(2) in months:
+                try:
+                    day=today.replace(month=months.index(date.group(2))+1,day=int(date.group(1)))
+                    if day<today:day=day.replace(year=day.year+1)
+                    return (day-today).days
+                except ValueError:pass
+            return None
+        def priority(c):
+            days=delivery_days(c)
+            return (0 if days is not None and days<=3 else 1 if days is None else 2,
+                    not bool(c.get("price",0)),c.get("price",0) or 10**12,c["url"])
+        # First verify cheap timely offers on WB, rather than spending the
+        # entire detail-access budget on suspicious late-delivery cards.
+        # Keep late offers for the configured discount exception.
+        candidates.sort(key=priority if shop_id=="wb" else
+                        lambda c:(not bool(c.get("price",0)),c.get("price",0) or 10**12,c["url"]))
         state["matching_cards"] = len(candidates)
         state["omitted_as_unrelated"] = len(all_cards) - len(candidates)
         semantic = semantic_identity.enabled(shop_id)
@@ -266,7 +294,7 @@ async def run_market(job: dict, shop_id: str):
                     # listing evidence. A conflicting detail title is never ignored.
                     if detail_identity_seen:
                         detail_card = {"title":detail_title,
-                                       "context":str(page.get("text",""))[:1800]}
+                                       "context":str(page.get("detail_text") or page.get("text",""))[:1800]}
                         detail_verdicts = await semantic_identity.assess(
                             job["query"], [detail_card])
                         verdict = detail_verdicts[0] if detail_verdicts else "unclear"
@@ -283,9 +311,14 @@ async def run_market(job: dict, shop_id: str):
                 # A lower listing price is not verified by a product page
                 # displaying a higher price. Keep the observed listing price,
                 # but distinguish its evidence from the detail-page price.
-                price = min(p for p in (listing_price, structured) if p > 0)
+                # For WB, a visible main buybox outranks a smaller monetary
+                # number from the search tile (which may be an installment).
+                # Never promote the smaller number as a verified offer.
+                visible_wb_price = bool(shop_id=="wb" and detail_match and
+                    structured>0 and page.get("detail_price_source")=="wb_visible_buybox")
+                price = structured if visible_wb_price else min(p for p in (listing_price, structured) if p > 0)
                 price_verified = bool(detail_match and structured > 0 and
-                                      price == structured)
+                                      price == structured and (shop_id!="wb" or visible_wb_price))
                 if not price_verified:
                     state["coverage_complete"] = False
                 image = candidate.get("image_url") or (
@@ -308,7 +341,9 @@ async def run_market(job: dict, shop_id: str):
                               else candidate.get("title",""))[:240],
                     "url":link, "price":price,
                     "image_url":image[:900],
-                    "delivery":str(candidate.get("delivery_hint",""))[:100],
+                    "delivery":str((page.get("detail_delivery") if visible_wb_price else "") or candidate.get("delivery_hint",""))[:100],
+                    "listing_price":listing_price or None,
+                    "detail_price_source":page.get("detail_price_source","") if detail_accessible else "",
                     "verified_detail":price_verified,
                     "identity_verified_ai":semantic,
                     "identity_evidence":("local_nli_and_card_evidence" if semantic and not detail_identity_seen
@@ -316,6 +351,8 @@ async def run_market(job: dict, shop_id: str):
                     "detail_price":structured if detail_match and structured > 0 else None,
                     "condition":str(candidate.get("price_condition",""))[:100],
                     "note":(
+                        "Цена покупки из видимого блока страницы товара"
+                        if visible_wb_price else
                         "Цена из карточки поисковой выдачи; подтверждения на странице товара нет"
                         if listing_only else
                         "Цена из публичной выдачи; модель сверена по странице"
@@ -330,6 +367,9 @@ async def run_market(job: dict, shop_id: str):
                 if detail_match and structured > 0:
                     if best_detail_verified == 0 or structured < best_detail_verified:
                         best_detail_verified = structured
+            # For WB don't stop after a single failed group of late or
+            # unknown-delivery candidates. At least two groups of timely
+            # candidates were attempted first (if present).
             if unavailable_detail_streak >= 8 and not detail_pages_unavailable:
                 detail_pages_unavailable = True
                 state["detail_access_limited"] = True

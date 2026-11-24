@@ -316,8 +316,57 @@ _DOM_SNAPSHOT = r"""() => {
             }
         }catch(e){}
     }
+    // A WB product page is rendered by the client. Its actual purchase
+    // price may not appear in JSON-LD or meta tags at all. Read only visible
+    // final-price elements of the main product purchase block; never a
+    // global minimum or the prices of recommendations.
+    const wbDetail=/(^|\.)wildberries\.ru$/.test(location.hostname)
+        && /\/catalog\/\d+\/detail/.test(location.pathname);
+    let detailPriceSource='',detailText='',detailDelivery='',detailVisiblePrice=0;
+    if(wbDetail){
+        const visible=el=>!!el&&el.getClientRects().length>0&&
+            getComputedStyle(el).visibility!=='hidden';
+        const readPrice=el=>{
+            if(!visible(el)||el.closest('del,s,[class*="old-price"],[class*="installment"],[class*="recommend"],[class*="carousel"]'))return 0;
+            const t=(el.innerText||el.textContent||'').trim();
+            if(/частями|рассроч|платеж|платёж|\/\s*мес|в\s+мес|×/i.test(t))return 0;
+            if(!/^\d[\d\s\u00a0\u202f]*\s*(?:₽|руб\.?)?$/i.test(t))return 0;
+            const n=Number(t.replace(/\D/g,''));
+            return n>=100&&n<=50000000?n:0;
+        };
+        const roots=[...document.querySelectorAll(
+            '.product-page__aside,.product-page__price-block,.product-page__buy-block,.product-page__order-block,.product-page__price,.product-page__right')].filter(visible);
+        // The actual main price-block is accepted only on a detail page
+        // with its own heading, outside linked recommendation cards.
+        const blocks=[...document.querySelectorAll('.price-block')].filter(el=>
+            visible(el)&&!el.closest('article,li,.product-card,[data-nm-id],[class*="recommend"],[class*="carousel"]'));
+        const areas=roots.length?roots:blocks.length===1?blocks:[];
+        if(h1){
+            for(const root of areas){
+                for(const el of root.querySelectorAll('.price-block__final-price,[data-testid="final-price"],[data-testid="product-price"],.price-block__price-new')){
+                    const n=readPrice(el);
+                    if(n){detailVisiblePrice=n;break;}
+                }
+                if(detailVisiblePrice)break;
+            }
+        }
+        if(detailVisiblePrice){
+            primaryPrice=detailVisiblePrice;
+            detailPriceSource='wb_visible_buybox';
+        }else{
+            // A general meta/JSON-LD offer could refer to another variant.
+            // Do not claim that it independently confirms WB checkout price.
+            primaryPrice=0;
+        }
+        const about=[...document.querySelectorAll('.product-page__header,.product-page__characteristics,.product-page__description,.product-page__options,.product-page__details')].filter(visible);
+        detailText=[h1,...about.map(el=>el.innerText||'')].join('\n').slice(0,6000);
+        const deliveryText=areas.map(el=>el.innerText||'').join('\n');
+        const delivery=deliveryText.match(/(?:сегодня|завтра|послезавтра|через\s*\d{1,2}\s*дн|\d{1,2}\s*(?:января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря))/i);
+        detailDelivery=delivery?delivery[0]:'';
+    }
     return {title:document.title || '', heading:h1, primary_price:primaryPrice,
-        primary_image:primaryImg,body,
+        primary_image:primaryImg,body,detail_price_source:detailPriceSource,
+        detail_text:detailText,detail_delivery:detailDelivery,
         products, visible_prices:[...new Set(prices)].sort((a,b)=>a-b).slice(0,100),
         scroll_y:scroll.scrollTop, scroll_height:scroll.scrollHeight,
         viewport:window.innerHeight, controls};
@@ -545,6 +594,7 @@ class CloudBrowser:
         load_more_count = 0
         max_scrolls = int(os.getenv("CLOUD_SEARCH_SCROLLS", "28")) if search else 0
         max_scrolls = min(80, max(0, max_scrolls))
+        wb_detail = not search and market_of(target) == "Wildberries" and is_product_link("Wildberries",target)
 
         def preserve(item):
             nonlocal raw_count
@@ -713,6 +763,21 @@ class CloudBrowser:
                     unchanged = 0
                 previous = progress
                 if not search:
+                    if wb_detail and not snapshot.get("primary_price") and not blocked_http:
+                        # Wait for the SPA buybox rather than treating the first
+                        # document shell as the final product page. Bounded
+                        # wait, no repeated navigation or challenge bypass.
+                        for _ in range(12):
+                            if any(word in page_text.lower() for word in BLOCK_WORDS):
+                                break
+                            await page.wait_for_timeout(650)
+                            later = await page.evaluate(_DOM_SNAPSHOT)
+                            last_snapshot = later
+                            title = later.get("title","")
+                            page_text = later.get("body","")
+                            visited_snapshots += 1
+                            if later.get("heading") and later.get("primary_price"):
+                                break
                     complete = True
                     break
                 if step >= max_scrolls:
@@ -818,6 +883,9 @@ class CloudBrowser:
                 "heading": str(last_snapshot.get("heading",""))[:300],
                 "primary_price": _amount(last_snapshot.get("primary_price",0)),
                 "primary_image": str(last_snapshot.get("primary_image",""))[:900],
+                "detail_price_source": last_snapshot.get("detail_price_source",""),
+                "detail_text": str(last_snapshot.get("detail_text",""))[:6000],
+                "detail_delivery": str(last_snapshot.get("detail_delivery",""))[:100],
                 "text": page_text[:60000],
                 "links": links,
                 "price_fragments": [str(n)+" ₽" for n in sorted(visual_prices)[:70]],

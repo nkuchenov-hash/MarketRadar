@@ -215,6 +215,33 @@ class PublicCloudApiTests(unittest.TestCase):
         self.assertEqual("reject",_decide(q,bad,misleading))
         self.assertEqual("reject",_decide(q,{"title":"Яндекс Станция Мини 3","context":""},misleading))
 
+    def test_wb_visible_detail_price_overrides_smaller_tile_amount(self):
+        import asyncio
+        from server import mobile_cloud
+        class Browser:
+            async def start(self):pass
+            async def close(self):pass
+            async def snapshot(self,url):
+                if "search.aspx" in url:
+                    return {"state":"ok","coverage_complete":True,"links":[
+                        {"url":"https://www.wildberries.ru/catalog/1581330974/detail.aspx",
+                         "title":"Яндекс Станция Мини 3 Про","price":3221,
+                         "source":"dom","delivery_hint":"через 14 дней"},
+                        {"url":"https://www.wildberries.ru/catalog/1442561058/detail.aspx",
+                         "title":"Яндекс Станция Мини 3 Про","price":10470,
+                         "source":"dom","delivery_hint":"послезавтра"}]}
+                return {"state":"ok","heading":"Яндекс Станция Мини 3 Про",
+                        "primary_price":12884 if "1581330974" in url else 10470,
+                        "detail_price_source":"wb_visible_buybox",
+                        "detail_delivery":"послезавтра"}
+        job={"query":"Яндекс Станция Мини 3 Про","state":"running",
+             "markets":{"wb":{"checked":0}},"offers":[],"errors":[]}
+        with patch("server.mobile_cloud.CloudBrowser",Browser):
+            asyncio.run(mobile_cloud.run_market(job,"wb"))
+        self.assertEqual([10470,12884],[o["price"] for o in job["offers"]])
+        self.assertTrue(all(o["verified_detail"] for o in job["offers"]))
+        self.assertEqual(3221,job["offers"][1]["listing_price"])
+
     def test_invalid_shops_rejected(self):
         with patch("server.main.cloud_browser.available",return_value=(True,"ok")):
             with TestClient(app) as client:

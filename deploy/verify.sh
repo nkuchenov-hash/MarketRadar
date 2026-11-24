@@ -95,7 +95,8 @@ for code,market in data["markets"].items():
         print("  status:",market["message"][:220])
     for item in sorted(offers,key=lambda x:x.get("price",10**15))[:8]:
         print("  ",item.get("price"),"₽",str(item.get("title",""))[:140],"delivery:",item.get("delivery",""),"detail-verified:",item.get("verified_detail",False),"identity-ai:",item.get("identity_verified_ai",False))
-        print("     ",item.get("url",""))
+        print("     ",item.get("url",""),"listing:",item.get("listing_price"),"detail:",item.get("detail_price"),"source:",item.get("detail_price_source",""))
+    print("  detail pages attempted:",market.get("checked",0),"not attempted:",market.get("detail_pages_not_attempted",0))
 print("Job:",data.get("state"),"errors:",data.get("errors",[]))
 missing=[
     code for code in data.get("markets",{})
