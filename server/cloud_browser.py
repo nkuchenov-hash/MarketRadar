@@ -599,6 +599,8 @@ class CloudBrowser:
         load_more_count = 0
         max_scrolls = int(os.getenv("CLOUD_SEARCH_SCROLLS", "28")) if search else 0
         max_scrolls = min(80, max(0, max_scrolls))
+        if search and hasattr(self, "fast_scrolls"):
+            max_scrolls = min(max_scrolls, max(0, int(self.fast_scrolls)))
         wb_detail = not search and market_of(target) == "Wildberries" and is_product_link("Wildberries",target)
 
         def preserve(item):
