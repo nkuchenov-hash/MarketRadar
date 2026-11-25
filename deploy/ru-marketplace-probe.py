@@ -30,7 +30,7 @@ async def probe(shop):
     start=time.monotonic()
     name="wb-mcp" if shop=="wb" else "yandex-mcp"
     env={**os.environ,"MCP_TRANSPORT":"stdio","WB_DOM_FALLBACK":"0"}
-    allrows={}; checked=[]; errors=[]
+    allrows={}; checked=[]; errors=[]; candidates=[]
     try:
         async with stdio_client(StdioServerParameters(command=name,env=env)) as (rx,tx):
             async with ClientSession(rx,tx) as sess:
@@ -64,10 +64,10 @@ async def probe(shop):
                             d=await call(sess,"yandex_card",{"product_id":x["product_id"],"include_reviews":False})
                             if d.get("sku_id") and d["sku_id"]==x.get("sku_id") and match(d.get("title")) and valid(d.get("price_rub")):
                                 checked.append(d)
-                        except Exception as e:errors.append(str(e)[:700]);break
+                        except Exception as e:errors.append(str(e)[:700]);continue
     except Exception as e:errors.append(str(e)[:700])
     checked.sort(key=lambda x:x["price_rub"])
-    result={"shop":shop,"seconds":round(time.monotonic()-start,3),"unique":len(allrows),"checked_matches":len(checked),"cheapest_verified":checked[:5],"delivery_reported":sum(bool(x.get("delivery")) for x in checked),"coverage_complete":False,"errors":errors}
+    result={"shop":shop,"seconds":round(time.monotonic()-start,3),"unique":len(allrows),"matching_listings":len(candidates),"cheapest_listing":candidates[:3],"checked_matches":len(checked),"cheapest_verified":checked[:5],"delivery_reported":sum(bool(x.get("delivery")) for x in checked),"coverage_complete":False,"errors":errors}
     dump({"event":"summary",**result})
     return result
 async def main():
