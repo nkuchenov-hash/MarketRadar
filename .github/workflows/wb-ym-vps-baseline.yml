@@ -1,0 +1,59 @@
+name: WB and Market live VPS baseline
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/wb-ym-vps-baseline.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: wb-ym-vps-baseline
+  cancel-in-progress: false
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      API: https://45-147-178-109.sslip.io
+      KEY: ${{ secrets.MARKETRADAR_MOBILE_ACCESS_KEY }}
+    steps:
+      - name: Measure deployed WB and Market against the same product
+        run: |
+          python - <<'PY'
+          import json,os,time,urllib.request
+          key=os.environ.get("KEY","")
+          if not key: raise SystemExit("MARKETRADAR_MOBILE_ACCESS_KEY missing")
+          headers={"X-MarketRadar-Key":key,"Content-Type":"application/json"}
+          base=os.environ["API"]
+          def request(path,body=None):
+              data=json.dumps(body,ensure_ascii=False).encode() if body is not None else None
+              with urllib.request.urlopen(urllib.request.Request(base+path,data=data,headers=headers),timeout=25) as r:
+                  return json.load(r)
+          started=time.monotonic()
+          job=request("/api/mobile/browser/start",{"query":"Яндекс Станция Мини 3 Про","shops":["wb","ym"]})
+          first={}
+          state={}
+          for _ in range(115):
+              state=request("/api/mobile/browser/jobs/"+job["id"])
+              for shop in ("wb","ym"):
+                  offers=[o for o in state.get("offers",[]) if o.get("market_id")==shop]
+                  if offers and shop not in first: first[shop]=round(time.monotonic()-started,2)
+              if state["state"]!="running":break
+              time.sleep(5)
+          results={}
+          for shop in ("wb","ym"):
+              m=state.get("markets",{}).get(shop,{})
+              offers=sorted([o for o in state.get("offers",[]) if o.get("market_id")==shop and o.get("price",0)>0],key=lambda x:x["price"])
+              verified=[o for o in offers if o.get("verified_detail")]
+              results[shop]={"state":m.get("state"),"cards":m.get("candidates"),"checked":m.get("checked"),"first_offer_seconds":first.get(shop),"offers":len(offers),"verified":len(verified),"cheapest":offers[:5],"audit":m.get("audit"),"message":m.get("message")}
+          result={"seconds":round(time.monotonic()-started,2),"state":state.get("state"),"markets":results}
+          print(json.dumps(result,ensure_ascii=False,indent=2))
+          with open("wb-ym-baseline.json","w") as f:json.dump(result,f,ensure_ascii=False,indent=2)
+          if any(not results[s]["verified"] for s in results):raise SystemExit("One or more markets lack detail-confirmed prices")
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wb-ym-baseline
+          path: wb-ym-baseline.json
+          if-no-files-found: ignore
