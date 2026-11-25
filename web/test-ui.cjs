@@ -17,5 +17,5 @@ assert.equal(chooseOffers(list,{...policy,allowLate:true},false).best.price,9000
 assert.equal(chooseOffers(list,{...policy,maxDays:1},false).best.price,11630);
 assert.equal(chooseOffers(list,{...policy,allowLate:true,discount:25},false).best.price,11542);
 assert.equal(chooseOffers([row('wb',8000,8,'Mini 3 Pro',false),row('ozon',11630,1,'Mini 3 Pro')],{...policy,allowLate:true},false).best.price,11630);
-assert(!html.includes('id="email"'));assert(html.includes('id="accessKey"'));
-console.log('Android parity: compact results, duplicate removal, 5% expansion, delivery exceptions, access code passed');
+assert(!html.includes('id="email"'));assert(!html.includes('id="accessKey"'));assert(!html.includes('id="accountButton"'));assert(!js.includes('showAuth'));assert(js.includes("X-MarketRadar-Guest"));
+console.log('Android parity: compact results, duplicate removal, 5% expansion, delivery exceptions, guest access passed');

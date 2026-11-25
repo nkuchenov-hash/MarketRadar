@@ -21,6 +21,9 @@ APP_ORIGIN=(os.getenv('APP_ORIGIN') or os.getenv('RENDER_EXTERNAL_URL') or 'http
 SECURE=(os.getenv('COOKIE_SECURE','true' if APP_ORIGIN.startswith('https://') else 'false').lower()=='true')
 FREE=int(os.getenv('FREE_SEARCHES','3'))
 RATE=defaultdict(deque)
+GUEST_JOBS={}
+GUEST_COOKIE='mr_guest'
+GUEST_STARTS=deque()
 
 @asynccontextmanager
 async def lifespan(app):
@@ -78,10 +81,24 @@ def mobile_access(request:Request):
             request.headers.get("x-marketradar-key",""),expected):
         raise HTTPException(401,"Неверный код доступа MarketRadar")
 
+def guest_mode(request:Request):
+    # Public browser mode is explicit; the private Android key remains private.
+    return request.headers.get('x-marketradar-guest')=='1' and not request.headers.get('x-marketradar-key')
+
+def guest_job_access(request:Request,job_id:str):
+    if not guest_mode(request):
+        mobile_access(request)
+        return
+    cookie=request.cookies.get(GUEST_COOKIE,'')
+    record=GUEST_JOBS.get(job_id)
+    if not cookie or not record or record[1]<time.monotonic() or not hmac.compare_digest(record[0],digest(cookie)):
+        raise HTTPException(404,'Поиск не найден')
+
 @app.post('/api/mobile/browser/start',status_code=202)
-async def mobile_browser_start(request:Request,data:MobileBrowserSearch):
+async def mobile_browser_start(request:Request,data:MobileBrowserSearch,response:Response):
     """Launch a real public Chromium search without exposing shop credentials."""
-    mobile_access(request)
+    guest=guest_mode(request)
+    if not guest:mobile_access(request)
     limit(request,'mobile-browser-minute',2,60)
     limit(request,'mobile-browser-day',12,86400)
     ready,reason=cloud_browser.available()
@@ -89,14 +106,27 @@ async def mobile_browser_start(request:Request,data:MobileBrowserSearch):
         raise HTTPException(503,reason)
     if any(shop not in mobile_cloud.SHOP_IDS for shop in data.shops):
         raise HTTPException(422,'Неизвестный магазин')
+    if guest:
+        t=time.monotonic()
+        while GUEST_STARTS and GUEST_STARTS[0]<t-3600:GUEST_STARTS.popleft()
+        if len(GUEST_STARTS)>=30:raise HTTPException(429,'Лимит тестового сервиса исчерпан, попробуйте позже')
+        for key,record in list(GUEST_JOBS.items()):
+            if record[1]<t:GUEST_JOBS.pop(key,None)
     try:
-        return mobile_cloud.start_job(data.query.strip(),data.shops,max_days=data.max_days,allow_late=data.allow_late,discount_percent=data.discount_percent)
+        result=mobile_cloud.start_job(data.query.strip(),data.shops,max_days=data.max_days,allow_late=data.allow_late,discount_percent=data.discount_percent)
+        if guest:
+            cookie=request.cookies.get(GUEST_COOKIE,'')
+            if not re.fullmatch(r'[A-Za-z0-9_-]{43}',cookie):cookie=opaque_token(32)
+            GUEST_JOBS[result['id']]=(digest(cookie),time.monotonic()+7200)
+            GUEST_STARTS.append(time.monotonic())
+            response.set_cookie(GUEST_COOKIE,cookie,httponly=True,secure=SECURE,samesite='strict',max_age=86400,path='/api/mobile/browser/')
+        return result
     except (RuntimeError,ValueError) as exc:
         raise HTTPException(429,str(exc))
 
 @app.get('/api/mobile/browser/jobs/{job_id}')
 async def mobile_browser_result(request:Request,job_id:str):
-    mobile_access(request)
+    guest_job_access(request,job_id)
     limit(request,'mobile-browser-poll',100,60)
     result=mobile_cloud.job_status(job_id)
     if result is None:raise HTTPException(404,'Поиск не найден')
@@ -104,7 +134,7 @@ async def mobile_browser_result(request:Request,job_id:str):
 
 @app.delete('/api/mobile/browser/jobs/{job_id}')
 async def mobile_browser_stop(request:Request,job_id:str):
-    mobile_access(request)
+    guest_job_access(request,job_id)
     limit(request,'mobile-browser-cancel',10,60)
     if not mobile_cloud.cancel_job(job_id):
         raise HTTPException(404,'Поиск не найден')

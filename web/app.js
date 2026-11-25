@@ -6,7 +6,7 @@ const rub=n=>new Intl.NumberFormat('ru-RU').format(n)+' ₽';
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const stored=(key,fallback)=>{try{return localStorage.getItem(key)??fallback}catch{return fallback}};
 const store=(key,v)=>{try{localStorage.setItem(key,v)}catch{}};
-let accessKey='',jobId=null,job=null,timer=null,pendingSearch=false,starting=false,generation=0,activeQuery='',expanded=false,activeShops=[],retainedOffers=[],retainedMarkets={},running=false;
+let jobId=null,job=null,timer=null,starting=false,generation=0,activeQuery='',expanded=false,activeShops=[],retainedOffers=[],retainedMarkets={},running=false;
 const defaults={maxDays:3,allowLate:false,discount:20,shops:['ozon','wb','ym']};
 const bounded=(v,min,max,fallback)=>Number.isFinite(Number(v))&&String(v).trim()!==''?Math.min(max,Math.max(min,Math.trunc(Number(v)))):fallback;
 function readPolicy(){try{const p=JSON.parse(stored('mr_policy','{}'));return {maxDays:bounded(p.maxDays,0,90,3),allowLate:!!p.allowLate,discount:bounded(p.discount,1,90,20),shops:Array.isArray(p.shops)&&p.shops.some(x=>defaults.shops.includes(x))?defaults.shops.filter(x=>p.shops.includes(x)):defaults.shops.slice()}}catch{return {...defaults,shops:defaults.shops.slice()}}}
@@ -18,12 +18,10 @@ function previewDeadline(){$('discount').disabled=!$('allowLate').checked;$('dea
 function updateDeadline(){$('deadlineLabel').textContent=deadline(policy);}
 function openSettings(){fillSettings();$('settings').showModal();}
 
-try{accessKey=sessionStorage.getItem('mr_access_key')||''}catch{}
-const sessionKey=v=>{accessKey=v;try{if(v)sessionStorage.setItem('mr_access_key',v);else sessionStorage.removeItem('mr_access_key')}catch{}};
 const states={pending:'Ожидание',searching:'Ищем',checking:'Проверяем',complete:'Завершено',partial:'Частично',blocked:'Доступ ограничен',error:'Ошибка',empty:'Нет результатов',ok:'Завершено'};
 function msg(text){$('searchError').textContent=text||'';$('searchError').hidden=!text}
 async function api(path,method='GET',body){
- const r=await fetch(path,{method,credentials:'omit',cache:'no-store',headers:{'Content-Type':'application/json',...(accessKey&&path.startsWith('/api/mobile/browser/')?{'X-MarketRadar-Key':accessKey}:{})},...(body?{body:JSON.stringify(body)}:{})});
+ const r=await fetch(path,{method,credentials:'same-origin',cache:'no-store',headers:{'Content-Type':'application/json','X-MarketRadar-Guest':'1'},...(body?{body:JSON.stringify(body)}:{})});
  let data={};try{data=await r.json()}catch{}
  if(!r.ok){const e=Error(typeof data.detail==='string'?data.detail:'Ошибка HTTP '+r.status);e.status=r.status;throw e}return data;
 }
@@ -35,30 +33,22 @@ $('theme').onchange=()=>setTheme($('theme').value);
 $('settingsButton').onclick=openSettings;$('editDeadline').onclick=openSettings;$('maxDays').oninput=previewDeadline;$('allowLate').onchange=previewDeadline;
 $('closeSettings').onclick=()=>$('settings').close();
 $('saveSettings').onclick=()=>{const shops=Object.keys(shopIds).filter(m=>$(shopIds[m]).checked);if(!shops.length){alert('Выберите хотя бы один магазин');return}if(!$('maxDays').reportValidity()||!$('discount').reportValidity())return;policy={maxDays:bounded($('maxDays').value,0,90,3),allowLate:$('allowLate').checked,discount:bounded($('discount').value,1,90,20),shops};store('mr_policy',JSON.stringify(policy));store('mr_consent',$('consent').checked?'yes':'no');updateDeadline();$('settings').close()};
-function showAuth(){if(!$('auth').open)$('auth').showModal();$('accessKey').value=accessKey;$('authError').textContent=''}
-$('closeAuth').onclick=()=>{pendingSearch=false;$('auth').close()};
-$('auth').addEventListener('cancel',()=>{pendingSearch=false});
-function setAccount(){ $('accountButton').textContent=accessKey?'Код доступа ✓':'Код доступа';}
-$('authForm').onsubmit=async e=>{e.preventDefault();const key=$('accessKey').value.trim();if(!key)return;sessionKey(key);setAccount();$('auth').close();$('accessKey').value='';if(pendingSearch){pendingSearch=false;await startSearch()}else msg('Код сохранён для этой вкладки. Проверим при поиске.')};
-$('forgetKey').onclick=()=>{sessionKey('');setAccount();$('accessKey').value='';pendingSearch=false;$('auth').close();msg('Код доступа удалён.')};
-$('accountButton').onclick=showAuth;
 function view(name){for(const v of ['search','history','shops']){$(v+'View').hidden=v!==name;$(v+'Tab').classList.toggle('active',v===name)}if(name==='shops')renderShops()}
 $('searchTab').onclick=()=>view('search');
 $('historyTab').onclick=()=>{view('history');loadHistory()};$('shopsTab').onclick=()=>view('shops');
 function historyRows(){try{const rows=JSON.parse(stored('mr_local_history_v22','[]'));return Array.isArray(rows)?rows:[]}catch{return []}}
 function saveHistory(){if(!job||!jobId)return;const rows=historyRows().filter(x=>x.id!==jobId);const old=historyRows().find(x=>x.id===jobId);rows.unshift({id:jobId,query:activeQuery,created:old?.created||Date.now(),policy:activePolicy,shops:activeShops,scanDate,retainedOffers,retainedMarkets,result:{...job,offers:(job.offers||[]).slice(0,100)}});store('mr_local_history_v22',JSON.stringify(rows.slice(0,15)))}
-function loadHistory(){const rows=historyRows();$('history').innerHTML=rows.map(j=>'<button class="historyrow" data-id="'+esc(j.id)+'"><strong>'+esc(j.query)+'</strong><span>'+esc(new Date(j.created).toLocaleDateString('ru-RU'))+'</span></button>').join('')||'<div class="empty">История в этом браузере пока пуста.</div>';for(const el of $('history').querySelectorAll('button'))el.onclick=()=>{const row=rows.find(x=>x.id===el.dataset.id);if(!row)return;view('search');$('query').value=row.query;activeQuery=row.query;clearTimeout(timer);generation++;jobId=row.id;job=row.result;activePolicy=row.policy||readPolicy();activeShops=row.shops||Object.keys(job.markets||{});scanDate=row.scanDate||new Date(row.created).toISOString();retainedOffers=row.retainedOffers||[];retainedMarkets=row.retainedMarkets||{};running=job.state==='running'&&!!accessKey;expanded=false;updateSearchButton();$('results').hidden=false;if(job.state==='running'&&accessKey){render();poll(generation)}else{render();if(job.state==='running')$('jobState').textContent='Последний сохранённый результат'}}}
+function loadHistory(){const rows=historyRows();$('history').innerHTML=rows.map(j=>'<button class="historyrow" data-id="'+esc(j.id)+'"><strong>'+esc(j.query)+'</strong><span>'+esc(new Date(j.created).toLocaleDateString('ru-RU'))+'</span></button>').join('')||'<div class="empty">История в этом браузере пока пуста.</div>';for(const el of $('history').querySelectorAll('button'))el.onclick=()=>{const row=rows.find(x=>x.id===el.dataset.id);if(!row)return;view('search');$('query').value=row.query;activeQuery=row.query;clearTimeout(timer);generation++;jobId=row.id;job=row.result;activePolicy=row.policy||readPolicy();activeShops=row.shops||Object.keys(job.markets||{});scanDate=row.scanDate||new Date(row.created).toISOString();retainedOffers=row.retainedOffers||[];retainedMarkets=row.retainedMarkets||{};running=job.state==='running';expanded=false;updateSearchButton();$('results').hidden=false;if(job.state==='running'){render();poll(generation)}else{render();if(job.state==='running')$('jobState').textContent='Последний сохранённый результат'}}}
 $('searchForm').onsubmit=e=>{e.preventDefault();if(running)stopSearch();else startSearch()};
 function updateSearchButton(){$('searchButton').textContent=running?'Остановить':'Найти';}
 async function stopSearch(){if(!jobId||starting)return;try{await api('/api/mobile/browser/jobs/'+encodeURIComponent(jobId),'DELETE');clearTimeout(timer);generation++;running=false;job={...(job||{}),query:activeQuery,state:'cancelled'};render();saveHistory();updateSearchButton()}catch(e){msg(e.message)}}
 async function startSearch(retry=null){
  if(starting)return;msg('');
  const q=retry?activeQuery:$('query').value.trim();if(q.length<3)return;
- if(!accessKey){pendingSearch=true;showAuth();return}
  if(!$('consent').checked){msg('Разрешите обработку сведений о товарах в настройках.');openSettings();return}
  starting=true;$('searchButton').disabled=true;
  try{const shops=retry||policy.shops;const p=retry?activePolicy:policy;const x=await api('/api/mobile/browser/start','POST',{query:q,shops,max_days:p.maxDays,allow_late:p.allowLate,discount_percent:p.discount});if(!retry){activePolicy={...policy};activeShops=shops.slice();scanDate=new Date().toISOString();retainedOffers=[];retainedMarkets={};expanded=false;}else{retainedOffers=(job?.offers||[]).filter(o=>!shops.includes(shop(o)));retainedMarkets=Object.fromEntries(Object.entries(job?.markets||{}).filter(([id])=>!shops.includes(id)));}activeQuery=q;view('search');openJob(x.id)}
- catch(e){msg(e.message);if(e.status===401){sessionKey('');setAccount();pendingSearch=true;showAuth();$('authError').textContent=e.message}}
+ catch(e){msg(e.message)}
  finally{starting=false;$('searchButton').disabled=false}
 }
 function openJob(id){clearTimeout(timer);jobId=id;job={query:activeQuery,state:'running',offers:retainedOffers.slice(),markets:{...retainedMarkets}};running=true;updateSearchButton();generation++;$('results').hidden=false;$('jobState').textContent='Ищем предложения';$('resultsHeading').textContent=$('query').value.trim()||'Результаты';$('offers').innerHTML='<div class="empty">Поиск выполняется...</div>';$('marketStatuses').innerHTML='';$('count').textContent='';render();saveHistory();poll(generation)}
@@ -113,5 +103,5 @@ $('retryMissing').onclick=()=>{if(!running&&missingShops().length)startSearch(mi
 $('showReport').onclick=()=>{if(!job){alert('Поиск ещё не запускался');return}const report=JSON.stringify({query:activeQuery,policy:activePolicy,markets:job.markets,errors:job.errors},null,2);const url=URL.createObjectURL(new Blob([report],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download='marketradar-search-report.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)};
 
 for(const id of ['marketFilter','sortFilter','verifiedFilter'])$(id).onchange=render;
-setAccount();const last=historyRows()[0];if(last){$('query').value=last.query;activeQuery=last.query;activePolicy=last.policy||readPolicy();activeShops=last.shops||Object.keys(last.result?.markets||{});scanDate=last.scanDate||new Date(last.created).toISOString();jobId=last.id;job=last.result;retainedOffers=last.retainedOffers||[];retainedMarkets=last.retainedMarkets||{};$('results').hidden=false;render();if(last.result?.state==='running'&&accessKey){running=true;updateSearchButton();poll(++generation)}}
+const last=historyRows()[0];if(last){$('query').value=last.query;activeQuery=last.query;activePolicy=last.policy||readPolicy();activeShops=last.shops||Object.keys(last.result?.markets||{});scanDate=last.scanDate||new Date(last.created).toISOString();jobId=last.id;job=last.result;retainedOffers=last.retainedOffers||[];retainedMarkets=last.retainedMarkets||{};$('results').hidden=false;render();if(last.result?.state==='running'){running=true;updateSearchButton();poll(++generation)}}
 })();
