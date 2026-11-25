@@ -1,0 +1,20 @@
+# Enable the authenticated web application alongside the private mobile API.
+{$MARKETRADAR_DOMAIN} {
+    encode gzip
+
+    @mobile path /health /api/mobile/browser/*
+    handle @mobile {
+        reverse_proxy backend:10000
+    }
+
+    @web path / /static/app.js /static/style.css /api/register /api/login /api/logout /api/me /api/search /api/batch /api/jobs /api/jobs/*
+    handle @web {
+        reverse_proxy backend:10000
+    }
+
+    # Leave billing, device pairing, extension downloads and other endpoints
+    # disabled on this staging deployment.
+    handle {
+        respond "Not Found" 404
+    }
+}
