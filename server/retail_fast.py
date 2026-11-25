@@ -51,11 +51,11 @@ def candidates(rows, query, market, matches):
             found[u]=x
     return sorted(found.values(),key=lambda x:amount(x["price"]))
 
-def shortlist(rows, limit=4):
-    timely=[x for x in rows if (d:=days(x.get("delivery_hint"))) is not None and d<=3]
+def shortlist(rows, limit=4, max_days=3, allow_late=False, discount_percent=20):
+    timely=[x for x in rows if (d:=days(x.get("delivery_hint"))) is not None and d<=max_days]
     unknown=[x for x in rows if days(x.get("delivery_hint")) is None]
     reference=min((amount(x["price"]) for x in timely),default=0)
-    late=[x for x in rows if (d:=days(x.get("delivery_hint"))) is not None and d>3 and (not reference or amount(x["price"])<=reference*.8)]
+    late=[x for x in rows if (d:=days(x.get("delivery_hint"))) is not None and d>max_days and allow_late and (not reference or amount(x["price"])*100<=reference*(100-discount_percent))]
     # Low unknown/late candidates are checked, not silently discarded.
     pool=timely[:2]+sorted(unknown+late,key=lambda x:amount(x["price"]))[:2]
     pool+=timely+unknown+late
@@ -66,12 +66,15 @@ def shortlist(rows, limit=4):
         if len(selected)>=limit:break
     return selected
 
-def publishable(rows):
+def publishable(rows, max_days=3, allow_late=False, discount_percent=20):
     if not rows:return []
     floor=median([amount(x["price"]) for x in rows])*.55 if len(rows)>=3 else 0
     # A large discount could be real, but a suspicious tile might be an
     # installment. Retain it in the verification shortlist, not the winner.
-    return [x for x in rows if (d:=days(x.get("delivery_hint"))) is not None and d<=3 and amount(x["price"])>=floor]
+    timely=[x for x in rows if (d:=days(x.get("delivery_hint"))) is not None and d<=max_days and amount(x["price"])>=floor]
+    reference=min((amount(x["price"]) for x in timely),default=0)
+    late=[x for x in rows if allow_late and (d:=days(x.get("delivery_hint"))) is not None and d>max_days and amount(x["price"])>=floor and (not reference or amount(x["price"])*100<=reference*(100-discount_percent))]
+    return timely+late
 
 def offer(shop,x,verified=False,detail=None):
     d=detail or {}
@@ -91,6 +94,8 @@ async def run_fast(job,state,shop,exact_product):
     market={"wb":"Wildberries","ym":"Яндекс Маркет"}[shop]
     url=sorted_search_url(MARKETS[market]["search"].format(q=quote(job["query"])))
     t=time.monotonic(); engine=None; ledger={}; confirmed={}; provisional={}; issues=[]
+    policy=job.get("policy",{})
+    max_days=policy.get("max_days",3); allow_late=policy.get("allow_late",False); discount_percent=policy.get("discount_percent",20)
     state["coverage_complete"]=False
     state["audit"]={"source":"retail_fast","coverageComplete":False}
     def rows():return candidates(list(ledger.values()),job["query"],market,exact_product)
@@ -109,7 +114,7 @@ async def run_fast(job,state,shop,exact_product):
         state["best_found"]=min((x["price"] for x in combined.values()),default=0)
         state["best_verified"]=min((x["price"] for x in confirmed.values()),default=0)
     def publish():
-        for x in publishable(rows()):
+        for x in publishable(rows(),max_days,allow_late,discount_percent):
             provisional[x["url"]]=offer(shop,x)
         sync()
         if provisional and "first_offer_seconds" not in state["audit"]:
@@ -139,7 +144,7 @@ async def run_fast(job,state,shop,exact_product):
             try:return await asyncio.wait_for(engine.snapshot(x["url"]),timeout=12)
             except Exception as e:
                 issues.append("detail:"+type(e).__name__);return {}
-        picks=shortlist(rows(),4)
+        picks=shortlist(rows(),4,max_days,allow_late,discount_percent)
         late=[]
         for offset in range(0,len(picks),2):
             batch=picks[offset:offset+2]
@@ -158,12 +163,8 @@ async def run_fast(job,state,shop,exact_product):
                 if shop=="wb" and d.get("detail_price_source")!="wb_visible_buybox":continue
                 o=offer(shop,x,True,d)
                 provisional.pop(x["url"],None)
-                if dd<=3:confirmed[x["url"]]=o
+                if dd<=max_days or allow_late:confirmed[x["url"]]=o
                 else:late.append(o)
-            reference=min((o["price"] for o in confirmed.values()),default=0)
-            if reference:
-                for o in late:
-                    if o["price"]<=reference*.8:confirmed[o["url"]]=o
             sync()
     except asyncio.CancelledError:raise
     except Exception as e:issues.append(type(e).__name__)
