@@ -57,7 +57,7 @@ async function startSearch(retry=null){
  if(!accessKey){pendingSearch=true;showAuth();return}
  if(!$('consent').checked){msg('Разрешите обработку сведений о товарах в настройках.');openSettings();return}
  starting=true;$('searchButton').disabled=true;
- try{const shops=retry||policy.shops;const x=await api('/api/mobile/browser/start','POST',{query:q,shops});if(!retry){activePolicy={...policy};activeShops=shops.slice();scanDate=new Date().toISOString();retainedOffers=[];retainedMarkets={};expanded=false;}else{retainedOffers=(job?.offers||[]).filter(o=>!shops.includes(shop(o)));retainedMarkets=Object.fromEntries(Object.entries(job?.markets||{}).filter(([id])=>!shops.includes(id)));}activeQuery=q;view('search');openJob(x.id)}
+ try{const shops=retry||policy.shops;const p=retry?activePolicy:policy;const x=await api('/api/mobile/browser/start','POST',{query:q,shops,max_days:p.maxDays,allow_late:p.allowLate,discount_percent:p.discount});if(!retry){activePolicy={...policy};activeShops=shops.slice();scanDate=new Date().toISOString();retainedOffers=[];retainedMarkets={};expanded=false;}else{retainedOffers=(job?.offers||[]).filter(o=>!shops.includes(shop(o)));retainedMarkets=Object.fromEntries(Object.entries(job?.markets||{}).filter(([id])=>!shops.includes(id)));}activeQuery=q;view('search');openJob(x.id)}
  catch(e){msg(e.message);if(e.status===401){sessionKey('');setAccount();pendingSearch=true;showAuth();$('authError').textContent=e.message}}
  finally{starting=false;$('searchButton').disabled=false}
 }
