@@ -243,6 +243,7 @@ def me(request:Request,user=Depends(required_user)):
             'used':searches,'free_limit':FREE,'device_online':online,
             'device_name':device['name'] if device else None,
             'ai_ready':ai_ready,'ai_status':ai_diagnostic,
+            'shared_cloud':os.getenv('MARKETRADAR_WEB_CLOUD_FAST','').lower() in ('1','true','yes'),
             'cloud_available':cloud_ready,'cloud_status':cloud_diagnostic,
             'billing_ready':bool(os.getenv('STRIPE_SECRET_KEY'))}
 
@@ -317,8 +318,9 @@ def check_search_mode(mode:str,user_id:str):
 async def search(data:StartSearch,user=Depends(csrf)):
     if not data.consent:raise HTTPException(422,'Нужно согласие на анализ сведений о товарах')
     if data.depth not in ('fast','deep'):raise HTTPException(422,'Неверная глубина поиска')
-    ready,diagnostic=await asyncio.to_thread(agent.ai_status)
-    if not ready:raise HTTPException(503,diagnostic)
+    if data.mode!='cloud' or os.getenv('MARKETRADAR_WEB_CLOUD_FAST','').lower() not in ('1','true','yes'):
+        ready,diagnostic=await asyncio.to_thread(agent.ai_status)
+        if not ready:raise HTTPException(503,diagnostic)
     check_search_mode(data.mode,user['id'])
     running=db.one("SELECT id FROM jobs WHERE user_id=? AND state IN ('running','queued')",(user['id'],))
     if running:raise HTTPException(409,'Другой поиск уже выполняется')
@@ -345,8 +347,9 @@ async def run_batch(ids:list[str],user_id:str,items:list[str],depth:str,mode:str
 async def batch_search(data:BatchSearch,user=Depends(csrf)):
     if not data.consent:raise HTTPException(422,'Нужно согласие на анализ сведений о товарах')
     if data.depth not in ('fast','deep'):raise HTTPException(422,'Неверная глубина поиска')
-    ready,diagnostic=await asyncio.to_thread(agent.ai_status)
-    if not ready:raise HTTPException(503,diagnostic)
+    if data.mode!='cloud' or os.getenv('MARKETRADAR_WEB_CLOUD_FAST','').lower() not in ('1','true','yes'):
+        ready,diagnostic=await asyncio.to_thread(agent.ai_status)
+        if not ready:raise HTTPException(503,diagnostic)
     check_search_mode(data.mode,user['id'])
     if db.one("SELECT id FROM jobs WHERE user_id=? AND state IN ('running','queued')",(user['id'],)):
         raise HTTPException(409,'Поиск уже выполняется')
