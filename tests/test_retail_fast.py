@@ -74,3 +74,30 @@ def test_waiting_profile_does_not_release_another_workers_lock(monkeypatch):
         assert not slots.locked()
         lock.release()
     asyncio.run(check())
+
+def test_yandex_browser_listing_is_not_skipped_after_html_success(monkeypatch):
+    def card(n,p,d,source):
+        return {"url":f"https://market.yandex.ru/card/thing/{n}","title":Q,
+                "price":p,"delivery_hint":d,"source":source}
+    old=card(12345678,12998,"послезавтра","public_ssr")
+    cheap=card(12345679,12702,"завтра","dom")
+    late=card(12345680,12570,"через 4 дня","dom")
+    monkeypatch.setattr(r,"fetch_public_search_html",lambda *a,**kw:{"links":[old],"audit":{}})
+    searched=[]
+    class Engine:
+        async def start(self):pass
+        async def close(self):pass
+        async def snapshot(self,url):
+            if "search" in url:
+                searched.append(url)
+                return {"links":[cheap,late],"audit":{}}
+            return {"state":"blocked"}
+    monkeypatch.setattr(r,"CloudBrowser",Engine)
+    job={"query":Q,"offers":[],"state":"running","policy":{"max_days":3}}
+    state={"checked":0}
+    asyncio.run(r.run_fast(job,state,"ym",exact_product))
+    assert len(searched)==1
+    assert "how=aprice" in searched[0]
+    assert sorted(x["price"] for x in job["offers"])==[12702,12998]
+    assert state["best_found"]==12702
+    assert not state["coverage_complete"]

@@ -103,7 +103,13 @@ async def run_fast(job,state,shop,exact_product):
         for x in data.get("links",[]):
             if not isinstance(x,dict) or not x.get("url"):continue
             old=ledger.get(x["url"])
-            if old is None or (not old.get("delivery_hint") and x.get("delivery_hint")):ledger[x["url"]]=x
+            # Prefer an actual rendered card with a complete price/delivery
+            # observation over an earlier public-HTML snapshot of that URL.
+            fresh_dom=(x.get("source")=="dom" and amount(x.get("price")) and
+                       days(x.get("delivery_hint")) is not None and
+                       exact_product(job["query"],x.get("title","")))
+            if old is None or fresh_dom or (not old.get("delivery_hint") and x.get("delivery_hint")):
+                ledger[x["url"]]=x
         state["candidates"]=len(ledger)
         state["matching_cards"]=len(rows())
     def sync():
@@ -114,6 +120,7 @@ async def run_fast(job,state,shop,exact_product):
         state["best_found"]=min((x["price"] for x in combined.values()),default=0)
         state["best_verified"]=min((x["price"] for x in confirmed.values()),default=0)
     def publish():
+        provisional.clear()
         for x in publishable(rows(),max_days,allow_late,discount_percent):
             provisional[x["url"]]=offer(shop,x)
         sync()
@@ -135,10 +142,14 @@ async def run_fast(job,state,shop,exact_product):
         await asyncio.wait_for(engine.start(),timeout=35)
         # WB's live rendered listing has returned 280 products even though
         # direct HTTP was refused. Keep its existing isolated profile.
-        if shop=="wb" or not rows():
+        # Do not let one successful HTML card suppress the actual shopper
+        # search. HTML can be stale or incomplete even when it returns prices.
+        try:
             data=await asyncio.wait_for(engine.snapshot(url),timeout=40)
             ingest(data);publish()
             state["audit"]["browser"]=data.get("audit",{})
+        except Exception as e:
+            issues.append("listing_browser:"+type(e).__name__)
         state["state"]="checking"
         async def check(x):
             try:return await asyncio.wait_for(engine.snapshot(x["url"]),timeout=12)
