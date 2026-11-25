@@ -273,3 +273,20 @@ def test_pagination_uses_observed_next_same_query_link():
     assert next_listing_page(base,controls,set())==sorted_search_url(next_url)
     assert not next_listing_page(base,controls,{sorted_search_url(next_url)})
     assert not next_listing_page(base,[{"url":base.replace("page=1","page=3")}],set())
+
+def test_fast_can_confirm_ninth_candidate_without_fixed_card_ceiling(monkeypatch):
+    products=[row(200001+n,11000+n*10,"завтра") for n in range(10)]
+    class Engine:
+        async def start(self):pass
+        async def close(self):pass
+        async def snapshot(self,url):
+            if "search" in url:return {"links":products,"audit":{}}
+            if "200009" in url:
+                return {"state":"ok","heading":Q,"primary_price":11080,"detail_price_source":"wb_visible_buybox","detail_delivery":"завтра"}
+            return {"state":"ok","heading":Q,"primary_price":0}
+    monkeypatch.setattr(r,"CloudBrowser",Engine)
+    job={"query":Q,"offers":[],"state":"running"}
+    state={"checked":0}
+    asyncio.run(r.run_fast(job,state,"wb",exact_product))
+    assert state["checked"]>=9
+    assert any(o["price"]==11080 and o["verified_detail"] for o in job["offers"])

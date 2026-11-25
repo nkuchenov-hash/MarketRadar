@@ -139,7 +139,7 @@ async def run_fast(job,state,shop,exact_product):
             except Exception as e:issues.append("public_html:"+type(e).__name__)
         engine=CloudBrowser()
         engine.market=market
-        engine.fast_scrolls=4
+        engine.fast_scrolls=12
         try:
             await asyncio.wait_for(engine.start(),timeout=35)
             state["audit"]["browser_startup"]={"mode":getattr(engine,"startup_mode","configured"),
@@ -182,16 +182,35 @@ async def run_fast(job,state,shop,exact_product):
                     state["audit"]["public_html_retry"]=data.get("audit",{})
                 except Exception as e:issues.append("html_retry:"+type(e).__name__)
         state.update(state="checking",phase="details")
+        # No fixed eight-product ceiling. Give the quick mode a fixed time
+        # budget, then narrow the remaining candidates by a verified timely
+        # price rather than the number of cards already visited.
+        deadline=time.monotonic()+42
         async def check(x):
-            try:return await asyncio.wait_for(engine.snapshot(x["url"]),timeout=12)
+            try:return await asyncio.wait_for(engine.snapshot(x["url"]),timeout=min(20,max(.1,deadline-time.monotonic())))
             except Exception as e:
                 issues.append("detail:"+type(e).__name__);return {}
-        picks=shortlist(rows(),8,max_days,allow_late,discount_percent)
+        all_rows=rows()
+        picks=shortlist(all_rows,len(all_rows),max_days,allow_late,discount_percent) if all_rows else []
         state["detail_total"]=len(picks)
         late=[]
+        pruned=0
+        denied=0
         for offset in range(0,len(picks),2):
-            batch=picks[offset:offset+2]
+            if job["state"]!="running" or time.monotonic()>=deadline:
+                state["audit"]["detail_time_limited"]=True
+                break
+            reference=min((o["price"] for o in confirmed.values() if o["delivery_days"]<=max_days),default=0)
+            batch=[]
+            for x in picks[offset:offset+2]:
+                d=days(x.get("delivery_hint"))
+                ceiling=reference*(1-discount_percent/100) if d is not None and d>max_days else reference
+                if ceiling and amount(x["price"])>ceiling*1.05:
+                    pruned+=1
+                else:batch.append(x)
+            if not batch:continue
             pages=await asyncio.gather(*(check(x) for x in batch))
+            denied=denied+len(pages) if all(d.get("state")=="blocked" for d in pages) else 0
             for x,d in zip(batch,pages):
                 state["checked"]+=1
                 if d.get("state")!="ok":continue
@@ -212,7 +231,13 @@ async def run_fast(job,state,shop,exact_product):
             if allow_late and reference:
                 for o in late:
                     if o["price"]*100<=reference*(100-discount_percent):confirmed[o["url"]]=o
+                    else:confirmed.pop(o["url"],None)
             sync()
+            if denied>=4:
+                state["audit"]["detail_access_limited"]=True
+                break
+        state["audit"]["detail_pruned"]=pruned
+        state["audit"]["detail_remaining"]=max(0,len(picks)-state["checked"]-pruned)
     except asyncio.CancelledError:raise
     except Exception as e:issues.append(type(e).__name__)
     finally:
