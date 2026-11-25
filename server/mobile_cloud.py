@@ -121,6 +121,10 @@ async def run_market(job: dict, shop_id: str):
         from .ozon_mcp import run_ozon_mcp
         await run_ozon_mcp(job, state, exact_product)
         return
+    if shop_id in ("wb", "ym") and os.getenv("MARKETRADAR_RETAIL_FAST", "").lower() in ("1", "true", "yes"):
+        from .retail_fast import run_fast
+        await run_fast(job, state, shop_id, exact_product)
+        return
     url = MARKETS[market]["search"].format(q=quote(job["query"]))
     engine = CloudBrowser()
     engine.market = market  # Keep existing test/browser adapters constructor-compatible.
