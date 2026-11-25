@@ -128,3 +128,25 @@ def test_bounded_retry_for_empty_market_listing(monkeypatch):
     assert state["retry_attempt"]==1
     assert state["detail_total"]==1
     assert job["offers"][0]["price"]==11500
+
+def test_intent_understands_obvious_lamp_unit_error():
+    from server.mobile_cloud import obvious_intent,interpret_query
+    q="Яндекс Лампочка 1300 вт"
+    target,source=asyncio.run(interpret_query(q))
+    assert target=="Яндекс Лампочка 1300 лм"
+    assert source=="context"
+    assert exact_product(target,"Умная лампочка Яндекс E27 RGB 1300 Лм")
+    assert not exact_product(target,"Умная лампочка Яндекс E27 RGB 800 Лм")
+    assert obvious_intent("Обогреватель 1300 Вт")=="Обогреватель 1300 Вт"
+    assert obvious_intent("Яндекс лампочка 10 Вт")=="Яндекс лампочка 10 Вт"
+
+def test_model_intent_preserves_numeric_identity(monkeypatch):
+    from server import mobile_cloud,agent
+    monkeypatch.setenv("MARKETRADAR_AI_PROVIDER","api")
+    monkeypatch.setenv("OPENAI_API_KEY","test-only")
+    async def wrong(*args):return mobile_cloud.QueryIntent(search_query="iPhone 14 Pro",confident=True)
+    monkeypatch.setattr(agent,"model_json",wrong)
+    assert asyncio.run(mobile_cloud.interpret_query("iPhone 15 Pro"))==("iPhone 15 Pro","literal")
+    async def good(*args):return mobile_cloud.QueryIntent(search_query="Samsung 990 PRO 1TB",confident=True)
+    monkeypatch.setattr(agent,"model_json",good)
+    assert asyncio.run(mobile_cloud.interpret_query("Самсунг 990 PRO 1TB"))==("Samsung 990 PRO 1TB","model")

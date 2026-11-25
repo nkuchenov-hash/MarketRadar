@@ -5,7 +5,7 @@ const memory=new Map();
 const storage={getItem:k=>memory.get(k)??null,setItem:(k,v)=>memory.set(k,v),removeItem:k=>memory.delete(k)};
 const context={document:{getElementById:id=>{assert(elements.has(id),'Missing HTML element: '+id);return elements.get(id)},documentElement:{dataset:{}}},localStorage:storage,sessionStorage:storage,matchMedia:()=>({matches:false,addEventListener(){}}),Intl,Date,URL,console,setTimeout,clearTimeout,alert:()=>{}};
 context.globalThis=context;
-const js=fs.readFileSync('web/app.js','utf8').replace(/\}\)\(\);\s*$/, 'globalThis.testApi={chooseOffers,displayKey,days,marketStage,emptyMarket,progressInfo,suggestedQuery};})();');
+const js=fs.readFileSync('web/app.js','utf8').replace(/\}\)\(\);\s*$/, 'globalThis.testApi={chooseOffers,displayKey,days,marketStage,emptyMarket,progressInfo};})();');
 vm.createContext(context);vm.runInContext(js,context);
 const {chooseOffers}=context.testApi;
 const row=(market_id,price,delivery_days,title,verified_detail=true)=>({market_id,price,delivery_days,title,verified_detail,condition:''});
@@ -24,6 +24,6 @@ assert.equal(context.testApi.emptyMarket({state:'blocked'},false),'Магази�
 assert.equal(context.testApi.emptyMarket({state:'partial'},false),'Не найдено в проверенной части выдачи');
 assert.equal(context.testApi.marketStage({state:'checking',checked:3,detail_total:8},true),'Проверяем 3 из 8');
 assert.equal(context.testApi.progressInfo({wb:{state:'partial'},ym:{state:'checking'}},['wb','ym']).done,1);
-assert.equal(context.testApi.suggestedQuery('Яндекс лампочка 1300 вт'),'Яндекс лампочка 1300 лм');
-assert.equal(context.testApi.suggestedQuery('Яндекс лампочка 10 вт'),'');
 assert(html.includes('id="searchProgress"'));
+
+assert(!html.includes('id="acceptSuggestion"'));assert(html.includes('id="interpretedQuery"'));

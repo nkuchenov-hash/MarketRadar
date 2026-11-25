@@ -70,18 +70,12 @@ function renderProgress(){
  $('progressCount').textContent=p.done+' из '+p.total+' площадок обработано';
  $('progressFill').style.width=p.total?100*p.done/p.total+'%':'0%';
 }
-function suggestedQuery(q){
- return /ламп(?:а|ы|очка|очки)/iu.test(q)&&/\b(?:[1-9]\d{2,})\s*вт(?![\p{L}\p{N}])/iu.test(q)?q.replace(/(\d{3,})\s*вт(?![\p{L}\p{N}])/iu,'$1 лм'):'';
-}
-function showSuggestion(){const q=suggestedQuery($('query').value);$('querySuggestion').hidden=!q;$('suggestionText').textContent=q?'Возможно, имелись в виду люмены (лм), а не ватты (Вт).':'';return q;}
-$('query').oninput=showSuggestion;
-$('acceptSuggestion').onclick=()=>{const q=showSuggestion();if(q&&!running&&!starting){$('query').value=q;showSuggestion();startSearch();}};
 async function stopSearch(){if(!jobId||starting)return;try{await api('/api/mobile/browser/jobs/'+encodeURIComponent(jobId),'DELETE');clearTimeout(timer);generation++;running=false;job={...(job||{}),query:activeQuery,state:'cancelled'};render();saveHistory();updateSearchButton()}catch(e){msg(e.message)}}
 async function startSearch(retry=null){
  if(starting)return;msg('');
  const q=retry?activeQuery:$('query').value.trim();if(q.length<3)return;
  if(!$('consent').checked){msg('Разрешите обработку сведений о товарах в настройках.');openSettings();return}
- starting=true;$('searchButton').disabled=true;showSuggestion();updateSearchButton();renderProgress();
+ starting=true;$('searchButton').disabled=true;updateSearchButton();renderProgress();
  try{const shops=retry||policy.shops;const p=retry?activePolicy:policy;const x=await api('/api/mobile/browser/start','POST',{query:q,shops,max_days:p.maxDays,allow_late:p.allowLate,discount_percent:p.discount});if(!retry){activePolicy={...policy};activeShops=shops.slice();scanDate=new Date().toISOString();retainedOffers=[];retainedMarkets={};expanded=false;}else{retainedOffers=(job?.offers||[]).filter(o=>!shops.includes(shop(o)));retainedMarkets=Object.fromEntries(Object.entries(job?.markets||{}).filter(([id])=>!shops.includes(id)));}activeQuery=q;view('search');openJob(x.id)}
  catch(e){msg(e.message)}
  finally{starting=false;$('searchButton').disabled=false;updateSearchButton();renderProgress()}
@@ -113,6 +107,8 @@ function renderCards(filtered){return filtered.map(o=>'<article class="offer">'+
 function render(){
  if(!job)return;
  renderProgress();
+ $('interpretedQuery').hidden=!job.search_query||job.search_query===job.query;
+ $('interpretedQuery').textContent=job.search_query&&job.search_query!==job.query?'Ищем: '+job.search_query:'';
  $('resultsHeading').textContent=job.query;$('jobState').textContent=job.state==='running'?'Поиск выполняется':job.state==='finished'?(Object.values(job.markets||{}).some(m=>m.coverage_complete!==true)?'Выдача проверена частично':'Поиск завершён'):job.state==='cancelled'?'Поиск остановлен':job.error||'Поиск завершён с ошибкой';
  const all=offersOf(job).sort((a,b)=>a.price-b.price);const status=job.markets||{};
  const summary=chooseOffers(all,activePolicy,false);
