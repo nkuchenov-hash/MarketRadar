@@ -23,7 +23,7 @@ const api={
     if(opts.priceMax)return {items:[listing("low",6000)]};
     return {items:[listing("a",13000),listing("b",14000),listing("c",15000),listing("d",11500),listing("e",11800),listing("f",12000,"Яндекс Станция Мини 3")]};
   },
-  details:async sku=>({
+  details:async ({product:sku})=>({
     sku,name:q,price:{low:6000,d:11500,e:11800,a:13000,b:14000,c:15000}[sku],available:true,
     url:"https://www.ozon.ru/product/"+sku+"/",location:{city:"Санкт-Петербург"},
     delivery:{options:[{title:"ПВЗ",dateText:sku==="low"?"через неделю":"Сегодня",priceBadge:"Входит в заказ"}]},
