@@ -5,12 +5,11 @@ const canon = s => String(s??"").normalize("NFKC").toLowerCase().replace(/ё/g,"
   .replace(/[^\p{L}\p{N}]+/gu," ").trim();
 const words = s => canon(s).split(" ").filter(Boolean);
 const editions = new Set(["про","макс","лайт","lite","ультра","ultra","plus","плюс"]);
-const accessories = /^(?:чехол|кронштейн|держатель|подставка|крепление|кабель|адаптер|блок питания|защитное стекло|климатический модуль|аккумулятор|пульт|сумка)\b/u;
+const accessories = /^(?:чехол|кронштейн|держатель|подставка|крепление|кабель|адаптер|блок питания|защитное стекло|климатический модуль|аккумулятор|пульт|сумка)(?:\s|$)/u;
 export function matches(query,title) {
   const q=words(query), t=words(title), ts=new Set(t), qs=new Set(q);
   if (!q.length || !t.length) return false;
   if (accessories.test(canon(title)) && !accessories.test(canon(query))) return false;
-  if (/^(?:чехол|кронштейн|держатель|подставка|крепление|кабель|адаптер|климатический модуль|аккумулятор|пульт|сумка)(?:\s|$)/u.test(canon(title)) && !/^(?:чехол|кронштейн|держатель|подставка|крепление|кабель|адаптер|климатический модуль|аккумулятор|пульт|сумка)(?:\s|$)/u.test(canon(query))) return false;
   if (q.some(w=>(/\d/.test(w)||editions.has(w))&&!ts.has(w))) return false;
   if (t.some(w=>editions.has(w)&&!qs.has(w))) return false;
   if (q.length===1) return ts.has(q[0]);
@@ -25,7 +24,7 @@ export function shippingCost(value) {
 export function deliveryDays(value, today) {
   const s=canon(value);
   // A range is not a guaranteed arrival date. "From" is an earliest date.
-  if (/[–—-]|\bдо\b/u.test(String(value??"")) || /^с\s/u.test(s)) return null;
+  if (/[–—-]/u.test(String(value??"")) || /(?:^|\s)до(?:\s|$)/u.test(s) || /^с\s/u.test(s)) return null;
   if (s.startsWith("послезавтра")) return 2;
   if (s.startsWith("завтра")) return 1;
   if (s.startsWith("сегодня")) return 0;
@@ -45,8 +44,9 @@ export async function findOffers({query,alternateQuery,city,maxDays=3,lateRatio=
   const start=Date.now(), found=new Map(), issues=[];
   const today=dateMoscow();
   let scanned=0,checked=0,skipped=0;
-  if(city) {await api.setCity(city);}
-  const location=await api.getLocation();
+  let location=await api.getLocation();
+  if(city && canon(location?.city)!==canon(city)) {await api.setCity(city);location=await api.getLocation();}
+  if(city && canon(location?.city)!==canon(city)) throw new Error('Requested delivery city not confirmed');
   async function scan(label,opts) {
     try {
       const r=await api.search({query,sort:"price",pages,limit:180,compact:false,dedupeVariants:false,dedupeConfigs:false,...opts});
