@@ -1,0 +1,49 @@
+name: Specialist MCP read-only acceptance
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/specialist-mcp-acceptance.yml','deploy/probe-specialist-wb.mjs','deploy/probe-specialist-ym.py']
+permissions:
+  contents: read
+jobs:
+  wb:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: eduard256/wb-mcp-server
+          ref: 1e6c0aa9d5f2109d7559d8a14991f56d023aa8c5
+          path: upstream-wb
+          persist-credentials: false
+      - name: Test published read-only search and detail methods
+        run: node deploy/probe-specialist-wb.mjs
+  ym:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: wdzeroagents/marketplace-mcp
+          ref: c9275c8c44ee08e5d7fc6f39226f0195cb5d2f93
+          path: upstream-ym
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install ./upstream-ym
+      - run: python -m playwright install --with-deps chromium
+      - name: Test specialist persistent browser catalog without credentials
+        env:
+          YANDEX_MARKET_ENABLE_WRITES: 'false'
+          OZON_ENABLE_WRITES: 'false'
+          OZON_ENABLE_ORDERS: 'false'
+          YANDEX_MARKET_BROWSER_TIMEOUT: '25'
+        run: xvfb-run -a python deploy/probe-specialist-ym.py
