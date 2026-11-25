@@ -137,7 +137,10 @@ final class CloudSearchClient {
                 JSONArray shops=new JSONArray();
                 for(Shop shop:markets)shops.put(shop.id);
                 JSONObject payload=new JSONObject()
-                    .put("query",query).put("shops",shops);
+                    .put("query",query).put("shops",shops)
+                    .put("max_days",Math.max(0,Math.min(90,prefs.getInt("delivery_days",3))))
+                    .put("allow_late",prefs.getBoolean("delivery_late_discount",false))
+                    .put("discount_percent",Math.max(1,Math.min(90,prefs.getInt("late_discount_percent",20))));
                 JSONObject started=request("POST",
                     baseUrl+"/api/mobile/browser/start",payload);
                 job=started.optString("id","");
