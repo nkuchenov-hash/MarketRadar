@@ -140,7 +140,20 @@ async def run_fast(job,state,shop,exact_product):
         engine=CloudBrowser()
         engine.market=market
         engine.fast_scrolls=4
-        await asyncio.wait_for(engine.start(),timeout=35)
+        try:
+            await asyncio.wait_for(engine.start(),timeout=35)
+            state["audit"]["browser_startup"]={"mode":getattr(engine,"startup_mode","configured"),
+                                                "fallback":getattr(engine,"startup_failure","")}
+        except Exception as exc:
+            issues.append("browser_start:"+type(exc).__name__)
+            # Public HTML is a separate transport: still try it if Chromium
+            # cannot start, rather than aborting before the fallback.
+            try:
+                data=await asyncio.wait_for(asyncio.to_thread(fetch_public_search_html,url,max_pages=3,request_timeout=5,retries=1),timeout=15)
+                ingest(data);publish()
+                state["audit"]["startup_html_fallback"]=data.get("audit",{})
+            except Exception as e:issues.append("startup_html:"+type(e).__name__)
+            return
         # WB's live rendered listing has returned 280 products even though
         # direct HTTP was refused. Keep its existing isolated profile.
         # Do not let one successful HTML card suppress the actual shopper

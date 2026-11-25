@@ -538,15 +538,41 @@ class CloudBrowser:
                 profile_dir = os.path.join(
                     os.getenv("CLOUD_BROWSER_PROFILE_DIR", "/app/data/browser-profiles"),profile)
                 os.makedirs(profile_dir,mode=0o700,exist_ok=True)
-                self.context = await self.playwright.chromium.launch_persistent_context(
-                    profile_dir, headless=not self.headful,
-                    locale="ru-RU", viewport={"width": 1280, "height": 900},
-                    service_workers="allow", proxy=browser_proxy(self.market),
-                    args=["--disable-dev-shm-usage"])
+                options=dict(locale="ru-RU", viewport={"width":1280,"height":900},
+                             service_workers="allow",proxy=browser_proxy(self.market),
+                             args=["--disable-dev-shm-usage"])
+                try:
+                    self.context=await self.playwright.chromium.launch_persistent_context(
+                        profile_dir,headless=not self.headful,**options)
+                except Exception as exc:
+                    # A dead X display or a locked/stale profile must not end
+                    # every subsequent search. Reuse the profile in headless
+                    # mode first, then use an isolated temporary context.
+                    self.startup_failure=type(exc).__name__
+                    self.headful=False
+                    try:
+                        self.context=await self.playwright.chromium.launch_persistent_context(
+                            profile_dir,headless=True,**options)
+                        self.startup_mode="headless_persistent"
+                    except Exception as second:
+                        self.startup_failure+=","+type(second).__name__
+                        self.browser=await self.playwright.chromium.launch(
+                            headless=True,proxy=browser_proxy(self.market),
+                            args=["--disable-dev-shm-usage"])
+                        self.startup_mode="headless_isolated"
             else:
-                self.browser = await self.playwright.chromium.launch(
-                    headless=not self.headful, proxy=browser_proxy(self.market),
-                    args=["--disable-dev-shm-usage"])
+                try:
+                    self.browser = await self.playwright.chromium.launch(
+                        headless=not self.headful, proxy=browser_proxy(self.market),
+                        args=["--disable-dev-shm-usage"])
+                except Exception as exc:
+                    if not self.headful:raise
+                    self.startup_failure=type(exc).__name__
+                    self.headful=False
+                    self.browser=await self.playwright.chromium.launch(
+                        headless=True,proxy=browser_proxy(self.market),
+                        args=["--disable-dev-shm-usage"])
+                    self.startup_mode="headless_isolated"
             if self.context is None:
                 # Apply per-store network routing to remote CDP contexts too.
                 # Previously proxy configuration only affected local launches,

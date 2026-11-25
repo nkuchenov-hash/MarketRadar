@@ -150,3 +150,16 @@ def test_model_intent_preserves_numeric_identity(monkeypatch):
     async def good(*args):return mobile_cloud.QueryIntent(search_query="Samsung 990 PRO 1TB",confident=True)
     monkeypatch.setattr(agent,"model_json",good)
     assert asyncio.run(mobile_cloud.interpret_query("Самсунг 990 PRO 1TB"))==("Samsung 990 PRO 1TB","model")
+
+def test_browser_start_failure_still_tries_public_listing(monkeypatch):
+    class Engine:
+        async def start(self):raise RuntimeError("browser launch failed")
+        async def close(self):pass
+    monkeypatch.setattr(r,"CloudBrowser",Engine)
+    monkeypatch.setattr(r,"fetch_public_search_html",lambda *a,**kw:{"links":[row(100001,11500,"завтра")],"audit":{}})
+    job={"query":Q,"offers":[],"state":"running"}
+    state={"checked":0}
+    asyncio.run(r.run_fast(job,state,"wb",exact_product))
+    assert state["state"]=="partial"
+    assert job["offers"][0]["price"]==11500
+    assert "browser_start:RuntimeError" in state["audit"]["issues"]
