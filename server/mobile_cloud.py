@@ -86,7 +86,7 @@ def plausible_listing(query: str, title: str) -> bool:
 def _job(job_id):
     return JOBS.get(job_id)
 
-def start_job(query: str, shops: list[str]) -> dict:
+def start_job(query: str, shops: list[str], *, max_days: int = 3, allow_late: bool = False, discount_percent: int = 20) -> dict:
     now = time.monotonic()
     for key, job in list(JOBS.items()):
         if job["created_monotonic"] < now - 3600 and job["state"] not in ("running",):
@@ -102,6 +102,8 @@ def start_job(query: str, shops: list[str]) -> dict:
     job_id = secrets.token_urlsafe(24)
     job = {
         "id": job_id, "query": query, "shops": shops,
+        "policy": {"max_days": max(0,min(90,int(max_days))), "allow_late": bool(allow_late),
+                   "discount_percent": max(1,min(90,int(discount_percent)))},
         "state": "running", "created_monotonic": now,
         "started": int(time.time()), "finished": None,
         "markets": {s: {"state": "pending", "candidates": 0, "checked": 0,
@@ -539,7 +541,7 @@ def job_status(job_id: str) -> dict | None:
         return None
     offers = sorted(job["offers"],key=lambda item: (item["price"], item["market_id"]))
     return {
-        "id":job_id, "state":job["state"],
+        "id":job_id, "state":job["state"], "policy":job.get("policy",{}),
         "markets":job["markets"], "offers":offers,
         "errors":job["errors"][:8], "finished":job["finished"]
     }
