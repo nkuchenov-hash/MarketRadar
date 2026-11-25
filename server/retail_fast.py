@@ -57,7 +57,7 @@ def shortlist(rows, limit=4, max_days=3, allow_late=False, discount_percent=20):
     reference=min((amount(x["price"]) for x in timely),default=0)
     late=[x for x in rows if (d:=days(x.get("delivery_hint"))) is not None and d>max_days and allow_late and (not reference or amount(x["price"])*100<=reference*(100-discount_percent))]
     # Low unknown/late candidates are checked, not silently discarded.
-    pool=timely[:2]+sorted(unknown+late,key=lambda x:amount(x["price"]))[:2]
+    pool=sorted(timely[:2]+sorted(unknown+late,key=lambda x:amount(x["price"]))[:2],key=lambda x:amount(x["price"]))
     pool+=timely+unknown+late
     selected=[]; seen=set()
     for x in pool:

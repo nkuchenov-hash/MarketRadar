@@ -264,3 +264,12 @@ def test_search_modes_are_independent(monkeypatch):
         job={"query":Q,"state":"running","offers":[],"markets":{"wb":{}},"policy":{"search_mode":mode}}
         asyncio.run(mobile_cloud.run_market(job,"wb"))
         assert calls==expected
+
+def test_pagination_uses_observed_next_same_query_link():
+    from server.cloud_browser import next_listing_page,sorted_search_url
+    base="https://www.wildberries.ru/catalog/0/search.aspx?page=1&search=test&sort=priceup"
+    next_url=base.replace("page=1","page=2")
+    controls=[{"url":base.replace("page=1","page=3")},{"url":next_url.replace("search=test","search=other")},{"url":next_url}]
+    assert next_listing_page(base,controls,set())==sorted_search_url(next_url)
+    assert not next_listing_page(base,controls,{sorted_search_url(next_url)})
+    assert not next_listing_page(base,[{"url":base.replace("page=1","page=3")}],set())

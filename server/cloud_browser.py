@@ -41,6 +41,29 @@ def sorted_search_url(url: str) -> str:
     return urlunparse(p._replace(query=urlencode(sorted(params.items()))))
 
 
+def next_listing_page(current,controls,visited):
+    """Only follow an observed, same-query, forward pagination link."""
+    cur=urlparse(current)
+    query=dict(parse_qsl(cur.query))
+    market=market_of(current)
+    try:page=int(query.get("page","1"))
+    except ValueError:return ""
+    choices=[]
+    term={"Wildberries":"search","Яндекс Маркет":"text","Ozon":"text"}.get(market)
+    if not term or not query.get(term):return ""
+    for item in controls:
+        link=item.get("url","")
+        if not link or not host_allowed(link) or market_of(link)!=market:continue
+        dest=urlparse(link)
+        params=dict(parse_qsl(dest.query))
+        if dest.path.rstrip("/")!=cur.path.rstrip("/") or params.get(term)!=query.get(term):continue
+        try:n=int(params.get("page","0"))
+        except ValueError:continue
+        if n!=page+1:continue
+        normalized=sorted_search_url(link)
+        if normalized not in visited:choices.append(normalized)
+    return choices[0] if choices else ""
+
 def _amount(value):
     if isinstance(value, dict):
         for key in ("value", "amount", "price", "minPrice"):
@@ -290,11 +313,16 @@ _DOM_SNAPSHOT = r"""() => {
     const prices = [...body.matchAll(price)].map(m => Number(m[1].replace(/\D/g,'')))
         .filter(n => n >= 100 && n <= 50000000);
     const scroll = document.scrollingElement || document.documentElement;
-    const controls = [...document.querySelectorAll('a[rel="next"],nav a[href],a[aria-label],button,[role="button"]')]
-        .filter(el => /^(?:показать ещё|показать еще|загрузить ещё|загрузить еще|следующая|далее|next|›)$/i
-            .test((el.innerText || el.getAttribute('aria-label') || '').trim()))
-        .slice(0,5).map(el => ({tag:el.tagName, url:el.href || '',
-            label:(el.innerText || '').slice(0,70)}));
+    const controls = [...document.querySelectorAll('a[href*="page="],a[rel="next"],nav a[href],a[aria-label],button,[role="button"]')]
+        .filter(el => {
+            if(el.disabled || el.getAttribute('aria-disabled')==='true')return false;
+            const label=(el.innerText||el.getAttribute('aria-label')||'').trim();
+            return (el.tagName==='A' && /[?&]page=\d+/.test(el.href||'')) ||
+                /^(?:показать ещё|показать еще|загрузить ещё|загрузить еще|следующая(?: страница)?|далее|next|›|→)$/i.test(label) ||
+                el.rel==='next';
+        })
+        .slice(0,100).map(el => ({tag:el.tagName,url:el.href||'',
+            label:(el.innerText||el.getAttribute('aria-label')||'').slice(0,70)}));
     const h1=(document.querySelector('h1')?.innerText||'').trim().slice(0,300);
     const primaryImg=document.querySelector('meta[property="og:image"]')?.content||'';
     let primaryPrice=0;
@@ -686,8 +714,15 @@ class CloudBrowser:
         load_more_count = 0
         max_scrolls = int(os.getenv("CLOUD_SEARCH_SCROLLS", "28")) if search else 0
         max_scrolls = min(80, max(0, max_scrolls))
-        if search and hasattr(self, "fast_scrolls"):
-            max_scrolls = min(max_scrolls, max(0, int(self.fast_scrolls)))
+        fast=hasattr(self,"fast_scrolls")
+        if search and fast:
+            max_scrolls=min(max_scrolls,max(0,int(self.fast_scrolls)))
+        elif search and getattr(self,"deep_scan",False):
+            max_scrolls=max(28,max_scrolls)
+        page_budget=1 if fast else 6
+        scroll_on_page=0
+        limited_page=False
+        scan_deadline=asyncio.get_running_loop().time()+(30 if fast else 145)
         wb_detail = not search and market_of(target) == "Wildberries" and is_product_link("Wildberries",target)
 
         def preserve(item):
@@ -839,7 +874,7 @@ class CloudBrowser:
                         "links": [], "diagnostic": "Недопустимый редирект"}
             unchanged = 0
             previous = (-1, -1, -1)
-            for step in range(max_scrolls + 1):
+            for step in range((max_scrolls+1)*page_budget):
                 try:
                     snapshot = await page.evaluate(_DOM_SNAPSHOT)
                 except Exception as e:
@@ -878,35 +913,28 @@ class CloudBrowser:
                                 break
                     complete = True
                     break
-                if step >= max_scrolls:
-                    diagnostic = "Достигнут предел прокруток"
+                if asyncio.get_running_loop().time()>=scan_deadline:
+                    diagnostic="Достигнут лимит времени просмотра выдачи"
                     break
                 at_end = snapshot.get("scroll_y",0) + snapshot.get("viewport",0) >= \
                     snapshot.get("scroll_height",0) - 100
-                if at_end and unchanged >= 2:
-                    controls = snapshot.get("controls", [])
-                    next_url = ""
-                    for control in controls:
-                        candidate = control.get("url", "")
-                        if not candidate or not host_allowed(candidate):
-                            continue
-                        if (market_of(candidate) != market_of(target) or
-                                "search" not in urlparse(candidate).path.lower()):
-                            continue
-                        # Normalize before checking visited pages: stores can
-                        # reorder query parameters on the same next-page URL.
-                        normalized = sorted_search_url(candidate)
-                        if normalized not in visited_pages:
-                            next_url = normalized
-                            break
-                    if next_url and page_count < 6:
+                page_limit=scroll_on_page>=max_scrolls
+                if (at_end and unchanged>=2) or page_limit:
+                    controls=snapshot.get("controls",[])
+                    next_url=next_listing_page(page.url,controls,visited_pages)
+                    if next_url and page_count<page_budget:
+                        if page_limit and not (at_end and unchanged>=2):limited_page=True
                         visited_pages.add(next_url)
-                        page_count += 1
-                        await page.goto(next_url, wait_until="domcontentloaded", timeout=25000)
+                        page_count+=1
+                        await page.goto(next_url,wait_until="domcontentloaded",timeout=25000)
                         await page.wait_for_timeout(1200)
-                        unchanged = 0
-                        previous = (-1, -1, -1)
+                        unchanged=0
+                        previous=(-1,-1,-1)
+                        scroll_on_page=0
                         continue
+                    if page_limit:
+                        diagnostic="Достигнут предел прокруток страницы"
+                        break
                     more = next((x for x in controls if x.get("tag") in ("BUTTON", "DIV")
                                  and "ещ" in x.get("label","").lower()), None)
                     if more and load_more_count < 12:
@@ -923,13 +951,14 @@ class CloudBrowser:
                             previous = (-1, -1, -1)
                             await page.wait_for_timeout(950)
                             continue
-                    complete = not bool(next_url or more)
+                    complete = not bool(next_url or more or limited_page)
                     if not complete:
                         diagnostic = "Дополнительные страницы выдачи не завершены"
                     break
                 # Scroll like a desktop shopper. Some storefronts use nested
                 # virtualized grids, so retain a DOM fallback only when the
                 # viewport and loaded product list stop advancing.
+                scroll_on_page+=1
                 await page.mouse.move(960, 710)
                 await page.mouse.wheel(0, 780)
                 await page.wait_for_timeout(500)
@@ -1005,6 +1034,7 @@ class CloudBrowser:
                     "output_truncated_products": 0,
                     "dom_snapshots": visited_snapshots, "pages": page_count,
                     "load_more_clicks": load_more_count,
+                    "page_scroll_limited":limited_page,
                     "priced_products": sum(x["price"] > 0 for x in links),
                     "unlinked_low_prices": orphans,
                     "sort_requested": bool(search),

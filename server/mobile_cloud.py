@@ -287,6 +287,7 @@ async def run_deep_market(job:dict,shop_id:str):
     url = MARKETS[market]["search"].format(q=quote(job["query"]))
     engine = CloudBrowser()
     engine.market = market  # Keep existing test/browser adapters constructor-compatible.
+    engine.deep_scan=True
     try:
         await engine.start()
         listing = await engine.snapshot(url)
@@ -412,32 +413,18 @@ async def run_deep_market(job:dict,shop_id:str):
                 return
         state["state"] = "checking"
         state["message"] = "Проверяем дешёвые карточки товаров"
-        if fast_wb:
-            # Detail enrichment is NOT another full crawl. The complete
-            # candidate ledger has already gone through the identity model.
-            # Rank timely offers first. Late/unknown offers only warrant extra
-            # work if they can improve the price (20% late-delivery exception).
-            timely=[c for c in candidates if delivery_days(c) is not None
-                    and delivery_days(c)<=3 and c.get("price",0)>0]
-            reference=min((c["price"] for c in timely
-                           if decisions.get(c["url"])=="match"),default=0)
-            other=[c for c in candidates if c not in timely and
-                   (not reference or not c.get("price") or
-                    c["price"] <= reference*(.8 if delivery_days(c) is not None else 1))]
-            other.sort(key=lambda c:(not bool(c.get("price")),c.get("price") or 10**12))
-            # Verify a small, explicit shortlist, not an arbitrary search
-            # result limit. Keep every positively assessed listing visible.
-            # Reserve checks for genuine discount exceptions too.
-            budget=max(2,min(12,int(os.getenv("CLOUD_WB_DETAIL_BUDGET","8"))))
-            first=min(len(timely),max(1,budget//2))
-            shortlist=timely[:first]+other[:budget-first]
-            if len(shortlist)<budget:
-                used={c["url"] for c in shortlist}
-                shortlist.extend(c for c in timely if c["url"] not in used)
-            state["detail_shortlist"]=min(budget,len(shortlist))
-            state["detail_reference_price"]=reference or None
-            state["detail_pages_not_attempted"]=len(candidates)-min(budget,len(shortlist))
-            candidates=shortlist[:budget]
+        # Deep mode must not inherit the former eight-card fast shortlist.
+        # Inspect in price order, with unknown delivery eligible, and use an
+        # independently verified timely price to set a bounded price frontier.
+        from .retail_fast import days
+        policy=job.get("policy",{})
+        max_days=policy.get("max_days",3)
+        allow_late=policy.get("allow_late",False)
+        discount=policy.get("discount_percent",20)
+        candidates.sort(key=lambda c:(not bool(c.get("price")),c.get("price") or 10**12,c["url"]))
+        state["detail_total"]=len(candidates)
+        verified_timely=0
+        pruned=0
         best = 0
         best_detail_verified = 0
         # Preserve full search coverage: an arbitrary 180-card ceiling can hide
@@ -450,11 +437,25 @@ async def run_deep_market(job:dict,shop_id:str):
         processed = 0
         unavailable_detail_streak = 0
         detail_pages_unavailable = False
-        for pos in range(0,len(candidates),4):
+        batch_size=2 if shop_id in ("wb","ym") else 4
+        for pos in range(0,len(candidates),batch_size):
             if job["state"] != "running":
                 break
             batch = []
-            for candidate in candidates[pos:pos+4]:
+            for candidate in candidates[pos:pos+batch_size]:
+                d=days(candidate.get("delivery_hint"))
+                price=candidate.get("price") or 0
+                ceiling=verified_timely
+                if d is not None and d>max_days:
+                    if not allow_late:
+                        pruned+=1
+                        continue
+                    ceiling=verified_timely*(1-discount/100)
+                # Listing prices can change: use a 5% tolerance and report
+                # the heuristic explicitly rather than claim full coverage.
+                if ceiling and price>ceiling*1.05:
+                    pruned+=1
+                    continue
                 # Do not prune by the absolute minimum: a more expensive
                 # offer can be the cheapest one deliverable within the user's
                 # deadline. Listing prices can also differ from product pages.
@@ -464,7 +465,8 @@ async def run_deep_market(job:dict,shop_id:str):
                     break
                 batch.append(candidate)
             if not batch:
-                break
+                if cutoff_due_to_limit:break
+                continue
             # When eight consecutive product detail pages fail or only
             # display a generic storefront shell, further requests cannot
             # verify model/price. Keep exact-model search-card evidence rather
@@ -475,11 +477,7 @@ async def run_deep_market(job:dict,shop_id:str):
                     state.get("detail_pages_not_attempted", 0) + len(batch))
             else:
                 async def inspect(card):
-                    if fast_wb:
-                        # Bound only the optional page enrichment, never the
-                        # listing crawl. A slow SPA cannot hold all results.
-                        return await asyncio.wait_for(engine.snapshot(card["url"]),timeout=16)
-                    return await engine.snapshot(card["url"])
+                    return await asyncio.wait_for(engine.snapshot(card["url"]),timeout=30)
                 pages = await asyncio.gather(
                     *(inspect(c) for c in batch),
                     return_exceptions=True)
@@ -620,6 +618,8 @@ async def run_deep_market(job:dict,shop_id:str):
                 # Record a higher detail-page price as independent evidence too.
                 # The cheaper listing price must not erase a verified price
                 # merely because the two observations disagree.
+                if price_verified and (dd:=days(page.get("detail_delivery"))) is not None and dd<=max_days:
+                    verified_timely=min(verified_timely,price) if verified_timely else price
                 if detail_match and structured > 0:
                     if best_detail_verified == 0 or structured < best_detail_verified:
                         best_detail_verified = structured
@@ -633,6 +633,9 @@ async def run_deep_market(job:dict,shop_id:str):
             state["message"] = (
                 f"Найдено {len(verified_urls)}; страниц проверено {state['checked']}; "
                 f"лучшая наблюдаемая цена {best or '—'} ₽")
+        state["detail_pruned"]=pruned
+        state["verified_timely_frontier"]=verified_timely or None
+        if pruned:state["coverage_complete"]=False
         if cutoff_due_to_limit:
             state["coverage_complete"] = False
             state["message"] = "Достигнут предел проверки карточек; проверка неполная"
