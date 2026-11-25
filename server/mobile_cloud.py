@@ -34,6 +34,17 @@ def physical_specs(text):
         found.setdefault(family,set()).add(n)
     return found
 
+_CAPACITY_RE=re.compile(r'(?<![\w.,])(\d+(?:[.,]\d+)?)\s*(tb|gb|тб|гб)\b',re.I)
+
+def capacities(text):
+    return {(float(n.replace(",",".")), "tb" if unit.lower() in ("tb","тб") else "gb")
+            for n,unit in _CAPACITY_RE.findall(text)}
+
+def capacity_variant(query):
+    # Ozon's sidecar requires each numeric token literally, so a translated
+    # spelling is a distinct storefront query, not a different capacity.
+    return _CAPACITY_RE.sub(lambda m:m.group(1)+" "+({"tb":"ТБ","gb":"ГБ","тб":"TB","гб":"GB"}[m.group(2).lower()]),query)
+
 def match_text(text):
     # Separate attached measurement units, normalize common lamp synonyms.
     def canonical(m):
@@ -43,6 +54,7 @@ def match_text(text):
         family='лм' if unit.startswith('люмен') or unit in ('лм','lm') else 'вт'
         return format(n,'g')+' '+family
     text=_SPEC_RE.sub(canonical,text)
+    text=_CAPACITY_RE.sub(lambda m:format(float(m.group(1).replace(",",".")),"g")+("tb" if m.group(2).lower() in ("tb","тб") else "gb"),text)
     return re.sub(r'\bламп(?:очка|очки|очку|а|ы|у)\b','лампа',text,flags=re.I)
 
 class QueryIntent(BaseModel):
@@ -85,6 +97,8 @@ async def interpret_query(query:str):
 def exact_product(query: str, title: str) -> bool:
     """Conservative deterministic match; only actual product pages may pass."""
     if not query or not title:
+        return False
+    if not capacities(query).issubset(capacities(title)):
         return False
     required,actual=physical_specs(query),physical_specs(title)
     if any(not values.issubset(actual.get(kind,set())) for kind,values in required.items()):
@@ -188,6 +202,22 @@ async def run_market(job: dict, shop_id: str):
     if shop_id == "ozon" and os.getenv("MARKETRADAR_OZON_MCP_URL", "").strip():
         from .ozon_mcp import run_ozon_mcp
         await run_ozon_mcp(job, state, exact_product)
+        original=job["query"]
+        alternate=capacity_variant(original)
+        if (state.get("state")=="partial" and not state.get("candidates")
+                and alternate!=original and job["state"]=="running"):
+            first_audit=dict(state.get("audit",{}))
+            state.update(state="searching",phase="retry",retry_attempt=1,message="Уточняем название модели")
+            # Copy the job envelope, but share its offers and errors lists.
+            # Other market workers keep the original search query.
+            variant={**job,"query":alternate}
+            try:
+                await asyncio.wait_for(run_ozon_mcp(variant,state,
+                    lambda _q,title:exact_product(original,title)),timeout=35)
+            except asyncio.TimeoutError:
+                state.update(state="partial",message="Повторный поиск не завершился",coverage_complete=False)
+            state.setdefault("audit",{})["original_query_audit"]=first_audit
+            state["audit"]["alternate_query"]=alternate
         return
     if shop_id in ("wb", "ym") and os.getenv("MARKETRADAR_RETAIL_FAST", "").lower() in ("1", "true", "yes"):
         from .retail_fast import run_fast

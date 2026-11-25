@@ -163,3 +163,30 @@ def test_browser_start_failure_still_tries_public_listing(monkeypatch):
     assert state["state"]=="partial"
     assert job["offers"][0]["price"]==11500
     assert "browser_start:RuntimeError" in state["audit"]["issues"]
+
+def test_storage_capacity_transliteration_keeps_exact_model():
+    from server.mobile_cloud import capacity_variant
+    q="Samsung 990 PRO 1TB"
+    assert capacity_variant(q)=="Samsung 990 PRO 1 ТБ"
+    assert exact_product(q,"SSD Samsung 990 PRO 1 ТБ")
+    assert not exact_product(q,"SSD Samsung 990 PRO 2 ТБ")
+    assert not exact_product(q,"SSD Samsung 980 PRO 1 ТБ")
+
+def test_ozon_retries_capacity_spelling_only_on_zero_candidates(monkeypatch):
+    from server import mobile_cloud,ozon_mcp
+    monkeypatch.setenv("MARKETRADAR_OZON_MCP_URL","http://test")
+    calls=[]
+    async def search(job,state,match):
+        calls.append(job["query"])
+        state.update(state="partial",candidates=0,audit={"source":"ozon_mcp"})
+        if len(calls)==2:
+            assert match(job["query"],"SSD Samsung 990 PRO 1 ТБ")
+            assert not match(job["query"],"SSD Samsung 990 PRO 2 ТБ")
+            state["candidates"]=1
+            job["offers"].append({"market_id":"ozon","price":10000})
+    monkeypatch.setattr(ozon_mcp,"run_ozon_mcp",search)
+    job={"query":"Samsung 990 PRO 1TB","state":"running","markets":{"ozon":{}},"offers":[],"errors":[]}
+    asyncio.run(mobile_cloud.run_market(job,"ozon"))
+    assert calls==["Samsung 990 PRO 1TB","Samsung 990 PRO 1 ТБ"]
+    assert job["query"]=="Samsung 990 PRO 1TB"
+    assert job["offers"][0]["price"]==10000
