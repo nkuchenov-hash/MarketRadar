@@ -35,7 +35,13 @@ def physical_specs(text):
 
 def match_text(text):
     # Separate attached measurement units, normalize common lamp synonyms.
-    text=_SPEC_RE.sub(lambda x:x.group(1)+' '+x.group(2),text)
+    def canonical(m):
+        n=float(m.group(1).replace(',','.'))
+        unit=m.group(2).lower()
+        if unit in ('квт','kw'):n*=1000
+        family='лм' if unit.startswith('люмен') or unit in ('лм','lm') else 'вт'
+        return format(n,'g')+' '+family
+    text=_SPEC_RE.sub(canonical,text)
     return re.sub(r'\bламп(?:очка|очки|очку|а|ы|у)\b','лампа',text,flags=re.I)
 
 def exact_product(query: str, title: str) -> bool:
