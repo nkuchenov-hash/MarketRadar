@@ -36,6 +36,31 @@ services:
       start_period: 60s
       retries: 4
 
+  ozon-mcp:
+    profiles: ["ozon-mcp"]
+    image: ozon-customer-mcp:latest
+    pull_policy: never
+    restart: unless-stopped
+    init: true
+    shm_size: "1g"
+    mem_limit: 1500m
+    cpus: 1.5
+    pids_limit: 512
+    security_opt: ["no-new-privileges:true"]
+    environment:
+      OZON_GEOIP: "false"
+    entrypoint: ["node", "/probe/ozon-service.mjs"]
+    volumes:
+      - ./ozon-service.mjs:/probe/ozon-service.mjs:ro
+      - ./ozon-service-core.mjs:/probe/ozon-service-core.mjs:ro
+    networks: [internal]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch(\"http://127.0.0.1:8765/health\").then(r=>r.json()).then(x=>{if(!x.ok||!x.warmed)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 20s
+      timeout: 5s
+      start_period: 90s
+      retries: 3
+
   caddy:
     image: caddy:2.10-alpine
     restart: unless-stopped
