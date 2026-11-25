@@ -153,7 +153,7 @@ async def run_fast(job,state,shop,exact_product):
             issues.append("listing_browser:"+type(e).__name__)
         # One bounded alternative normal storefront search if the initial
         # listing gave no exact candidates. Never try to bypass access checks.
-        if not rows():
+        if not publishable(rows(),max_days,allow_late,discount_percent):
             state.update(state="searching",phase="retry",retry_attempt=1,message="Повторяем поиск")
             try:
                 u=urlsplit(url)
@@ -162,7 +162,7 @@ async def run_fast(job,state,shop,exact_product):
                 ingest(data);publish()
                 state["audit"]["browser_retry"]=data.get("audit",{})
             except Exception as e:issues.append("listing_retry:"+type(e).__name__)
-            if shop=="wb" and not rows():
+            if shop=="wb" and not publishable(rows(),max_days,allow_late,discount_percent):
                 try:
                     data=await asyncio.wait_for(asyncio.to_thread(fetch_public_search_html,url,max_pages=2,request_timeout=4,retries=0),timeout=9)
                     ingest(data);publish()

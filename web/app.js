@@ -65,7 +65,7 @@ function progressInfo(status,shops){
 function renderProgress(){
  const show=starting||running;$('searchProgress').hidden=!show;
  if(!show)return;
- const p=progressInfo(job?.markets||{},activeShops.length?activeShops:policy.shops);
+ const p=progressInfo(starting&&!running?{}:job?.markets||{},starting&&!running?policy.shops:activeShops.length?activeShops:policy.shops);
  $('progressLabel').textContent=starting&&!running?'Запускаем поиск':p.label;
  $('progressCount').textContent=p.done+' из '+p.total+' площадок обработано';
  $('progressFill').style.width=p.total?100*p.done/p.total+'%':'0%';
