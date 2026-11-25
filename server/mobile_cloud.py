@@ -624,7 +624,7 @@ def job_status(job_id: str) -> dict | None:
     offers = sorted(job["offers"],key=lambda item: (item["price"], item["market_id"]))
     return {
         "id":job_id, "state":job["state"], "policy":job.get("policy",{}),
-        "original_query":job.get("original_query",job["query"]), "search_query":job["query"], "intent_source":job.get("intent_source"),
+        "original_query":job.get("original_query",job.get("query","")), "search_query":job.get("query",""), "intent_source":job.get("intent_source"),
         "markets":job["markets"], "offers":offers,
         "errors":job["errors"][:8], "finished":job["finished"]
     }
