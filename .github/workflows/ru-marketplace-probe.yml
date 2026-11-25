@@ -1,0 +1,41 @@
+name: Upstream WB and Market MCP live probe
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/ru-marketplace-probe.yml
+      - deploy/ru-marketplace-probe.py
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install pinned upstream connector release
+        run: |
+          set -euo pipefail
+          base=https://github.com/Vladimir-Human/ru-marketplace-mcp/releases/download/v2.11.2
+          mkdir -p /tmp/mcp-wheels
+          for pkg in mcp_core wb_connector yandex_connector; do
+            file="$pkg-2.11.2-py3-none-any.whl"
+            curl -fSL --retry 2 "$base/$file" -o "/tmp/mcp-wheels/$file"
+          done
+          python -m pip install /tmp/mcp-wheels/*.whl
+          python -m pip check
+      - name: Live search from GitHub runner (not Russian VPS)
+        env:
+          WB_DOM_FALLBACK: "0"
+          PYTHONIOENCODING: utf-8
+        run: python deploy/ru-marketplace-probe.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ru-marketplace-probe
+          path: /tmp/ru-marketplace-probe.json
+          if-no-files-found: ignore
