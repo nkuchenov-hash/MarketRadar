@@ -1,0 +1,34 @@
+name: Yandex Node MCP specialist acceptance
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/specialist-ym-node.yml','deploy/probe-specialist-ym-node.mjs']
+permissions:
+  contents: read
+jobs:
+  yandex:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: dpGorbunov/market-mcp
+          ref: 5b6c5192cd1a977e49b1b69914560902fdefbdfd
+          path: upstream-ym-node
+          persist-credentials: false
+      - run: npm ci --ignore-scripts
+        working-directory: upstream-ym-node
+      - run: npx playwright install --with-deps chromium
+        working-directory: upstream-ym-node
+      - name: Test read-only market catalog
+        env:
+          MARKET_PROFILE_DIR: /tmp/mr-ym-node-test
+          MARKET_HEADLESS: 'false'
+          MARKET_CAPTCHA_WAIT_S: '10'
+          MARKET_CHALLENGE_RETRIES: '0'
+          MARKET_COMPACT: '0'
+        run: xvfb-run -a node deploy/probe-specialist-ym-node.mjs
