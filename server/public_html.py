@@ -235,7 +235,7 @@ def _delivery_from_snippet(anchor: _Node) -> str:
     return ""
 
 
-def fetch_public_search_html(url: str) -> dict:
+def fetch_public_search_html(url: str, *, max_pages=None, request_timeout=18, retries=2) -> dict:
     """Read publicly accessible SSR pages in price order, preserving every card.
 
     Chromium remains the primary browsing engine. This is a secondary
@@ -251,7 +251,7 @@ def fetch_public_search_html(url: str) -> dict:
     if not host_allowed(url):
         raise ValueError("Storefront URL required")
 
-    max_pages=max(1,min(24,int(os.getenv("CLOUD_SSR_PAGES","6"))))
+    max_pages=max(1,min(24,int(max_pages if max_pages is not None else os.getenv("CLOUD_SSR_PAGES","6"))))
     headers = {
         "User-Agent":("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
                       "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"),
@@ -268,9 +268,9 @@ def fetch_public_search_html(url: str) -> dict:
             params.pop("page",None)
         target=urlunparse(parts._replace(query=urlencode(params)))
         request=urllib.request.Request(target,headers=headers)
-        for attempt in range(2):
+        for attempt in range(max(1,min(2,retries))):
             try:
-                with urllib.request.urlopen(request,timeout=18) as response:
+                with urllib.request.urlopen(request,timeout=request_timeout) as response:
                     # A cross-market redirect is not a transient storefront
                     # denial. Never retry it or read the redirected page.
                     if (not host_allowed(response.url)
@@ -287,7 +287,7 @@ def fetch_public_search_html(url: str) -> dict:
                                     return result
             except (OSError,ValueError,UnicodeError):
                 pass
-            if attempt==0:
+            if attempt==0 and retries>1:
                 import time
                 time.sleep(0.7)
         return {}
