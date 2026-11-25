@@ -1,0 +1,53 @@
+name: Deploy verified MarketRadar release
+on:
+  workflow_run:
+    workflows: [tests]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: marketradar-managed-production
+  cancel-in-progress: false
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository))
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          persist-credentials: false
+      - name: Package only allowed application files from tested main revision
+        run: |
+          set -euo pipefail
+          revision="$(git rev-parse HEAD)"
+          [[ "$revision" == "$(git ls-remote origin refs/heads/main | cut -f1)" ]] || { echo "Superseded release; skipping"; exit 0; }
+          python - "$revision" <<'PY'
+          import json,sys,pathlib
+          files={}
+          for directory,names in (("server",("retail_fast.py","web_cloud.py","public_html.py","cloud_browser.py","mobile_cloud.py","agent.py","main.py")),("web",("index.html","app.js","style.css"))):
+              for name in names:files[name]=(pathlib.Path(directory)/name).read_text(encoding="utf-8")
+          with open("/tmp/market-release.json","w",encoding="utf-8") as f:json.dump({"revision":sys.argv[1],"files":files},f,ensure_ascii=False)
+          PY
+          node --check web/app.js
+      - name: Send release to restricted deployment command
+        env:
+          SSH_KEY: ${{ secrets.MARKETRADAR_OZON_TEST_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          [[ -f /tmp/market-release.json ]] || exit 0
+          [[ "$(git rev-parse HEAD)" == "$(git ls-remote origin refs/heads/main | cut -f1)" ]] || exit 0
+          test -n "$SSH_KEY"
+          umask 077
+          d="$(mktemp -d)"
+          trap 'rm -rf "$d"' EXIT
+          printf '%s\n' "$SSH_KEY" > "$d/key"
+          ssh-keyscan -T 15 -t ed25519 45.147.178.109 > "$d/known_hosts" 2>/dev/null
+          fingerprint="$(ssh-keygen -lf "$d/known_hosts" | awk 'NR==1 {print $2}')"
+          [[ "$fingerprint" == "SHA256:4l/pLS5IaMUdBIGsHSVgnXTrKFu1+5IkqheJiD6Dua4" ]]
+          ssh -T -i "$d/key" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$d/known_hosts" -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 marketradar-deploy@45.147.178.109 < /tmp/market-release.json
+      - name: Check external HTTPS health
+        run: curl --fail --silent --show-error --max-time 15 https://45-147-178-109.sslip.io/health
