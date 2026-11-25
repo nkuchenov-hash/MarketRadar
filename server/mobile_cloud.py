@@ -201,7 +201,8 @@ async def run_market(job: dict, shop_id: str):
     market = SHOP_IDS[shop_id]
     state = job["markets"][shop_id]
     state["state"] = "searching"
-    if shop_id == "ozon" and os.getenv("MARKETRADAR_OZON_MCP_URL", "").strip():
+    mode=job.get("policy",{}).get("search_mode","auto")
+    if shop_id == "ozon" and mode!="deep" and os.getenv("MARKETRADAR_OZON_MCP_URL", "").strip():
         from .ozon_mcp import run_ozon_mcp
         await run_ozon_mcp(job, state, exact_product)
         original=job["query"]
@@ -221,12 +222,16 @@ async def run_market(job: dict, shop_id: str):
             state.setdefault("audit",{})["original_query_audit"]=first_audit
             state["audit"]["alternate_query"]=alternate
         return
-    mode=job.get("policy",{}).get("search_mode","auto")
-    if shop_id in ("wb", "ym") and (mode=="fast" or (mode=="auto" and os.getenv("MARKETRADAR_RETAIL_FAST", "").lower() in ("1", "true", "yes"))):
+    if mode=="fast" and shop_id=="ozon":
+        state.update(state="blocked",phase="done",coverage_complete=False,message="Отдельный сервис Ozon не подключён",audit={"source":"specialist_unconfigured"})
+        return
+    if shop_id in ("wb", "ym") and (mode=="fast" or (mode=="auto" and (os.getenv("MARKETRADAR_RETAIL_FAST", "").lower() in ("1", "true", "yes") or os.getenv("MARKETRADAR_"+shop_id.upper()+"_SPECIALIST_URL","").strip()))):
         from .retail_fast import run_fast, run_specialist
         endpoint=os.getenv("MARKETRADAR_"+shop_id.upper()+"_SPECIALIST_URL","").strip()
         if endpoint:
             await run_specialist(job,state,shop_id,exact_product,endpoint)
+        elif mode=="fast":
+            state.update(state="blocked",phase="done",coverage_complete=False,message="Отдельный сервис пока не подключён",audit={"source":"specialist_unconfigured"})
         else:
             await run_fast(job, state, shop_id, exact_product)
         if mode=="fast":return

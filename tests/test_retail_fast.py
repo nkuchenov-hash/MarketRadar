@@ -259,11 +259,32 @@ def test_search_modes_are_independent(monkeypatch):
         job["markets"][shop].update(state="blocked",audit={"source":"chromium"},checked=0)
     monkeypatch.setattr(r,"run_fast",fast)
     monkeypatch.setattr(mobile_cloud,"run_deep_market",deep)
-    for mode,expected in [("fast",["fast"]),("deep",["deep"]),("auto",["fast","deep"])]:
+    monkeypatch.delenv("MARKETRADAR_WB_SPECIALIST_URL",raising=False)
+    for mode,expected in [("fast",[]),("deep",["deep"]),("auto",["fast","deep"])]:
         calls.clear()
         job={"query":Q,"state":"running","offers":[],"markets":{"wb":{}},"policy":{"search_mode":mode}}
         asyncio.run(mobile_cloud.run_market(job,"wb"))
         assert calls==expected
+        if mode=="fast":assert job["markets"]["wb"]["audit"]["source"]=="specialist_unconfigured"
+    async def specialist(job,state,shop,match,endpoint):
+        calls.append("specialist")
+        state.update(state="partial",audit={"source":"specialist"})
+    monkeypatch.setattr(r,"run_specialist",specialist)
+    monkeypatch.setenv("MARKETRADAR_WB_SPECIALIST_URL","http://test")
+    calls.clear()
+    job={"query":Q,"state":"running","offers":[],"markets":{"wb":{}},"policy":{"search_mode":"fast"}}
+    asyncio.run(mobile_cloud.run_market(job,"wb"))
+    assert calls==["specialist"]
+
+def test_ozon_deep_does_not_use_mcp(monkeypatch):
+    from server import mobile_cloud
+    monkeypatch.setenv("MARKETRADAR_OZON_MCP_URL","http://test")
+    async def deep(job,shop):
+        job["markets"][shop].update(state="partial",audit={"source":"deep"})
+    monkeypatch.setattr(mobile_cloud,"run_deep_market",deep)
+    job={"query":Q,"state":"running","offers":[],"markets":{"ozon":{}},"policy":{"search_mode":"deep"}}
+    asyncio.run(mobile_cloud.run_market(job,"ozon"))
+    assert job["markets"]["ozon"]["audit"]["source"]=="deep"
 
 def test_pagination_uses_observed_next_same_query_link():
     from server.cloud_browser import next_listing_page,sorted_search_url
