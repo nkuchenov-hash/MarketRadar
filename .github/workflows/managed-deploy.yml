@@ -24,7 +24,7 @@ jobs:
         run: |
           set -euo pipefail
           revision="$(git rev-parse HEAD)"
-          [[ "$revision" == "$(git ls-remote origin refs/heads/main | cut -f1)" ]] || { echo "Superseded release; skipping"; exit 0; }
+          [[ "$revision" == "$(git ls-remote origin refs/heads/main | cut -f1)" ]] || { echo "Superseded release; not deployed"; exit 1; }
           python - "$revision" <<'PY'
           import json,sys,pathlib
           files={}
@@ -38,8 +38,8 @@ jobs:
           SSH_KEY: ${{ secrets.MARKETRADAR_OZON_TEST_SSH_KEY }}
         run: |
           set -euo pipefail
-          [[ -f /tmp/market-release.json ]] || exit 0
-          [[ "$(git rev-parse HEAD)" == "$(git ls-remote origin refs/heads/main | cut -f1)" ]] || exit 0
+          [[ -f /tmp/market-release.json ]] || exit 1
+          [[ "$(git rev-parse HEAD)" == "$(git ls-remote origin refs/heads/main | cut -f1)" ]] || exit 1
           test -n "$SSH_KEY"
           umask 077
           d="$(mktemp -d)"
@@ -49,5 +49,15 @@ jobs:
           fingerprint="$(ssh-keygen -lf "$d/known_hosts" | awk 'NR==1 {print $2}')"
           [[ "$fingerprint" == "SHA256:4l/pLS5IaMUdBIGsHSVgnXTrKFu1+5IkqheJiD6Dua4" ]]
           ssh -T -i "$d/key" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$d/known_hosts" -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 marketradar-deploy@45.147.178.109 < /tmp/market-release.json
-      - name: Check external HTTPS health
-        run: curl --fail --silent --show-error --max-time 15 https://45-147-178-109.sslip.io/health
+      - name: Verify published frontend matches tested revision
+        run: |
+          set -euo pipefail
+          base=https://45-147-178-109.sslip.io
+          curl --fail --silent --show-error --max-time 15 "$base/health"
+          for pair in "/:web/index.html" "/static/app.js:web/app.js" "/static/style.css:web/style.css"; do
+            remote="${pair%%:*}"
+            local="${pair#*:}"
+            curl --fail --silent --show-error --max-time 15 -H 'Cache-Control: no-cache' "$base$remote?revision=$(git rev-parse HEAD)" -o /tmp/market-live-file
+            cmp -s "$local" /tmp/market-live-file || { echo "Live file does not match release: $remote"; exit 1; }
+          done
+          echo "LIVE WEB RELEASE VERIFIED $(git rev-parse HEAD)"
