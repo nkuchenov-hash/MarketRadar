@@ -19,7 +19,7 @@ jobs:
       - name: Run restricted live benchmark from existing VPS
         run: |
           set -euo pipefail
-          test -n "$SSH_KEY"
+          test -n "$SSH_KEY" || { echo "Restricted VPS key missing"; exit 1; }
           umask 077
           d="$(mktemp -d)"
           trap 'rm -rf "$d"' EXIT
@@ -27,7 +27,7 @@ jobs:
           ssh-keyscan -T 15 -t ed25519 45.147.178.109 > "$d/known_hosts" 2>/dev/null
           fingerprint="$(ssh-keygen -lf "$d/known_hosts" | awk 'NR==1 {print $2}')"
           [[ "$fingerprint" == "SHA256:4l/pLS5IaMUdBIGsHSVgnXTrKFu1+5IkqheJiD6Dua4" ]] || { echo "VPS host key mismatch"; exit 1; }
-          ssh -T -i "$d/key" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$d/known_hosts" -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 marketradar-ru-probe@45.147.178.109 </dev/null 2>&1 | tee ru-marketplace-vps.log
+          ssh -T -o LogLevel=ERROR -i "$d/key" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$d/known_hosts" -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 marketradar-ru-probe@45.147.178.109 </dev/null 2>&1 | tee ru-marketplace-vps.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
