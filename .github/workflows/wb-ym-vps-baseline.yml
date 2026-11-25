@@ -29,19 +29,25 @@ jobs:
               data=json.dumps(body,ensure_ascii=False).encode() if body is not None else None
               with urllib.request.urlopen(urllib.request.Request(base+path,data=data,headers=headers),timeout=25) as r:
                   return json.load(r)
+          for path,marker in (("/","searchView"),("/static/style.css","#175cec"),("/static/app.js","retail_offers")):
+              with urllib.request.urlopen(base+path,timeout=20) as response:
+                  body=response.read().decode("utf-8")
+                  print("WEB CHECK",path,response.status,marker in body,flush=True)
+          print("HEALTH",request("/health"),flush=True)
           started=time.monotonic()
-          job=request("/api/mobile/browser/start",{"query":"Яндекс Станция Мини 3 Про","shops":["wb","ym"]})
+          job=request("/api/mobile/browser/start",{"query":"Яндекс Станция Мини 3 Про","shops":["ozon","wb","ym"]})
           first={}
           state={}
           for _ in range(115):
               state=request("/api/mobile/browser/jobs/"+job["id"])
-              for shop in ("wb","ym"):
+              for shop in ("ozon","wb","ym"):
                   offers=[o for o in state.get("offers",[]) if o.get("market_id")==shop]
                   if offers and shop not in first: first[shop]=round(time.monotonic()-started,2)
               if state["state"]!="running":break
+              print("LIVE",round(time.monotonic()-started,1),{s:{"state":m.get("state"),"source":m.get("audit",{}).get("source"),"offers":sum(o.get("market_id")==s for o in state.get("offers",[]))} for s,m in state.get("markets",{}).items()},flush=True)
               time.sleep(5)
           results={}
-          for shop in ("wb","ym"):
+          for shop in ("ozon","wb","ym"):
               m=state.get("markets",{}).get(shop,{})
               offers=sorted([o for o in state.get("offers",[]) if o.get("market_id")==shop and o.get("price",0)>0],key=lambda x:x["price"])
               verified=[o for o in offers if o.get("verified_detail")]
@@ -50,6 +56,7 @@ jobs:
           print(json.dumps(result,ensure_ascii=False,indent=2))
           with open("wb-ym-baseline.json","w") as f:json.dump(result,f,ensure_ascii=False,indent=2)
           if any(not results[s]["verified"] for s in results):raise SystemExit("One or more markets lack detail-confirmed prices")
+          if any(results[s]["audit"].get("source")!="retail_fast" for s in ("wb","ym")):raise SystemExit("New retail worker not deployed")
           PY
       - uses: actions/upload-artifact@v4
         if: always()
