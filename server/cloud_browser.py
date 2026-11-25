@@ -369,6 +369,20 @@ _DOM_SNAPSHOT = r"""() => {
         const delivery=deliveryText.match(/(?:сегодня|завтра|послезавтра|через\s*\d{1,2}\s*дн|\d{1,2}\s*(?:января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря))/i);
         detailDelivery=delivery?delivery[0]:'';
     }
+    const ymDetail=location.hostname==='market.yandex.ru' && /\/(?:card|product(?:--[^/]+)?)\//.test(location.pathname);
+    if(ymDetail && h1){
+        const visible=el=>!!el&&el.getClientRects().length>0&&getComputedStyle(el).visibility!=='hidden';
+        // Read delivery only from visible purchase/delivery widgets, never recommendations.
+        const nodes=[...document.querySelectorAll('[data-zone-name="delivery"],[data-zone-name="deliveryInfo"],[data-zone-name="delivery-options"],[data-auto="delivery-info"],[data-auto="delivery-date"],[data-auto="deliveryBadge"],[data-auto="offer-delivery"],[data-zone-name="offerDelivery"]')].filter(el=>visible(el)&&!el.closest('[data-zone-name="recommendations"],[data-zone-name="product-snippet"],[data-auto="snippet"],[class*="carousel"]'));
+        const dates=new Set();
+        for(const el of nodes){
+            const t=(el.innerText||'').trim();
+            if(t.length>500||/с\s+\d{1,2}\s+|(?:\d{1,2})\s*[-–—]\s*\d{1,2}/i.test(t))continue;
+            const m=t.match(/(?:послезавтра|сегодня|завтра|через\s+\d{1,2}\s+(?:дня|дней|день)|\d{1,2}\s+(?:января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря))/i);
+            if(m)dates.add(m[0].toLowerCase());
+        }
+        if(dates.size===1)detailDelivery=[...dates][0];
+    }
     return {title:document.title || '', heading:h1, primary_price:primaryPrice,
         primary_image:primaryImg,body,detail_price_source:detailPriceSource,
         detail_text:detailText,detail_delivery:detailDelivery,
@@ -484,14 +498,16 @@ class CloudBrowser:
         ok, reason = available()
         if not ok:
             raise RuntimeError(reason)
-        await self._slots.acquire()
-        self.acquired = True
         try:
             if self.persistent and not browser_cdp_url(self.market):
                 profile = {"Wildberries": "wb", "Ozon": "ozon",
                            "Яндекс Маркет": "ym"}.get(self.market, "diagnostic")
-                self.profile_lock = self._profile_locks[profile]
-                await self.profile_lock.acquire()
+                lock = self._profile_locks[profile]
+                await lock.acquire()
+                self.profile_lock = lock
+            # Waiting for the same shop's profile must not occupy another shop's slot.
+            await self._slots.acquire()
+            self.acquired = True
             from playwright.async_api import async_playwright
             self.playwright = await async_playwright().start()
             cdp = browser_cdp_url(self.market)
@@ -545,7 +561,7 @@ class CloudBrowser:
                     if proxy:
                         context_options["proxy"] = proxy
                 self.context = await self.browser.new_context(**context_options)
-        except Exception:
+        except BaseException:
             await self.close()
             raise
 
