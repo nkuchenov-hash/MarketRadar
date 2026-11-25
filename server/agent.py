@@ -283,6 +283,10 @@ def update(job_id:str,statuses:dict,stage:str):
         (int(time.time()),json.dumps({'stage':stage,'markets':statuses},ensure_ascii=False),job_id))
 
 async def run_search(job_id:str,user_id:str,query:str,depth:str,mode:str='device'):
+    if mode=='cloud' and os.getenv('MARKETRADAR_WEB_CLOUD_FAST','').lower() in ('1','true','yes'):
+        from .web_cloud import run_web_cloud
+        await run_web_cloud(job_id,query)
+        return
     cloud=None
     cloud_token=None
     statuses={name:{'state':'pending','cards':0,'queries':0,'candidates':0,'message':''} for name in MARKETS}
