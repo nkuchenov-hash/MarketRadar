@@ -67,6 +67,9 @@ class BatchSearch(BaseModel):
 class MobileBrowserSearch(BaseModel):
     query:str=Field(min_length=3,max_length=180)
     shops:list[str]=Field(min_length=1,max_length=3)
+    max_days:int=Field(default=3,ge=0,le=90)
+    allow_late:bool=False
+    discount_percent:int=Field(default=20,ge=1,le=90)
 
 def mobile_access(request:Request):
     """VPS deployment enables a private per-install access key."""
@@ -87,7 +90,7 @@ async def mobile_browser_start(request:Request,data:MobileBrowserSearch):
     if any(shop not in mobile_cloud.SHOP_IDS for shop in data.shops):
         raise HTTPException(422,'Неизвестный магазин')
     try:
-        return mobile_cloud.start_job(data.query.strip(),data.shops)
+        return mobile_cloud.start_job(data.query.strip(),data.shops,max_days=data.max_days,allow_late=data.allow_late,discount_percent=data.discount_percent)
     except (RuntimeError,ValueError) as exc:
         raise HTTPException(429,str(exc))
 
