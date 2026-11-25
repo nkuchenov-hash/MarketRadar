@@ -14,7 +14,7 @@ jobs:
   browser-search:
     if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 50
     steps:
       - name: Run guest searches against the published service
         env:
@@ -26,19 +26,25 @@ jobs:
           base="https://45-147-178-109.sslip.io"
           client=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
           headers={"X-MarketRadar-Guest":"1","Content-Type":"application/json"}
-          queries=["Яндекс лампочка 1300 лм","Яндекс Станция Мини 3 Про","Samsung 990 PRO 1TB"]
+          queries=["Яндекс лампочка 1300 Вт","Яндекс Станция Мини 3 Про","Samsung 990 PRO 1TB"]
+          cases=[(mode,query) for mode in ("fast","deep") for query in queries]
           shops=["wb","ozon","ym"]
           reports=[]
           def call(path,method="GET",body=None):
               req=urllib.request.Request(base+path,headers=headers,method=method,data=json.dumps(body,ensure_ascii=False).encode() if body is not None else None)
-              with client.open(req,timeout=25) as r:return json.load(r)
-          for query in queries:
+              for attempt in range(3 if method=="GET" else 1):
+                  try:
+                      with client.open(req,timeout=25) as r:return json.load(r)
+                  except (urllib.error.HTTPError,urllib.error.URLError,TimeoutError) as exc:
+                      if method!="GET" or attempt==2 or (isinstance(exc,urllib.error.HTTPError) and exc.code not in (502,503,504)):raise
+                      time.sleep(3*(attempt+1))
+          for mode,query in cases:
               start=time.monotonic()
-              report={"query":query,"markets":{}}
+              report={"query":query,"mode":mode,"markets":{}}
               status={}
               job=None
               try:
-                  job=call("/api/mobile/browser/start","POST",{"query":query,"shops":shops,"max_days":3,"allow_late":False})
+                  job=call("/api/mobile/browser/start","POST",{"query":query,"shops":shops,"max_days":3,"allow_late":False,"search_mode":mode})
                   while time.monotonic()-start<420:
                       status=call("/api/mobile/browser/jobs/"+job["id"])
                       if status.get("state")!="running":break
@@ -50,6 +56,9 @@ jobs:
                       best=min(offers,key=lambda o:o["price"],default=None)
                       report["markets"][shop]={"state":m.get("state"),"candidates":m.get("candidates"),"checked":m.get("checked"),"retry":m.get("retry_attempt",0),"coverage_complete":m.get("coverage_complete",False),"offers":len(offers),"verified":len(verified),"best":{k:best.get(k) for k in ("price","title","url","delivery_days","condition")} if best else None,"audit":m.get("audit",{})}
                   report["state"]=status.get("state")
+                  report["effective_mode"]=status.get("policy",{}).get("search_mode")
+                  report["search_query"]=status.get("search_query")
+                  report["intent_source"]=status.get("intent_source")
               except Exception as exc:report["error"]=str(exc)
               finally:
                   if job and status.get("state","running")=="running":
@@ -59,10 +68,10 @@ jobs:
               reports.append(report)
               print(json.dumps(report,ensure_ascii=False,indent=2),flush=True)
               Path("vps-real-search-evidence.json").write_text(json.dumps(reports,ensure_ascii=False,indent=2),encoding="utf8")
-              if query!=queries[-1]:time.sleep(max(0,65-(time.monotonic()-start)))
+              if (mode,query)!=cases[-1]:time.sleep(max(0,65-(time.monotonic()-start)))
           # A missing offer means cross-shop comparison has not passed this
           # acceptance sample. Finding offers still does not prove a minimum.
-          if any(r.get("state")!="finished" or any(not r.get("markets",{}).get(s,{}).get("offers") for s in shops) for r in reports):
+          if any(r.get("state")!="finished" or r.get("effective_mode")!=r["mode"] or any(not r.get("markets",{}).get(s,{}).get("offers") for s in shops) for r in reports):
               raise SystemExit("Incomplete cross-store comparison; see evidence")
           PY
       - name: Upload evidence
