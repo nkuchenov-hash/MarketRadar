@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import os
 import re
+import shutil
 from urllib.parse import urljoin, urlparse, parse_qsl, urlencode, urlunparse
 from .core import host_allowed, market_of, is_product_link, canonical, BLOCK_WORDS
 
@@ -490,9 +491,41 @@ class CloudBrowser:
         self.playwright = self.browser = self.context = None
         self.acquired = False
         self.profile_lock = None
+        self.display_process = None
         self.market = market
         self.headful = os.getenv("CLOUD_BROWSER_HEADFUL", "false").lower() in ("true","1","yes")
         self.persistent = os.getenv("CLOUD_BROWSER_PERSISTENT", "false").lower() in ("true","1","yes")
+
+    async def fresh_display(self):
+        """Recover a failed local X server without altering storefront networking."""
+        executable=shutil.which("Xvfb")
+        if not executable:
+            raise RuntimeError("Xvfb unavailable")
+        proc=await asyncio.create_subprocess_exec(
+            executable,"-displayfd","1","-screen","0","1440x900x24","-nolisten","tcp",
+            stdout=asyncio.subprocess.PIPE,stderr=asyncio.subprocess.DEVNULL)
+        self.display_process=proc
+        try:
+            line=await asyncio.wait_for(proc.stdout.readline(),timeout=5)
+            display=line.decode("ascii").strip()
+            if not display.isdigit() or proc.returncode is not None:
+                raise RuntimeError("Xvfb did not start")
+            return {**os.environ,"DISPLAY":":"+display}
+        except BaseException:
+            await self.stop_display()
+            raise
+
+    async def stop_display(self):
+        proc=self.display_process
+        self.display_process=None
+        if proc is not None and proc.returncode is None:
+            try:proc.terminate()
+            except ProcessLookupError:pass
+            try:await asyncio.wait_for(proc.wait(),timeout=3)
+            except asyncio.TimeoutError:
+                try:proc.kill()
+                except ProcessLookupError:pass
+                await proc.wait()
 
     async def start(self):
         ok, reason = available()
@@ -545,21 +578,30 @@ class CloudBrowser:
                     self.context=await self.playwright.chromium.launch_persistent_context(
                         profile_dir,headless=not self.headful,**options)
                 except Exception as exc:
-                    # A dead X display or a locked/stale profile must not end
-                    # every subsequent search. Reuse the profile in headless
-                    # mode first, then use an isolated temporary context.
                     self.startup_failure=type(exc).__name__
-                    self.headful=False
-                    try:
-                        self.context=await self.playwright.chromium.launch_persistent_context(
-                            profile_dir,headless=True,**options)
-                        self.startup_mode="headless_persistent"
-                    except Exception as second:
-                        self.startup_failure+=","+type(second).__name__
-                        self.browser=await self.playwright.chromium.launch(
-                            headless=True,proxy=browser_proxy(self.market),
-                            args=["--disable-dev-shm-usage"])
-                        self.startup_mode="headless_isolated"
+                    # Restore the originally configured headed browser after
+                    # a Docker restart leaves its shared X server unavailable.
+                    if self.headful:
+                        try:
+                            env=await self.fresh_display()
+                            self.context=await self.playwright.chromium.launch_persistent_context(
+                                profile_dir,headless=False,env=env,timeout=12000,**options)
+                            self.startup_mode="headed_private_display"
+                        except Exception as second:
+                            self.startup_failure+=","+type(second).__name__
+                            await self.stop_display()
+                    if self.context is None:
+                        self.headful=False
+                        try:
+                            self.context=await self.playwright.chromium.launch_persistent_context(
+                                profile_dir,headless=True,**options)
+                            self.startup_mode="headless_persistent"
+                        except Exception as second:
+                            self.startup_failure+=","+type(second).__name__
+                            self.browser=await self.playwright.chromium.launch(
+                                headless=True,proxy=browser_proxy(self.market),
+                                args=["--disable-dev-shm-usage"])
+                            self.startup_mode="headless_isolated"
             else:
                 try:
                     self.browser = await self.playwright.chromium.launch(
@@ -600,7 +642,10 @@ class CloudBrowser:
             if self.playwright:
                 await self.playwright.stop()
         finally:
-            self.context = self.browser = self.playwright = None
+            try:
+                await self.stop_display()
+            finally:
+                self.context = self.browser = self.playwright = None
             if self.profile_lock is not None:
                 lock = self.profile_lock
                 self.profile_lock = None

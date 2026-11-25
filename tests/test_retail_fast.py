@@ -223,3 +223,26 @@ def test_fast_verified_timely_offer_does_not_need_deep_fallback(monkeypatch):
     monkeypatch.setattr(mobile_cloud,"run_deep_market",deep)
     job={"query":Q,"state":"running","offers":[],"markets":{"ym":{}},"policy":{"max_days":3}}
     asyncio.run(mobile_cloud.run_market(job,"ym"))
+
+def test_private_display_lifecycle(monkeypatch):
+    from server import cloud_browser
+    class Output:
+        async def readline(self):return b"142\n"
+    class Process:
+        returncode=None
+        stdout=Output()
+        def terminate(self):self.returncode=0
+        async def wait(self):return self.returncode
+    proc=Process()
+    async def launch(*args,**kwargs):
+        assert "-displayfd" in args and "-nolisten" in args
+        return proc
+    monkeypatch.setattr(cloud_browser.shutil,"which",lambda x:"/usr/bin/Xvfb")
+    monkeypatch.setattr(asyncio,"create_subprocess_exec",launch)
+    async def run():
+        engine=cloud_browser.CloudBrowser()
+        env=await engine.fresh_display()
+        assert env["DISPLAY"]==":142"
+        await engine.stop_display()
+        assert proc.returncode==0 and engine.display_process is None
+    asyncio.run(run())
