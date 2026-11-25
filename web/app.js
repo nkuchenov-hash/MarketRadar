@@ -23,8 +23,9 @@ function refreshSource(){
  $('browserIndicator').textContent=cloud?(user.cloud_available?'Облачный поиск доступен':'Облачный поиск не готов'):(user.device_online?'Ваш браузер подключён':'Браузер ПК не подключён');
  $('searchHelp').textContent=cloud?(user.cloud_status||'Публичные цены. Без входа в магазины и без расширения.'):(user.device_online?'Персональные цены — через ваш браузер ПК.':'Подключите расширение на компьютере для этого режима.');
  $('pairBox').hidden=cloud||!!user.device_online;
- $('searchButton').disabled=!ready||!user.ai_ready;
- $('searchButton').title=!user.ai_ready?(user.ai_status||'ИИ не подключён'):!ready?(cloud?'Облачный поиск пока недоступен':'Подключите браузер ПК'):'';
+ const engineReady=!!user.ai_ready||(cloud&&user.shared_cloud);
+ $('searchButton').disabled=!ready||!engineReady;
+ $('searchButton').title=!engineReady?(user.ai_status||'ИИ не подключён'):!ready?(cloud?'Облачный поиск пока недоступен':'Подключите браузер ПК'):'';
 }
 $('source').addEventListener('change',refreshSource);
 $('switchAuth').onclick=()=>{mode=mode==='login'?'register':'login';$('authHeading').textContent=mode==='register'?'Создать аккаунт':'Войти';$('authSubmit').textContent=mode==='register'?'Зарегистрироваться':'Войти';$('switchAuth').textContent=mode==='register'?'Уже есть аккаунт? Войти':'Создать аккаунт';};
@@ -52,10 +53,12 @@ async function refresh(){
  $('jobState').textContent=job.state==='running'?'Поиск в фоне':job.state==='finished'?'Поиск завершён':job.state==='error'?'Ошибка':'Прерван';
  const markets=job.progress.markets||{};
  $('marketStatuses').innerHTML=Object.entries(markets).map(([k,v])=>`<div class="market ${esc(v.state)}"><strong>${esc(k)}</strong><div class="state">${esc(v.state)}</div><p>Поисков: ${Number(v.queries||0)} · Проверено карточек: ${Number(v.cards||0)}<br>${esc(v.message||'')}</p></div>`).join('');
- const arr=job.offers||[];const std=arr.filter(x=>x.kind==='standard');const conditional=arr.filter(x=>x.kind!=='standard');
- $('summary').innerHTML=`<div><small>Минимальная подтверждённая обычная цена</small><strong>${std.length?fmt(std[0].price):'—'}</strong></div><div><small>Минимальная с условиями</small><strong>${conditional.length?fmt(conditional[0].price):'—'}</strong></div><div><small>Проверенных вариантов цены</small><strong>${arr.length}</strong></div>`;
+ const shared=Array.isArray(job.progress.retail_offers);const arr=shared?job.progress.retail_offers:job.offers||[];
+ const confirmed=shared?arr.filter(x=>x.verified_detail):arr;
+ const std=confirmed.filter(x=>x.kind==='standard');const conditional=confirmed.filter(x=>x.kind!=='standard');
+ $('summary').innerHTML=`<div><small>Минимальная подтверждённая обычная цена</small><strong>${std.length?fmt(std[0].price):'—'}</strong></div><div><small>Минимальная с условиями</small><strong>${conditional.length?fmt(conditional[0].price):'—'}</strong></div><div><small>Проверенных вариантов цены</small><strong>${confirmed.length}</strong></div>`;
  $('count').textContent=arr.length+' предложений';
- $('offers').innerHTML=arr.map(x=>`<article class="offer"><div><div class="vendor">${esc(x.market)}</div><div class="name">${esc(x.title)}</div><div class="details">${esc(x.condition)} · ${esc(x.evidence)} · ${esc(x.checked)}</div></div><div><div class="value">${fmt(x.price)}</div><div class="kind">${esc(kindNames[x.kind]||'Условия уточняются')}</div></div><a target="_blank" rel="noopener noreferrer" href="${esc(x.url)}">Открыть ↗</a></article>`).join('') || '<p class="muted">Пока нет подтверждённых цен. Проверьте статус площадок выше.</p>';
+ $('offers').innerHTML=arr.map(x=>`<article class="offer"><div><div class="vendor">${esc(x.market)}</div><div class="name">${esc(x.title)}</div>${shared&&String(x.image_url||"").startsWith("https://")?'<img src="'+esc(x.image_url)+'" alt="" loading="lazy" width="72" height="72" style="object-fit:contain">':""}<div class="details">${esc(x.condition)} ${shared?' · '+esc(x.delivery||'Срок неизвестен')+' · '+(x.verified_detail?'Цена подтверждена':'Цена из выдачи, не подтверждена'):' · '+esc(x.evidence)+' · '+esc(x.checked)}</div></div><div><div class="value">${fmt(x.price)}</div><div class="kind">${esc(kindNames[x.kind]||'Условия уточняются')}</div></div><a target="_blank" rel="noopener noreferrer" href="${esc(x.url)}">Открыть ↗</a></article>`).join('') || '<p class="muted">Пока нет подтверждённых цен. Проверьте статус площадок выше.</p>';
  if(job.error)$('jobState').textContent='Ошибка: '+job.error;
  if(job.state!=='running'){
    clearInterval(interval);
