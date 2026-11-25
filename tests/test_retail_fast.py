@@ -47,3 +47,30 @@ def test_fast_browser_retracts_bad_detail(monkeypatch):
     assert job["offers"][0]["price"]==11900
     assert job["offers"][0]["verified_detail"] is True
     assert state["coverage_complete"] is False
+
+def test_custom_deadline_and_opt_in_late_delivery():
+    rows=[row(100001,10000,"сегодня"),row(100002,10500,"через 5 дней"),row(100003,7900,"через 8 дней")]
+    assert [x["price"] for x in r.publishable(rows,max_days=1)]==[10000]
+    assert [x["price"] for x in r.publishable(rows,max_days=5)]==[10000,10500]
+    assert [x["price"] for x in r.publishable(rows,max_days=1,allow_late=True,discount_percent=20)]==[10000,7900]
+    assert [x["price"] for x in r.publishable(rows,max_days=1,allow_late=True,discount_percent=25)]==[10000]
+    assert not any(x["price"]==7900 for x in r.shortlist(rows,max_days=1,allow_late=False))
+
+def test_waiting_profile_does_not_release_another_workers_lock(monkeypatch):
+    from server import cloud_browser as cb
+    async def check():
+        lock=asyncio.Lock()
+        await lock.acquire()
+        slots=asyncio.Semaphore(1)
+        monkeypatch.setattr(cb.CloudBrowser,"_profile_locks",{"wb":lock})
+        monkeypatch.setattr(cb.CloudBrowser,"_slots",slots)
+        monkeypatch.setattr(cb,"available",lambda:(True,""))
+        monkeypatch.setattr(cb,"browser_cdp_url",lambda market:None)
+        engine=cb.CloudBrowser("Wildberries");engine.persistent=True
+        try:await asyncio.wait_for(engine.start(),timeout=.01)
+        except asyncio.TimeoutError:pass
+        else:raise AssertionError("Waiter unexpectedly acquired the locked profile")
+        assert lock.locked()
+        assert not slots.locked()
+        lock.release()
+    asyncio.run(check())
