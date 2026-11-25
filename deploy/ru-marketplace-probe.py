@@ -17,9 +17,9 @@ def dump(x):
 async def call(session, name, args):
     start=time.monotonic()
     r=await asyncio.wait_for(session.call_tool(name,args),60)
-    if r.isError:
+    if getattr(r, 'is_error', getattr(r, 'isError', False)):
         raise RuntimeError(str(r.content)[:700])
-    data=r.structuredContent
+    data=getattr(r, 'structured_content', getattr(r, 'structuredContent', None))
     if not data:
         data=json.loads(next(x.text for x in r.content if x.type=="text"))
     if isinstance(data,dict) and "result" in data and isinstance(data["result"],dict):
