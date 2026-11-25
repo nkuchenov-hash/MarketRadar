@@ -22,9 +22,31 @@ TASKS: dict[str, asyncio.Task] = {}
 JOB_LIMIT = asyncio.Semaphore(2)
 VALID_STATES = {"pending", "searching", "checking", "complete", "partial", "blocked", "error"}
 
+# Explicit physical quantities are not interchangeable (e.g. watts and lumens).
+_SPEC_RE = re.compile(r'(?<![\w.,])(\d+(?:[.,]\d+)?)\s*(квт|ватт(?:а|ов)?|вт|люмен(?:а|ов|ы)?|лм|w|lm|kw)\b', re.I)
+def physical_specs(text):
+    found={}
+    for number,unit in _SPEC_RE.findall(text.lower()):
+        n=float(number.replace(',','.'))
+        family='lumen' if unit.startswith('люмен') or unit in ('лм','lm') else 'watt'
+        if unit in ('квт','kw'):n*=1000
+        found.setdefault(family,set()).add(n)
+    return found
+
+def match_text(text):
+    # Separate attached measurement units, normalize common lamp synonyms.
+    text=_SPEC_RE.sub(lambda x:x.group(1)+' '+x.group(2),text)
+    return re.sub(r'\bламп(?:очка|очки|очку|а|ы|у)\b','лампа',text,flags=re.I)
+
 def exact_product(query: str, title: str) -> bool:
     """Conservative deterministic match; only actual product pages may pass."""
-    if not query or not title or not model_match(query, title):
+    if not query or not title:
+        return False
+    required,actual=physical_specs(query),physical_specs(title)
+    if any(not values.issubset(actual.get(kind,set())) for kind,values in required.items()):
+        return False
+    query,title=match_text(query),match_text(title)
+    if not model_match(query,title):
         return False
     q = normalize(query).replace("mini", "мини").replace("pro", "про")
     t = normalize(title).replace("mini", "мини").replace("pro", "про")
@@ -522,7 +544,21 @@ async def run_market(job: dict, shop_id: str):
 async def run_job(job: dict):
     try:
         async with JOB_LIMIT:
-            await asyncio.gather(*(run_market(job, shop) for shop in job["shops"]))
+            async def safe_market(shop):
+                try:
+                    await run_market(job,shop)
+                    state=job["markets"][shop]
+                    # The Ozon worker is independent; retry a transport error
+                    # once, with a short bound, never on an empty valid result.
+                    if shop=="ozon" and state.get("state")=="error" and not any(o.get("market_id")==shop for o in job["offers"]):
+                        state.update(state="searching",message="Повторное подключение",retry_attempt=1)
+                        try:await asyncio.wait_for(run_market(job,shop),timeout=35)
+                        except asyncio.TimeoutError:state.update(state="error",message="Повторный запрос не завершился",coverage_complete=False)
+                except asyncio.CancelledError:raise
+                except Exception as exc:
+                    job["markets"][shop].update(state="error",message="Не удалось проверить площадку",coverage_complete=False)
+                    job["errors"].append(shop+":"+type(exc).__name__)
+            await asyncio.gather(*(safe_market(shop) for shop in job["shops"]))
         if job["state"] == "running":
             job["state"] = "finished"
     except asyncio.CancelledError:

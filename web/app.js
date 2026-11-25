@@ -40,19 +40,54 @@ function historyRows(){try{const rows=JSON.parse(stored('mr_local_history_v22','
 function saveHistory(){if(!job||!jobId)return;const rows=historyRows().filter(x=>x.id!==jobId);const old=historyRows().find(x=>x.id===jobId);rows.unshift({id:jobId,query:activeQuery,created:old?.created||Date.now(),policy:activePolicy,shops:activeShops,scanDate,retainedOffers,retainedMarkets,result:{...job,offers:(job.offers||[]).slice(0,100)}});store('mr_local_history_v22',JSON.stringify(rows.slice(0,15)))}
 function loadHistory(){const rows=historyRows();$('history').innerHTML=rows.map(j=>'<button class="historyrow" data-id="'+esc(j.id)+'"><strong>'+esc(j.query)+'</strong><span>'+esc(new Date(j.created).toLocaleDateString('ru-RU'))+'</span></button>').join('')||'<div class="empty">История в этом браузере пока пуста.</div>';for(const el of $('history').querySelectorAll('button'))el.onclick=()=>{const row=rows.find(x=>x.id===el.dataset.id);if(!row)return;view('search');$('query').value=row.query;activeQuery=row.query;clearTimeout(timer);generation++;jobId=row.id;job=row.result;activePolicy=row.policy||readPolicy();activeShops=row.shops||Object.keys(job.markets||{});scanDate=row.scanDate||new Date(row.created).toISOString();retainedOffers=row.retainedOffers||[];retainedMarkets=row.retainedMarkets||{};running=job.state==='running';expanded=false;updateSearchButton();$('results').hidden=false;if(job.state==='running'){render();poll(generation)}else{render();if(job.state==='running')$('jobState').textContent='Последний сохранённый результат'}}}
 $('searchForm').onsubmit=e=>{e.preventDefault();if(running)stopSearch();else startSearch()};
-function updateSearchButton(){$('searchButton').textContent=running?'Остановить':'Найти';}
+function updateSearchButton(){$('searchButton').textContent=starting&&!running?'Запуск…':running?'Остановить':'Найти';}
+const activeStates=['pending','searching','checking'];
+function marketStage(m,active){
+ if(!m?.state)return active?'Ожидание':'Не проверено';
+ if(m.state==='searching')return m.phase==='retry'||m.retry_attempt?'Повторяем поиск':'Ищем товары';
+ if(m.state==='checking')return m.detail_total>0?'Проверяем '+Math.min(m.checked||0,m.detail_total)+' из '+m.detail_total:'Проверяем цену и доставку';
+ return states[m.state]||'Не проверено';
+}
+function emptyMarket(m,active){
+ if(active&&(!m.state||activeStates.includes(m.state)))return 'Ищем предложения…';
+ if(m.state==='blocked')return 'Магазин ограничил доступ';
+ if(m.state==='error')return 'Не удалось проверить магазин';
+ if(m.coverage_complete===true)return 'Нет подходящих предложений';
+ return 'Не найдено в проверенной части выдачи';
+}
+function progressInfo(status,shops){
+ const rows=shops.map(id=>status[id]||{});
+ const done=rows.filter(m=>['complete','partial','blocked','error','empty','ok'].includes(m.state)).length;
+ const checking=rows.some(m=>m.state==='checking');
+ const retry=rows.some(m=>m.state==='searching'&&(m.retry_attempt||m.phase==='retry'));
+ return {done,total:rows.length,label:retry?'Повторяем поиск по площадкам':checking?'Проверяем цены и сроки доставки':'Собираем предложения'};
+}
+function renderProgress(){
+ const show=starting||running;$('searchProgress').hidden=!show;
+ if(!show)return;
+ const p=progressInfo(job?.markets||{},activeShops.length?activeShops:policy.shops);
+ $('progressLabel').textContent=starting&&!running?'Запускаем поиск':p.label;
+ $('progressCount').textContent=p.done+' из '+p.total+' площадок обработано';
+ $('progressFill').style.width=p.total?100*p.done/p.total+'%':'0%';
+}
+function suggestedQuery(q){
+ return /ламп(?:а|ы|очка|очки)/iu.test(q)&&/\b(?:[1-9]\d{2,})\s*вт(?![\p{L}\p{N}])/iu.test(q)?q.replace(/(\d{3,})\s*вт(?![\p{L}\p{N}])/iu,'$1 лм'):'';
+}
+function showSuggestion(){const q=suggestedQuery($('query').value);$('querySuggestion').hidden=!q;$('suggestionText').textContent=q?'Возможно, имелись в виду люмены (лм), а не ватты (Вт).':'';return q;}
+$('query').oninput=showSuggestion;
+$('acceptSuggestion').onclick=()=>{const q=showSuggestion();if(q&&!running&&!starting){$('query').value=q;showSuggestion();startSearch();}};
 async function stopSearch(){if(!jobId||starting)return;try{await api('/api/mobile/browser/jobs/'+encodeURIComponent(jobId),'DELETE');clearTimeout(timer);generation++;running=false;job={...(job||{}),query:activeQuery,state:'cancelled'};render();saveHistory();updateSearchButton()}catch(e){msg(e.message)}}
 async function startSearch(retry=null){
  if(starting)return;msg('');
  const q=retry?activeQuery:$('query').value.trim();if(q.length<3)return;
  if(!$('consent').checked){msg('Разрешите обработку сведений о товарах в настройках.');openSettings();return}
- starting=true;$('searchButton').disabled=true;
+ starting=true;$('searchButton').disabled=true;showSuggestion();updateSearchButton();renderProgress();
  try{const shops=retry||policy.shops;const p=retry?activePolicy:policy;const x=await api('/api/mobile/browser/start','POST',{query:q,shops,max_days:p.maxDays,allow_late:p.allowLate,discount_percent:p.discount});if(!retry){activePolicy={...policy};activeShops=shops.slice();scanDate=new Date().toISOString();retainedOffers=[];retainedMarkets={};expanded=false;}else{retainedOffers=(job?.offers||[]).filter(o=>!shops.includes(shop(o)));retainedMarkets=Object.fromEntries(Object.entries(job?.markets||{}).filter(([id])=>!shops.includes(id)));}activeQuery=q;view('search');openJob(x.id)}
  catch(e){msg(e.message)}
- finally{starting=false;$('searchButton').disabled=false}
+ finally{starting=false;$('searchButton').disabled=false;updateSearchButton();renderProgress()}
 }
 function openJob(id){clearTimeout(timer);jobId=id;job={query:activeQuery,state:'running',offers:retainedOffers.slice(),markets:{...retainedMarkets}};running=true;updateSearchButton();generation++;$('results').hidden=false;$('jobState').textContent='Ищем предложения';$('resultsHeading').textContent=$('query').value.trim()||'Результаты';$('offers').innerHTML='<div class="empty">Поиск выполняется...</div>';$('marketStatuses').innerHTML='';$('count').textContent='';render();saveHistory();poll(generation)}
-async function poll(g){try{const data=await api('/api/mobile/browser/jobs/'+encodeURIComponent(jobId));if(g!==generation)return;job={...data,query:activeQuery,offers:[...retainedOffers,...(data.offers||[])],markets:{...retainedMarkets,...data.markets}};running=job.state==='running';updateSearchButton();render();saveHistory();if(running)timer=setTimeout(()=>poll(g),1500)}catch(e){if(g!==generation)return;$('jobState').textContent=e.status===404?'Серверный поиск больше недоступен · сохранённые результаты':e.message;running=false;if(job){job.state='interrupted';saveHistory()}updateSearchButton()}}
+async function poll(g){try{const data=await api('/api/mobile/browser/jobs/'+encodeURIComponent(jobId));if(g!==generation)return;job={...data,query:activeQuery,offers:[...retainedOffers,...(data.offers||[])],markets:{...retainedMarkets,...data.markets}};running=job.state==='running';updateSearchButton();render();saveHistory();if(running)timer=setTimeout(()=>poll(g),1500)}catch(e){if(g!==generation)return;$('jobState').textContent=e.status===404?'Серверный поиск больше недоступен · сохранённые результаты':e.message;running=false;if(job){job.state='interrupted';render();saveHistory()}updateSearchButton();renderProgress()}}
 function link(url){try{const u=new URL(url);return u.protocol==='https:'&&markets.some(([m])=>m==='ozon'?/(^|\.)ozon\.ru$/.test(u.hostname):m==='wb'?/(^|\.)wildberries\.ru$/.test(u.hostname):u.hostname==='market.yandex.ru')?u.href:''}catch{return ''}}
 function image(url){try{const u=new URL(url);return u.protocol==='https:'?u.href:''}catch{return ''}}
 function shop(o){return o.market_id||markets.find(x=>x[1]===o.market)?.[0]||''}
@@ -77,20 +112,27 @@ function chooseOffers(all,p,more,deliveryFirst=false){
 function renderCards(filtered){return filtered.map(o=>'<article class="offer">'+(img(o,'product-image')||'<div class="product-image blank">Фото</div>')+'<div class="offer-main"><div class="offer-meta">'+esc(markets.find(x=>x[0]===o.market_id)?.[1]||o.market)+'</div><h3>'+esc(o.title)+'</h3><div class="offer-meta">'+esc(deliveryText(o))+' · '+(o.verified_detail?'Цена подтверждена':'Цена из выдачи')+'</div></div><div class="offer-price"><strong>'+rub(o.price)+'</strong><small>'+esc(o.condition||'')+'</small><a href="'+esc(link(o.url))+'" target="_blank" rel="noopener noreferrer">В магазин ↗</a></div></article>').join('')||'<div class="empty">'+(job.state==='running'?'Поиск выполняется…':'Подходящих предложений нет.')+'</div>';}
 function render(){
  if(!job)return;
+ renderProgress();
  $('resultsHeading').textContent=job.query;$('jobState').textContent=job.state==='running'?'Поиск выполняется':job.state==='finished'?(Object.values(job.markets||{}).some(m=>m.coverage_complete!==true)?'Выдача проверена частично':'Поиск завершён'):job.state==='cancelled'?'Поиск остановлен':job.error||'Поиск завершён с ошибкой';
  const all=offersOf(job).sort((a,b)=>a.price-b.price);const status=job.markets||{};
  const summary=chooseOffers(all,activePolicy,false);
+ const incomplete=activeShops.filter(id=>status[id]?.coverage_complete!==true);
+ $('coverageNotice').hidden=running||!incomplete.length;
+ $('coverageNotice').textContent='Не удалось полностью проверить: '+incomplete.map(id=>markets.find(x=>x[0]===id)?.[1]||id).join(', ')+'. Минимальная цена по всем магазинам не установлена.';
+ $('retryResults').hidden=running||!missingShops().length;
  $('bestSummary').hidden=false;$('bestSummary').innerHTML='<span class="muted">Лучшая найденная цена · '+esc(deadline(activePolicy,new Date(scanDate)))+'</span><strong>'+ (summary.best?rub(summary.best.price):'Пока не найдено')+'</strong>'+(summary.best?'<span class="muted">'+esc(markets.find(x=>x[0]===shop(summary.best))?.[1]||'')+' · '+esc(deliveryText(summary.best))+' · '+(summary.best.verified_detail?'Цена подтверждена':'Цена из выдачи, требует проверки')+'</span>':'');
  $('marketStatuses').innerHTML=markets.filter(([id])=>activeShops.includes(id)||id in status).map(([id,name])=>{
  const group=summary.visible.filter(o=>shop(o)===id&&days(o)<=activePolicy.maxDays),best=group[0],m=status[id]||{};
- return '<article class="market-card"><div class="market-top"><strong>'+name+'</strong><span class="muted">'+esc(states[m.state]||'Ожидание')+'</span></div>'+(best?img(best,'')+'<div class="market-price">'+rub(best.price)+'</div><div class="market-detail">'+esc(deliveryText(best))+'</div><div class="market-detail">'+(best.verified_detail?'Подтверждено':'Цена из выдачи')+'</div><a href="'+esc(link(best.url))+'" target="_blank" rel="noopener noreferrer">Открыть товар ↗</a>':'<div class="market-price">—</div><div class="market-detail">'+(['pending','searching','checking'].includes(m.state)||!m.state&&running?'Ищем предложения…':'Нет подходящего предложения')+'</div>')+'</article>';
+ return '<article class="market-card"><div class="market-top"><strong>'+name+'</strong><span class="muted">'+esc(marketStage(m,running))+'</span></div>'+(best?'<div class="market-product">'+(img(best,'')||'<div class="product-image blank">Фото</div>')+'<h3>'+esc(best.title)+'</h3></div><div class="market-price">'+rub(best.price)+'</div><div class="market-detail">'+esc(deliveryText(best))+'</div><div class="market-detail">'+(best.verified_detail?'Подтверждено':'Цена из выдачи')+(best.condition?' · '+esc(best.condition):'')+'</div><a href="'+esc(link(best.url))+'" target="_blank" rel="noopener noreferrer">В магазин ↗</a>':'<div class="market-price">—</div><div class="market-detail">'+esc(emptyMarket(m,running))+'</div>')+'</article>';
  }).join('');
  const filtered=all.filter(o=>($('marketFilter').value==='all'||shop(o)===$('marketFilter').value)&&(!$('verifiedFilter').checked||o.verified_detail));
  const selected=chooseOffers(filtered,activePolicy,expanded,$('sortFilter').value==='delivery'),compact=chooseOffers(filtered,activePolicy,false),full=chooseOffers(filtered,activePolicy,true);
- const timely=selected.visible.filter(o=>days(o)<=activePolicy.maxDays),late=selected.visible.filter(o=>days(o)>activePolicy.maxDays);
- $('offersHeading').textContent=expanded?'Выгодные варианты':'Лучшие по площадкам';$('count').textContent=selected.visible.length+' предлож.';
- $('offers').innerHTML=(timely.length?renderCards(timely):'<div class="empty">'+(running?'Поиск выполняется…':'Нет предложений с подходящим сроком.')+'</div>')+(late.length?'<h3 class="group-title">Позже, но дешевле</h3>'+renderCards(late):'')+(selected.outside?'<h3 class="group-title">Минимальная цена вне условий поиска</h3>'+renderCards([selected.outside]):'');
- const extra=full.visible.length-compact.visible.length;$('moreOffers').hidden=extra<=0;$('moreOffers').textContent=expanded?'Скрыть дополнительные предложения':'Показать выгодные варианты · '+extra;
+ const shownKeys=new Set(summary.visible.filter(o=>days(o)<=activePolicy.maxDays).map(displayKey));
+ const timely=selected.visible.filter(o=>days(o)<=activePolicy.maxDays&&!shownKeys.has(displayKey(o))),late=selected.visible.filter(o=>days(o)>activePolicy.maxDays);
+ $('extraSection').hidden=!expanded&&!late.length&&!selected.outside;
+ $('offersHeading').textContent='Другие предложения';$('count').textContent=(timely.length+late.length+(selected.outside?1:0))+' предлож.';
+ $('offers').innerHTML=(timely.length?renderCards(timely):'')+(late.length?'<h3 class="group-title">Позже, но дешевле</h3>'+renderCards(late):'')+(selected.outside?'<h3 class="group-title">Минимальная цена вне условий поиска</h3>'+renderCards([selected.outside]):'');
+ const extra=full.visible.filter(o=>days(o)<=activePolicy.maxDays&&!shownKeys.has(displayKey(o))).length;$('moreOffers').hidden=extra<=0;$('moreOffers').textContent=expanded?'Скрыть дополнительные предложения':'Показать выгодные варианты · '+extra;
  renderShops();
 }
 function missingShops(){return activeShops.filter(id=>!offersOf(job||{}).some(o=>shop(o)===id&&days(o)<=activePolicy.maxDays&&o.verified_detail))}
@@ -99,7 +141,7 @@ function renderShops(){const status=job?.markets||{};const homes={ozon:'https://
  $('retryMissing').hidden=!job||running||!missingShops().length;
 }
 $('moreOffers').onclick=()=>{expanded=!expanded;render()};
-$('retryMissing').onclick=()=>{if(!running&&missingShops().length)startSearch(missingShops())};
+$('retryMissing').onclick=$('retryResults').onclick=()=>{if(!running&&missingShops().length)startSearch(missingShops())};
 $('showReport').onclick=()=>{if(!job){alert('Поиск ещё не запускался');return}const report=JSON.stringify({query:activeQuery,policy:activePolicy,markets:job.markets,errors:job.errors},null,2);const url=URL.createObjectURL(new Blob([report],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download='marketradar-search-report.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)};
 
 for(const id of ['marketFilter','sortFilter','verifiedFilter'])$(id).onchange=render;

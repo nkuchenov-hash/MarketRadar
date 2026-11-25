@@ -101,3 +101,30 @@ def test_yandex_browser_listing_is_not_skipped_after_html_success(monkeypatch):
     assert sorted(x["price"] for x in job["offers"])==[12702,12998]
     assert state["best_found"]==12702
     assert not state["coverage_complete"]
+
+def test_units_are_not_interchangeable():
+    assert not exact_product("Яндекс лампочка 1300 вт","Умная лампочка Яндекс E27 RGB 1300 Лм")
+    assert exact_product("Яндекс лампочка 1300 лм","Умная лампа Яндекс E27 RGB 1300лм")
+    assert not exact_product("Яндекс лампа 1300 лм","Яндекс лампа 800 лм")
+    assert exact_product("обогреватель 2 квт","Обогреватель 2000 вт")
+
+def test_bounded_retry_for_empty_market_listing(monkeypatch):
+    searched=[]
+    class Engine:
+        async def start(self):pass
+        async def close(self):pass
+        async def snapshot(self,url):
+            if "search" in url:
+                searched.append(url)
+                if len(searched)==1:return {"state":"blocked","links":[]}
+                return {"state":"ok","links":[row(100001,11500,"завтра")]}
+            return {"state":"blocked"}
+    monkeypatch.setattr(r,"CloudBrowser",Engine)
+    job={"query":Q,"offers":[],"state":"running"}
+    state={"checked":0}
+    asyncio.run(r.run_fast(job,state,"wb",exact_product))
+    assert len(searched)==2
+    assert "sort=priceup" in searched[0] and "sort=priceup" not in searched[1]
+    assert state["retry_attempt"]==1
+    assert state["detail_total"]==1
+    assert job["offers"][0]["price"]==11500

@@ -9,7 +9,7 @@ from datetime import datetime, date
 from statistics import median
 import re
 import time
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit, urlunsplit, parse_qsl, urlencode
 from zoneinfo import ZoneInfo
 from .core import MARKETS, is_product_link
 from .cloud_browser import CloudBrowser, sorted_search_url
@@ -98,6 +98,7 @@ async def run_fast(job,state,shop,exact_product):
     max_days=policy.get("max_days",3); allow_late=policy.get("allow_late",False); discount_percent=policy.get("discount_percent",20)
     state["coverage_complete"]=False
     state["audit"]={"source":"retail_fast","coverageComplete":False}
+    state["phase"]="listing"
     def rows():return candidates(list(ledger.values()),job["query"],market,exact_product)
     def ingest(data):
         for x in data.get("links",[]):
@@ -150,12 +151,30 @@ async def run_fast(job,state,shop,exact_product):
             state["audit"]["browser"]=data.get("audit",{})
         except Exception as e:
             issues.append("listing_browser:"+type(e).__name__)
-        state["state"]="checking"
+        # One bounded alternative normal storefront search if the initial
+        # listing gave no exact candidates. Never try to bypass access checks.
+        if not rows():
+            state.update(state="searching",phase="retry",retry_attempt=1,message="Повторяем поиск")
+            try:
+                u=urlsplit(url)
+                plain=urlunsplit(u._replace(query=urlencode([(k,v) for k,v in parse_qsl(u.query) if k not in ("how","sort","sorting")])))
+                data=await asyncio.wait_for(engine.snapshot(plain),timeout=22)
+                ingest(data);publish()
+                state["audit"]["browser_retry"]=data.get("audit",{})
+            except Exception as e:issues.append("listing_retry:"+type(e).__name__)
+            if shop=="wb" and not rows():
+                try:
+                    data=await asyncio.wait_for(asyncio.to_thread(fetch_public_search_html,url,max_pages=2,request_timeout=4,retries=0),timeout=9)
+                    ingest(data);publish()
+                    state["audit"]["public_html_retry"]=data.get("audit",{})
+                except Exception as e:issues.append("html_retry:"+type(e).__name__)
+        state.update(state="checking",phase="details")
         async def check(x):
             try:return await asyncio.wait_for(engine.snapshot(x["url"]),timeout=12)
             except Exception as e:
                 issues.append("detail:"+type(e).__name__);return {}
-        picks=shortlist(rows(),4,max_days,allow_late,discount_percent)
+        picks=shortlist(rows(),8,max_days,allow_late,discount_percent)
+        state["detail_total"]=len(picks)
         late=[]
         for offset in range(0,len(picks),2):
             batch=picks[offset:offset+2]
@@ -174,8 +193,12 @@ async def run_fast(job,state,shop,exact_product):
                 if shop=="wb" and d.get("detail_price_source")!="wb_visible_buybox":continue
                 o=offer(shop,x,True,d)
                 provisional.pop(x["url"],None)
-                if dd<=max_days or allow_late:confirmed[x["url"]]=o
-                else:late.append(o)
+                if dd<=max_days:confirmed[x["url"]]=o
+                elif allow_late:late.append(o)
+            reference=min((x["price"] for x in confirmed.values() if x["delivery_days"]<=max_days),default=0)
+            if allow_late and reference:
+                for o in late:
+                    if o["price"]*100<=reference*(100-discount_percent):confirmed[o["url"]]=o
             sync()
     except asyncio.CancelledError:raise
     except Exception as e:issues.append(type(e).__name__)
@@ -184,6 +207,7 @@ async def run_fast(job,state,shop,exact_product):
             try:await engine.close()
             except Exception as e:issues.append("close:"+type(e).__name__)
         state["audit"].update({"seconds":round(time.monotonic()-t,3),"scanned":len(ledger),"candidates":len(rows()),"checked":state["checked"],"issues":issues,"coverageComplete":False})
+        state["phase"]="done"
         state["state"]="partial" if ledger or provisional or confirmed else "blocked"
         state["message"]=f"Подтверждено карточек: {len(confirmed)}; из выдачи: {len(provisional)}. Полнота и регион не гарантированы."
         sync()
