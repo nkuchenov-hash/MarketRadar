@@ -223,8 +223,12 @@ async def run_market(job: dict, shop_id: str):
         return
     mode=job.get("policy",{}).get("search_mode","auto")
     if shop_id in ("wb", "ym") and (mode=="fast" or (mode=="auto" and os.getenv("MARKETRADAR_RETAIL_FAST", "").lower() in ("1", "true", "yes"))):
-        from .retail_fast import run_fast
-        await run_fast(job, state, shop_id, exact_product)
+        from .retail_fast import run_fast, run_specialist
+        endpoint=os.getenv("MARKETRADAR_"+shop_id.upper()+"_SPECIALIST_URL","").strip()
+        if endpoint:
+            await run_specialist(job,state,shop_id,exact_product,endpoint)
+        else:
+            await run_fast(job, state, shop_id, exact_product)
         if mode=="fast":return
         max_days=job.get("policy",{}).get("max_days",3)
         has_verified=any(o.get("market_id")==shop_id and o.get("verified_detail")

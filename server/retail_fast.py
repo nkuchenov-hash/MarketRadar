@@ -249,3 +249,38 @@ async def run_fast(job,state,shop,exact_product):
         state["state"]="partial" if ledger or provisional or confirmed else "blocked"
         state["message"]=f"Подтверждено карточек: {len(confirmed)}; из выдачи: {len(provisional)}. Полнота и регион не гарантированы."
         sync()
+
+async def run_specialist(job,state,shop,exact_product,endpoint):
+    """Private external worker contract; provider rows are not product-page evidence."""
+    import httpx
+    t=time.monotonic()
+    state.update(coverage_complete=False,phase="listing",audit={"source":"specialist","coverageComplete":False})
+    policy=job.get("policy",{})
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(80,connect=5),trust_env=False,follow_redirects=False) as client:
+            response=await client.post(endpoint.rstrip("/")+"/search",json={"query":job["query"],"max_days":policy.get("max_days",3),"allow_late":policy.get("allow_late",False),"discount_percent":policy.get("discount_percent",20)})
+            response.raise_for_status()
+            data=response.json()
+        market={"wb":"Wildberries","ym":"Яндекс Маркет"}[shop]
+        valid=[]
+        for x in data.get("offers",[]):
+            if not isinstance(x,dict) or not is_product_link(market,str(x.get("url",""))) or not exact_product(job["query"],str(x.get("title",""))) or not amount(x.get("price")):continue
+            d=x.get("delivery_days")
+            if type(d) is not int or d<0:continue
+            valid.append({"market_id":shop,"title":str(x["title"])[:240],"url":x["url"],"price":amount(x["price"]),
+                          "price_regular":x.get("price_regular"),"condition":str(x.get("condition",""))[:100],
+                          "delivery":str(x.get("delivery",""))[:100],"delivery_days":d,
+                          "delivery_fee":x.get("delivery_fee"),"total_price":x.get("total_price"),"image_url":str(x.get("image_url",""))[:900],
+                          "verified_detail":False,"note":"Цена и доставка из отдельного источника; карточка магазина не проверена"})
+        max_days=policy.get("max_days",3)
+        timely=[x for x in valid if x["delivery_days"]<=max_days]
+        best=min((x["price"] for x in timely),default=0)
+        offers=timely+[x for x in valid if x["delivery_days"]>max_days and policy.get("allow_late",False) and best and x["price"]*100<=best*(100-policy.get("discount_percent",20))]
+        job["offers"].extend(offers)
+        state.update(state="partial" if offers else "blocked",candidates=len(valid),best_found=min((x["price"] for x in offers),default=0),best_verified=0,message="Отдельный сервис: найдено "+str(len(offers)))
+        state["audit"]={"source":"specialist","provider":data.get("audit",{}),"seconds":round(time.monotonic()-t,3),"coverageComplete":False}
+    except asyncio.CancelledError:raise
+    except Exception as e:
+        state.update(state="error",message="Отдельный сервис недоступен",failure_type=type(e).__name__)
+    finally:
+        state["phase"]="done"

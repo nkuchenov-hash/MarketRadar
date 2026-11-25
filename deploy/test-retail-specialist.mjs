@@ -1,0 +1,18 @@
+import assert from "node:assert/strict";
+import {normalizeOffer,findRetailOffers} from "./retail-specialist-core.mjs";
+const q="Яндекс Станция Мини 3 Про",wb={offer_name:q,price:12000,price_wb_pay:11000,delivery_time:"Завтра",delivery_cost:0,on_stock:1,url:"https://www.wildberries.ru/catalog/123456/detail.aspx",model_id:123456};
+const a=normalizeOffer("wb",wb,q);
+assert.equal(a.price,11000);assert.equal(a.total_price,11000);assert.equal(a.delivery_days,1);assert.equal(a.verified_detail,false);
+assert.equal(normalizeOffer("wb",{...wb,on_stock:0},q),null);
+assert.equal(normalizeOffer("wb",{...wb,url:"https://example.com/catalog/123456/detail.aspx"},q),null);
+assert.equal(normalizeOffer("wb",{...wb,offer_name:"Чехол для "+q},q),null);
+assert.equal(normalizeOffer("wb",{...wb,delivery_time:"с 1 декабря"},q).delivery_days,null);
+const ym={offer_name:q,price:12000,price_yandex_pay:12500,delivery_time:"Послезавтра, ПВЗ По клику",url:"https://market.yandex.ru/card/market/123456",offer_id:"x"};
+assert.equal(normalizeOffer("ym",ym,q).price,12000);assert.equal(normalizeOffer("ym",ym,q).delivery_days,2);
+let calls=0;
+const f=async(u,opts)=>{calls++;assert.equal(u.protocol,"https:");assert.equal(opts.redirect,"error");assert.equal(u.searchParams.get("sort"),"priceup");return {ok:true,json:async()=>({offers:[wb],total_pages:1})};};
+const result=await findRetailOffers({shop:"wb",query:q,key:"fixture",gps:"59.93,30.31"},f,async()=>{});
+assert.equal(calls,1);assert.equal(result.offers.length,1);assert.equal(result.audit.region_confirmed,false);
+const mismatch=await findRetailOffers({shop:"ym",query:q,key:"fixture",geoId:2},async()=>({ok:true,json:async()=>({region_id:213,offers:[ym]})}),async()=>{});
+assert.equal(mismatch.offers.length,0);assert.equal(mismatch.audit.issues[0],"Region mismatch");
+console.log("Specialist catalog normalization and safety tests passed");
