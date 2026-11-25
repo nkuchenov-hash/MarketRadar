@@ -7,13 +7,13 @@ const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 const stored=(key,fallback)=>{try{return localStorage.getItem(key)??fallback}catch{return fallback}};
 const store=(key,v)=>{try{localStorage.setItem(key,v)}catch{}};
 let jobId=null,job=null,timer=null,starting=false,generation=0,activeQuery='',expanded=false,activeShops=[],retainedOffers=[],retainedMarkets={},running=false;
-const defaults={maxDays:3,allowLate:false,discount:20,shops:['ozon','wb','ym']};
+const defaults={maxDays:3,allowLate:false,discount:20,searchMode:'auto',shops:['ozon','wb','ym']};
 const bounded=(v,min,max,fallback)=>Number.isFinite(Number(v))&&String(v).trim()!==''?Math.min(max,Math.max(min,Math.trunc(Number(v)))):fallback;
-function readPolicy(){try{const p=JSON.parse(stored('mr_policy','{}'));return {maxDays:bounded(p.maxDays,0,90,3),allowLate:!!p.allowLate,discount:bounded(p.discount,1,90,20),shops:Array.isArray(p.shops)&&p.shops.some(x=>defaults.shops.includes(x))?defaults.shops.filter(x=>p.shops.includes(x)):defaults.shops.slice()}}catch{return {...defaults,shops:defaults.shops.slice()}}}
+function readPolicy(){try{const p=JSON.parse(stored('mr_policy','{}'));return {maxDays:bounded(p.maxDays,0,90,3),allowLate:!!p.allowLate,discount:bounded(p.discount,1,90,20),searchMode:['auto','fast','deep'].includes(p.searchMode)?p.searchMode:'auto',shops:Array.isArray(p.shops)&&p.shops.some(x=>defaults.shops.includes(x))?defaults.shops.filter(x=>p.shops.includes(x)):defaults.shops.slice()}}catch{return {...defaults,shops:defaults.shops.slice()}}}
 let policy=readPolicy(),activePolicy={...policy},scanDate=new Date().toISOString();
 const shopIds={ozon:'scanOzon',wb:'scanWb',ym:'scanYm'};
 function deadline(p,base=new Date()){const d=new Date(base);d.setDate(d.getDate()+p.maxDays);return 'Доставка до '+d.toLocaleDateString('ru-RU',{day:'numeric',month:'long'})+' · '+p.maxDays+' дн.'}
-function fillSettings(){for(const [m,id] of Object.entries(shopIds))$(id).checked=policy.shops.includes(m);$('maxDays').value=policy.maxDays;$('allowLate').checked=policy.allowLate;$('discount').value=policy.discount;previewDeadline();}
+function fillSettings(){for(const [m,id] of Object.entries(shopIds))$(id).checked=policy.shops.includes(m);$('searchMode').value=policy.searchMode;$('maxDays').value=policy.maxDays;$('allowLate').checked=policy.allowLate;$('discount').value=policy.discount;previewDeadline();}
 function previewDeadline(){$('discount').disabled=!$('allowLate').checked;$('deadlinePreview').textContent=deadline({maxDays:bounded($('maxDays').value,0,90,3)});}
 function updateDeadline(){$('deadlineLabel').textContent=deadline(policy);}
 function openSettings(){fillSettings();$('settings').showModal();}
@@ -32,7 +32,7 @@ setTheme(stored('mr_theme','system'));updateDeadline();fillSettings();$('consent
 $('theme').onchange=()=>setTheme($('theme').value);
 $('settingsButton').onclick=openSettings;$('editDeadline').onclick=openSettings;$('maxDays').oninput=previewDeadline;$('allowLate').onchange=previewDeadline;
 $('closeSettings').onclick=()=>$('settings').close();
-$('saveSettings').onclick=()=>{const shops=Object.keys(shopIds).filter(m=>$(shopIds[m]).checked);if(!shops.length){alert('Выберите хотя бы один магазин');return}if(!$('maxDays').reportValidity()||!$('discount').reportValidity())return;policy={maxDays:bounded($('maxDays').value,0,90,3),allowLate:$('allowLate').checked,discount:bounded($('discount').value,1,90,20),shops};store('mr_policy',JSON.stringify(policy));store('mr_consent',$('consent').checked?'yes':'no');updateDeadline();$('settings').close()};
+$('saveSettings').onclick=()=>{const shops=Object.keys(shopIds).filter(m=>$(shopIds[m]).checked);if(!shops.length){alert('Выберите хотя бы один магазин');return}if(!$('maxDays').reportValidity()||!$('discount').reportValidity())return;policy={maxDays:bounded($('maxDays').value,0,90,3),allowLate:$('allowLate').checked,discount:bounded($('discount').value,1,90,20),searchMode:$('searchMode').value,shops};store('mr_policy',JSON.stringify(policy));store('mr_consent',$('consent').checked?'yes':'no');updateDeadline();$('settings').close()};
 function view(name){for(const v of ['search','history','shops']){$(v+'View').hidden=v!==name;$(v+'Tab').classList.toggle('active',v===name)}if(name==='shops')renderShops()}
 $('searchTab').onclick=()=>view('search');
 $('historyTab').onclick=()=>{view('history');loadHistory()};$('shopsTab').onclick=()=>view('shops');
@@ -76,7 +76,7 @@ async function startSearch(retry=null){
  const q=retry?activeQuery:$('query').value.trim();if(q.length<3)return;
  if(!$('consent').checked){msg('Разрешите обработку сведений о товарах в настройках.');openSettings();return}
  starting=true;$('searchButton').disabled=true;updateSearchButton();renderProgress();
- try{const shops=retry||policy.shops;const p=retry?activePolicy:policy;const x=await api('/api/mobile/browser/start','POST',{query:q,shops,max_days:p.maxDays,allow_late:p.allowLate,discount_percent:p.discount});if(!retry){activePolicy={...policy};activeShops=shops.slice();scanDate=new Date().toISOString();retainedOffers=[];retainedMarkets={};expanded=false;}else{retainedOffers=(job?.offers||[]).filter(o=>!shops.includes(shop(o)));retainedMarkets=Object.fromEntries(Object.entries(job?.markets||{}).filter(([id])=>!shops.includes(id)));}activeQuery=q;view('search');openJob(x.id)}
+ try{const shops=retry||policy.shops;const p=retry?activePolicy:policy;const x=await api('/api/mobile/browser/start','POST',{query:q,shops,max_days:p.maxDays,allow_late:p.allowLate,discount_percent:p.discount,search_mode:p.searchMode||'auto'});if(!retry){activePolicy={...policy};activeShops=shops.slice();scanDate=new Date().toISOString();retainedOffers=[];retainedMarkets={};expanded=false;}else{retainedOffers=(job?.offers||[]).filter(o=>!shops.includes(shop(o)));retainedMarkets=Object.fromEntries(Object.entries(job?.markets||{}).filter(([id])=>!shops.includes(id)));}activeQuery=q;view('search');openJob(x.id)}
  catch(e){msg(e.message)}
  finally{starting=false;$('searchButton').disabled=false;updateSearchButton();renderProgress()}
 }

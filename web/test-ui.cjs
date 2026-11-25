@@ -27,3 +27,5 @@ assert.equal(context.testApi.progressInfo({wb:{state:'partial'},ym:{state:'check
 assert(html.includes('id="searchProgress"'));
 
 assert(!html.includes('id="acceptSuggestion"'));assert(html.includes('id="interpretedQuery"'));
+
+assert(html.includes('id="searchMode"'));assert(html.includes('value="deep"'));assert(js.includes("search_mode:p.searchMode"));

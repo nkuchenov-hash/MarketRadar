@@ -3,6 +3,7 @@ import asyncio, os, time, secrets, json, hmac, re
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Literal
 from collections import defaultdict,deque
 from dotenv import load_dotenv
 load_dotenv()
@@ -73,6 +74,7 @@ class MobileBrowserSearch(BaseModel):
     max_days:int=Field(default=3,ge=0,le=90)
     allow_late:bool=False
     discount_percent:int=Field(default=20,ge=1,le=90)
+    search_mode:Literal['auto','fast','deep']='auto'
 
 def mobile_access(request:Request):
     """VPS deployment enables a private per-install access key."""
@@ -113,7 +115,7 @@ async def mobile_browser_start(request:Request,data:MobileBrowserSearch,response
         for key,record in list(GUEST_JOBS.items()):
             if record[1]<t:GUEST_JOBS.pop(key,None)
     try:
-        result=mobile_cloud.start_job(data.query.strip(),data.shops,max_days=data.max_days,allow_late=data.allow_late,discount_percent=data.discount_percent)
+        result=mobile_cloud.start_job(data.query.strip(),data.shops,max_days=data.max_days,allow_late=data.allow_late,discount_percent=data.discount_percent,search_mode=data.search_mode)
         if guest:
             cookie=request.cookies.get(GUEST_COOKIE,'')
             if not re.fullmatch(r'[A-Za-z0-9_-]{43}',cookie):cookie=opaque_token(32)

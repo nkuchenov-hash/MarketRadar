@@ -166,7 +166,9 @@ def plausible_listing(query: str, title: str) -> bool:
 def _job(job_id):
     return JOBS.get(job_id)
 
-def start_job(query: str, shops: list[str], *, max_days: int = 3, allow_late: bool = False, discount_percent: int = 20) -> dict:
+def start_job(query: str, shops: list[str], *, max_days: int = 3, allow_late: bool = False, discount_percent: int = 20, search_mode: str = 'auto') -> dict:
+    if search_mode not in ("auto","fast","deep"):
+        raise ValueError("Неизвестный режим поиска")
     now = time.monotonic()
     for key, job in list(JOBS.items()):
         if job["created_monotonic"] < now - 3600 and job["state"] not in ("running",):
@@ -183,7 +185,7 @@ def start_job(query: str, shops: list[str], *, max_days: int = 3, allow_late: bo
     job = {
         "id": job_id, "query": query, "original_query":query, "shops": shops,
         "policy": {"max_days": max(0,min(90,int(max_days))), "allow_late": bool(allow_late),
-                   "discount_percent": max(1,min(90,int(discount_percent)))},
+                   "discount_percent": max(1,min(90,int(discount_percent))), "search_mode":search_mode},
         "state": "running", "created_monotonic": now,
         "started": int(time.time()), "finished": None,
         "markets": {s: {"state": "pending", "candidates": 0, "checked": 0,
@@ -219,9 +221,11 @@ async def run_market(job: dict, shop_id: str):
             state.setdefault("audit",{})["original_query_audit"]=first_audit
             state["audit"]["alternate_query"]=alternate
         return
-    if shop_id in ("wb", "ym") and os.getenv("MARKETRADAR_RETAIL_FAST", "").lower() in ("1", "true", "yes"):
+    mode=job.get("policy",{}).get("search_mode","auto")
+    if shop_id in ("wb", "ym") and (mode=="fast" or (mode=="auto" and os.getenv("MARKETRADAR_RETAIL_FAST", "").lower() in ("1", "true", "yes"))):
         from .retail_fast import run_fast
         await run_fast(job, state, shop_id, exact_product)
+        if mode=="fast":return
         max_days=job.get("policy",{}).get("max_days",3)
         has_verified=any(o.get("market_id")==shop_id and o.get("verified_detail")
                          and isinstance(o.get("delivery_days"),int)
@@ -252,7 +256,12 @@ async def run_market(job: dict, shop_id: str):
             state["best_verified"]=min((o["price"] for o in survivors if o.get("verified_detail")),default=0)
             if survivors:state["state"]="partial"
         return
-    await run_deep_market(job,shop_id)
+    try:
+        await asyncio.wait_for(run_deep_market(job,shop_id),timeout=360)
+    except asyncio.TimeoutError:
+        state.update(state="partial",message="Расширенный поиск достиг лимита времени",coverage_complete=False)
+    finally:
+        merge_market_offers(job,shop_id)
 
 def merge_market_offers(job,shop_id):
     from .retail_fast import days

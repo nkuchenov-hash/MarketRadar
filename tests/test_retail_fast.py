@@ -246,3 +246,21 @@ def test_private_display_lifecycle(monkeypatch):
         await engine.stop_display()
         assert proc.returncode==0 and engine.display_process is None
     asyncio.run(run())
+
+def test_search_modes_are_independent(monkeypatch):
+    from server import mobile_cloud
+    monkeypatch.setenv("MARKETRADAR_RETAIL_FAST","true")
+    calls=[]
+    async def fast(job,state,shop,match):
+        calls.append("fast")
+        state.update(state="blocked",audit={"source":"retail_fast"},checked=0)
+    async def deep(job,shop):
+        calls.append("deep")
+        job["markets"][shop].update(state="blocked",audit={"source":"chromium"},checked=0)
+    monkeypatch.setattr(r,"run_fast",fast)
+    monkeypatch.setattr(mobile_cloud,"run_deep_market",deep)
+    for mode,expected in [("fast",["fast"]),("deep",["deep"]),("auto",["fast","deep"])]:
+        calls.clear()
+        job={"query":Q,"state":"running","offers":[],"markets":{"wb":{}},"policy":{"search_mode":mode}}
+        asyncio.run(mobile_cloud.run_market(job,"wb"))
+        assert calls==expected
