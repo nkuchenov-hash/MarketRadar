@@ -17,7 +17,7 @@ image="$(docker inspect --format '{{.Image}}' "$backend")"
 stamp="$(date -u +%Y%m%d-%H%M%SZ)"
 live="$root/deploy/retail-live-$stamp"
 install -d -m 0755 "$live"
-files=(retail_fast.py web_cloud.py public_html.py cloud_browser.py mobile_cloud.py agent.py main.py index.html app.js)
+files=(retail_fast.py web_cloud.py public_html.py cloud_browser.py mobile_cloud.py agent.py main.py index.html app.js style.css)
 for f in "${files[@]}"; do install -m 0644 "$src/$f" "$live/$f"; done
 docker run --rm --network none --read-only --entrypoint python -v "$live:/candidate:ro" "$image" -c 'from pathlib import Path; [compile(p.read_text(),str(p),"exec") for p in Path("/candidate").glob("*.py")]'
 cp -a "$override" "$live/previous.override.yml"
@@ -25,16 +25,21 @@ python3 - "$override" "$live" <<'PY'
 from pathlib import Path
 import sys,re
 p=Path(sys.argv[1]); live=Path(sys.argv[2]); s=p.read_text()
-if "MARKETRADAR_WEB_CLOUD_FAST" in s:
-    raise SystemExit("Shared retail overlay already configured; inspect before upgrading")
 anchor="      MARKETRADAR_OZON_MCP_URL: http://ozon-mcp-live:8765"
 if s.count(anchor)!=1:raise SystemExit("Unexpected Ozon overlay environment")
-s=s.replace(anchor,anchor+"\n      MARKETRADAR_RETAIL_FAST: 'true'\n      MARKETRADAR_WEB_CLOUD_FAST: 'true'")
-mount="      - ./ozon-live/mobile_cloud.py:/app/server/mobile_cloud.py:ro"
-if s.count(mount)!=1:raise SystemExit("Unexpected Ozon overlay mounts")
+if "MARKETRADAR_RETAIL_FAST:" not in s:
+    s=s.replace(anchor,anchor+"\n      MARKETRADAR_RETAIL_FAST: 'true'")
+if "MARKETRADAR_WEB_CLOUD_FAST:" not in s:
+    s=s.replace(anchor,anchor+"\n      MARKETRADAR_WEB_CLOUD_FAST: 'true'")
 mapping={f:f"/app/server/{f}" for f in ("retail_fast.py","web_cloud.py","public_html.py","cloud_browser.py","mobile_cloud.py","agent.py","main.py")}
-mapping.update({"index.html":"/app/web/index.html","app.js":"/app/web/app.js"})
-s=s.replace(mount,"\n".join(f"      - {live/f}:{target}:ro" for f,target in mapping.items()))
+mapping.update({"index.html":"/app/web/index.html","app.js":"/app/web/app.js","style.css":"/app/web/style.css"})
+lines=s.splitlines()
+indices=[i for i,line in enumerate(lines) if any(line.strip().endswith(":"+target+":ro") for target in mapping.values())]
+if not indices:raise SystemExit("Unexpected existing overlay mounts")
+first=indices[0]
+lines=[line for i,line in enumerate(lines) if i not in indices]
+lines[first:first]=[f"      - {live/f}:{target}:ro" for f,target in mapping.items()]
+s="\n".join(lines)+"\n"
 (live/"candidate.override.yml").write_text(s)
 PY
 candidate=("${base[@]}" -f "$live/candidate.override.yml")
@@ -69,6 +74,7 @@ assert os.getenv("MARKETRADAR_OZON_MCP_URL")=="http://ozon-mcp-live:8765"
 base="http://127.0.0.1:10000"
 assert "retail_offers" in urllib.request.urlopen(base+"/static/app.js",timeout=5).read().decode()
 assert "Найденные предложения" in urllib.request.urlopen(base+"/",timeout=5).read().decode()
+assert "#175cec" in urllib.request.urlopen(base+"/static/style.css",timeout=5).read().decode()
 headers={"Content-Type":"application/json","X-MarketRadar-Key":os.getenv("MARKETRADAR_MOBILE_ACCESS_KEY","")}
 def req(path,data=None):
     with urllib.request.urlopen(urllib.request.Request(base+path,data=data,headers=headers),timeout=15) as r:return json.load(r)
