@@ -190,3 +190,36 @@ def test_ozon_retries_capacity_spelling_only_on_zero_candidates(monkeypatch):
     assert calls==["Samsung 990 PRO 1TB","Samsung 990 PRO 1 ТБ"]
     assert job["query"]=="Samsung 990 PRO 1TB"
     assert job["offers"][0]["price"]==10000
+
+def test_deep_fallback_preserves_fast_offers_and_merges(monkeypatch):
+    from server import mobile_cloud
+    monkeypatch.setenv("MARKETRADAR_RETAIL_FAST","true")
+    url="https://www.wildberries.ru/catalog/100001/detail.aspx"
+    async def fast(job,state,shop,match):
+        job["offers"].append({"market_id":shop,"url":url,"price":12000,"delivery_days":2,"verified_detail":False})
+        state.update(state="partial",checked=2,audit={"source":"retail_fast"})
+    async def deep(job,shop):
+        assert job["offers"][0]["price"]==12000
+        assert job["markets"][shop]["phase"]=="deep"
+        job["offers"].append({"market_id":shop,"url":url,"price":11500,"delivery":"завтра","verified_detail":True})
+        job["markets"][shop].update(state="partial",checked=4,audit={"source":"chromium"})
+    monkeypatch.setattr(r,"run_fast",fast)
+    monkeypatch.setattr(mobile_cloud,"run_deep_market",deep)
+    job={"query":Q,"state":"running","offers":[],"markets":{"wb":{}},"policy":{"max_days":3}}
+    asyncio.run(mobile_cloud.run_market(job,"wb"))
+    assert len(job["offers"])==1
+    assert job["offers"][0]["price"]==11500
+    assert job["offers"][0]["delivery_days"]==1
+    assert job["markets"]["wb"]["checked"]==6
+    assert job["markets"]["wb"]["audit"]["source"]=="fast_then_deep"
+
+def test_fast_verified_timely_offer_does_not_need_deep_fallback(monkeypatch):
+    from server import mobile_cloud
+    monkeypatch.setenv("MARKETRADAR_RETAIL_FAST","true")
+    async def fast(job,state,shop,match):
+        job["offers"].append({"market_id":shop,"price":12000,"delivery_days":2,"verified_detail":True})
+    async def deep(*args):raise AssertionError("unnecessary deep crawl")
+    monkeypatch.setattr(r,"run_fast",fast)
+    monkeypatch.setattr(mobile_cloud,"run_deep_market",deep)
+    job={"query":Q,"state":"running","offers":[],"markets":{"ym":{}},"policy":{"max_days":3}}
+    asyncio.run(mobile_cloud.run_market(job,"ym"))

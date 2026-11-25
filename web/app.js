@@ -44,8 +44,8 @@ function updateSearchButton(){$('searchButton').textContent=starting&&!running?'
 const activeStates=['pending','searching','checking'];
 function marketStage(m,active){
  if(!m?.state)return active?'Ожидание':'Не проверено';
- if(m.state==='searching')return m.phase==='retry'||m.retry_attempt?'Повторяем поиск':'Ищем товары';
- if(m.state==='checking')return m.detail_total>0?'Проверяем '+Math.min(m.checked||0,m.detail_total)+' из '+m.detail_total:'Проверяем цену и доставку';
+ if(m.state==='searching')return m.phase==='deep'?'Расширенный поиск':m.phase==='retry'||m.retry_attempt?'Повторяем поиск':'Ищем товары';
+ if(m.state==='checking')return m.phase==='deep'?'Расширенная проверка · '+(m.checked||0)+' карточек':m.detail_total>0?'Проверяем '+Math.min(m.checked||0,m.detail_total)+' из '+m.detail_total:'Проверяем цену и доставку';
  return states[m.state]||'Не проверено';
 }
 function emptyMarket(m,active){

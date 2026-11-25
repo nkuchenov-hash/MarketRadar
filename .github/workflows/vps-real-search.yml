@@ -14,7 +14,7 @@ jobs:
   browser-search:
     if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: ubuntu-latest
-    timeout-minutes: 18
+    timeout-minutes: 25
     steps:
       - name: Run guest searches against the published service
         env:
@@ -39,7 +39,7 @@ jobs:
               job=None
               try:
                   job=call("/api/mobile/browser/start","POST",{"query":query,"shops":shops,"max_days":3,"allow_late":False})
-                  while time.monotonic()-start<230:
+                  while time.monotonic()-start<420:
                       status=call("/api/mobile/browser/jobs/"+job["id"])
                       if status.get("state")!="running":break
                       time.sleep(5)

@@ -222,7 +222,59 @@ async def run_market(job: dict, shop_id: str):
     if shop_id in ("wb", "ym") and os.getenv("MARKETRADAR_RETAIL_FAST", "").lower() in ("1", "true", "yes"):
         from .retail_fast import run_fast
         await run_fast(job, state, shop_id, exact_product)
+        max_days=job.get("policy",{}).get("max_days",3)
+        has_verified=any(o.get("market_id")==shop_id and o.get("verified_detail")
+                         and isinstance(o.get("delivery_days"),int)
+                         and 0<=o["delivery_days"]<=max_days for o in job["offers"])
+        if has_verified or job["state"]!="running":
+            return
+        # Restore the pre-fast-worker route, including full scroll budget,
+        # plausible listing inspection and local semantic identity checks.
+        # Fast observations remain visible while the full search runs.
+        fast_audit=dict(state.get("audit",{}))
+        fast_checked=state.get("checked",0)
+        state.update(state="searching",phase="deep",message="Расширенный поиск",
+                     checked=0,coverage_complete=False)
+        state.pop("detail_total",None)
+        try:
+            await asyncio.wait_for(run_deep_market(job,shop_id),timeout=360)
+        except asyncio.TimeoutError:
+            state.update(state="partial",message="Расширенный поиск достиг лимита времени",coverage_complete=False)
+        finally:
+            deep_audit=dict(state.get("audit",{}))
+            state["audit"]={"source":"fast_then_deep","fast":fast_audit,"deep":deep_audit}
+            state["checked"]=fast_checked+state.get("checked",0)
+            state["phase"]="done"
+            state["coverage_complete"]=False
+            merge_market_offers(job,shop_id)
+            survivors=[o for o in job["offers"] if o.get("market_id")==shop_id]
+            state["best_found"]=min((o["price"] for o in survivors),default=0)
+            state["best_verified"]=min((o["price"] for o in survivors if o.get("verified_detail")),default=0)
+            if survivors:state["state"]="partial"
         return
+    await run_deep_market(job,shop_id)
+
+def merge_market_offers(job,shop_id):
+    from .retail_fast import days
+    unique={}
+    for o in job["offers"]:
+        if o.get("market_id")!=shop_id:continue
+        if not isinstance(o.get("delivery_days"),int):
+            o["delivery_days"]=days(o.get("delivery"))
+        key=o.get("url")
+        if not key:continue
+        prior=unique.get(key)
+        # Prefer an independently verified observation, then a known date;
+        # do not replace a complete fast observation with an unknown date.
+        score=lambda x:(x.get("delivery_days") is not None,bool(x.get("verified_detail")),-x.get("price",0))
+        if prior is None or score(o)>score(prior):unique[key]=o
+    job["offers"][:]=[o for o in job["offers"] if o.get("market_id")!=shop_id]+list(unique.values())
+
+async def run_deep_market(job:dict,shop_id:str):
+    market=SHOP_IDS[shop_id]
+    state=job["markets"][shop_id]
+    state["state"]="searching"
+    state["phase"]="deep"
     url = MARKETS[market]["search"].format(q=quote(job["query"]))
     engine = CloudBrowser()
     engine.market = market  # Keep existing test/browser adapters constructor-compatible.
@@ -306,6 +358,7 @@ async def run_market(job: dict, shop_id: str):
                    "url":link,"price":price,"listing_price":price,
                    "image_url":image[:900] if image.startswith("https://") else "",
                    "delivery":str(card.get("delivery_hint",""))[:100],
+                   "delivery_days":delivery_days(card),
                    "verified_detail":False,"identity_verified_ai":True,
                    "identity_evidence":"local_nli_and_card_evidence",
                    "detail_price":None,"detail_price_source":"",
@@ -519,7 +572,8 @@ async def run_market(job: dict, shop_id: str):
                               else candidate.get("title",""))[:240],
                     "url":link, "price":price,
                     "image_url":image[:900],
-                    "delivery":str((page.get("detail_delivery") if visible_wb_price else "") or candidate.get("delivery_hint",""))[:100],
+                    "delivery":str((page.get("detail_delivery") if detail_accessible else "") or candidate.get("delivery_hint",""))[:100],
+                    "delivery_days":delivery_days({"delivery_hint":(page.get("detail_delivery") if detail_accessible else "") or candidate.get("delivery_hint","")}),
                     "listing_price":listing_price or None,
                     "detail_price_source":page.get("detail_price_source","") if detail_accessible else "",
                     "verified_detail":price_verified,
@@ -614,6 +668,7 @@ async def run_market(job: dict, shop_id: str):
         job["errors"].append(f"{market}: {type(exc).__name__}")
     finally:
         await engine.close()
+        merge_market_offers(job,shop_id)
 
 async def run_job(job: dict):
     try:
