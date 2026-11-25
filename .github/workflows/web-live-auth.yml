@@ -1,0 +1,52 @@
+name: Live web login and search acceptance
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/web-live-auth.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check real public registration, session, login and search
+        env:
+          BASE: https://45-147-178-109.sslip.io
+        run: |
+          python - <<'PY'
+          import json,os,secrets,urllib.request,urllib.error,http.cookiejar,time
+          base=os.environ["BASE"]
+          email="qa-"+secrets.token_hex(8)+"@example.invalid"
+          password=secrets.token_urlsafe(24)
+          jar=http.cookiejar.CookieJar()
+          client=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+          csrf=""
+          def req(path,body=None):
+              h={"Origin":base,"Content-Type":"application/json"}
+              if csrf:h["X-CSRF-Token"]=csrf
+              try:
+                  with client.open(urllib.request.Request(base+path,headers=h,data=json.dumps(body).encode() if body is not None else None),timeout=25) as r:
+                      x=json.load(r);print("CHECK",path,r.status,flush=True);return x
+              except urllib.error.HTTPError as e:
+                  print("FAIL",path,e.code,e.read().decode()[:400],flush=True);raise
+          credentials={"email":email,"password":password}
+          req("/api/register",credentials)
+          print("SESSION COOKIE",any(c.name=="mr_session" and c.secure for c in jar),flush=True)
+          me=req("/api/me");csrf=me["csrf"];print("SHARED CLOUD",me.get("shared_cloud"),"AVAILABLE",me.get("cloud_available"),flush=True)
+          req("/api/logout",{})
+          req("/api/login",credentials)
+          me=req("/api/me");csrf=me["csrf"]
+          result=req("/api/search",{"query":"Яндекс Станция Мини 3 Про","depth":"fast","mode":"cloud","consent":True})
+          jid=result["job_id"]
+          for i in range(90):
+              j=req("/api/jobs/"+jid)
+              a=j.get("progress",{}).get("retail_offers",[])
+              if any(o.get("market_id")=="ozon" and o.get("verified_detail") for o in a):
+                  print("WEB SEARCH VERIFIED",len(a),flush=True);break
+              if j.get("state") not in ("running","queued"):raise SystemExit("Search ended without verified Ozon")
+              time.sleep(2)
+          else:raise SystemExit("Search timeout")
+          req("/api/logout",{})
+          PY
