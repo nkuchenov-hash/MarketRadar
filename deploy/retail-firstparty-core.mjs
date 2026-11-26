@@ -49,6 +49,8 @@ export async function searchFirstParty({shop,query,maxDays=3,deadlineMs=20000,de
  };
  try{
   const result=await transport.listing(searchURL(shop,query),Math.max(1,end-clock()),merge);
+  audit.listing_transport=result?.transport||"unknown";
+  audit.listing_http_status=result?.http_status??null;
   blocked=result?.state==="blocked";
   merge(result?.products);
   if(blocked)issues.push("storefront access challenge or denial");
