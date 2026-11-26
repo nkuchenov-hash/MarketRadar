@@ -7,18 +7,30 @@ services:
     command: ["node","/worker/retail-specialist-service.mjs"]
     environment:
       RETAIL_SHOP: wb
+      RETAIL_PROVIDER: ${WB_RETAIL_PROVIDER:-apisystem}
+      PARSERDATA_API_KEY: ${PARSERDATA_WB_KEY:-}
+      PARSERDATA_REGION_ID: ${PARSERDATA_REGION_ID:-}
+      PARSERDATA_MAX_CARDS: ${PARSERDATA_MAX_CARDS:-3}
       APISYSTEM_API_KEY: ${APISYSTEM_WB_KEY:-}
       APISYSTEM_WB_GPS: ${APISYSTEM_WB_GPS:-}
     volumes:
       - ./retail-specialist-service.mjs:/worker/retail-specialist-service.mjs:ro
       - ./retail-specialist-core.mjs:/worker/retail-specialist-core.mjs:ro
       - ./ozon-service-core.mjs:/worker/ozon-service-core.mjs:ro
+      - ./parserdata-specialist-core.mjs:/worker/parserdata-specialist-core.mjs:ro
     networks: [internal]
     read_only: true
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     restart: unless-stopped
     mem_limit: 192m
+    pids_limit: 64
+    init: true
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8765/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
   ym-specialist:
     image: node:22-alpine
     profiles: ["retail-specialist"]
@@ -26,18 +38,30 @@ services:
     command: ["node","/worker/retail-specialist-service.mjs"]
     environment:
       RETAIL_SHOP: ym
+      RETAIL_PROVIDER: ${YM_RETAIL_PROVIDER:-apisystem}
+      PARSERDATA_API_KEY: ${PARSERDATA_YM_KEY:-}
+      PARSERDATA_REGION_ID: ${PARSERDATA_REGION_ID:-}
+      PARSERDATA_MAX_CARDS: ${PARSERDATA_MAX_CARDS:-3}
       APISYSTEM_API_KEY: ${APISYSTEM_YM_KEY:-}
       APISYSTEM_YM_REGION_ID: ${APISYSTEM_YM_REGION_ID:-}
     volumes:
       - ./retail-specialist-service.mjs:/worker/retail-specialist-service.mjs:ro
       - ./retail-specialist-core.mjs:/worker/retail-specialist-core.mjs:ro
       - ./ozon-service-core.mjs:/worker/ozon-service-core.mjs:ro
+      - ./parserdata-specialist-core.mjs:/worker/parserdata-specialist-core.mjs:ro
     networks: [internal]
     read_only: true
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     restart: unless-stopped
     mem_limit: 192m
+    pids_limit: 64
+    init: true
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8765/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
 # Operator must set MARKETRADAR_WB_SPECIALIST_URL=http://wb-specialist:8765
 # and MARKETRADAR_YM_SPECIALIST_URL=http://ym-specialist:8765 on backend only
 # after live acceptance. Use separate provider keys or a shared global limiter.

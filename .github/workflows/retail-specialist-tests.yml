@@ -2,7 +2,7 @@ name: Retail specialist worker tests
 on:
   push:
     branches: [main]
-    paths: ["deploy/retail-specialist-*.mjs","deploy/test-retail-specialist.mjs",".github/workflows/retail-specialist-tests.yml"]
+    paths: ["deploy/retail-specialist-*.mjs","deploy/parserdata-specialist-core.mjs","deploy/test-parserdata-specialist.mjs","deploy/test-retail-specialist.mjs",".github/workflows/retail-specialist-tests.yml"]
   workflow_dispatch:
 permissions:
   contents: read
@@ -13,4 +13,4 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - run: node --check deploy/retail-specialist-service.mjs && node deploy/test-retail-specialist.mjs
+      - run: node --check deploy/retail-specialist-service.mjs && node deploy/test-retail-specialist.mjs && node deploy/test-parserdata-specialist.mjs

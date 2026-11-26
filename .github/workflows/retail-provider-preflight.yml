@@ -1,0 +1,23 @@
+name: Retail provider credential preflight
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/retail-provider-preflight.yml']
+permissions:
+  contents: read
+jobs:
+  preflight:
+    runs-on: ubuntu-24.04
+    env:
+      PARSERDATA: ${{ secrets.PARSERDATA_API_KEY }}
+      WB: ${{ secrets.APISYSTEM_WB_KEY }}
+      YM: ${{ secrets.APISYSTEM_YM_KEY }}
+    steps:
+      - name: Check whether provider credentials are configured (no paid requests)
+        run: |
+          python - <<'PY'
+          import os
+          for n in ("PARSERDATA","WB","YM"):
+              print(n, "configured" if os.getenv(n) else "not configured")
+          PY

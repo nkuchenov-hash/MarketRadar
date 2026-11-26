@@ -1,0 +1,23 @@
+import assert from "node:assert/strict";
+import {findParserData} from "./parserdata-specialist-core.mjs";
+const query="Яндекс Станция Мини 3 Про",url="https://www.wildberries.ru/catalog/123456/detail.aspx";
+const c={title:query,link:url,price:11500,card_price:11200};
+const record={domain:"wildberries.ru",region:2,link:url,status:"OK",data:{title:query,image:"https://example.com/image.jpg",out_of_stock:false},offers:[{price:11400,card_price:11100,delivery_date:"завтра",quantity:1}]};
+let calls=[];
+const fetcher=async(u,o)=>{
+ calls.push([u,o.method,o.body&&JSON.parse(o.body)]);
+ assert.equal(o.headers.Authorization,"Token fixture");
+ const val=u.endsWith("/cards/")?{task_id:1}:u.includes("/cards/1")?{status:"OK",next:null,results:[{domain:"wildberries.ru",status:"OK",cards:[c,{...c,link:"https://www.wildberries.ru/catalog/234567/detail.aspx",title:"Чехол для "+query}]}]}:u.endsWith("/offers/")?{task_id:2}:{status:"OK",next:null,results:[record,{...record,region:213}]};
+ return {ok:true,json:async()=>val};
+};
+const options={shop:"wb",query,key:"fixture",region:2,maxCards:1};
+const result=await findParserData(options,fetcher,async()=>{});
+assert.equal(calls.length,4);
+assert.equal(calls.filter(x=>x[1]==="POST").length,2);
+assert.equal(calls[2][2].products.length,1);
+assert.equal(result.offers.length,1);assert.equal(result.offers[0].price,11100);assert.equal(result.offers[0].delivery_days,1);
+assert.equal(result.offers[0].verified_detail,false);assert.equal(result.offers[0].provider_detail,true);
+let count=0;
+const error=await findParserData(options,async()=>{count++;throw Error("network");});
+assert.equal(count,1);assert.equal(error.offers.length,0);
+console.log("ParserData task, budget, exact model, region and failure tests passed");
