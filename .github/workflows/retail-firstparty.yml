@@ -5,6 +5,7 @@ on:
     paths:
       - 'deploy/retail-firstparty-*.mjs'
       - 'deploy/test-retail-firstparty.mjs'
+      - 'deploy/retail-yandex-public-html.mjs'
       - '.github/workflows/retail-firstparty.yml'
   workflow_dispatch:
 permissions:
@@ -19,7 +20,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: node --check deploy/retail-firstparty-service.mjs && node deploy/test-retail-firstparty.mjs
+      - run: npm install --prefix deploy --no-save --ignore-scripts cheerio@1.0.0
+      - run: node --check deploy/retail-firstparty-service.mjs && node --check deploy/retail-yandex-public-html.mjs && node deploy/test-retail-firstparty.mjs
   live:
     needs: contract
     runs-on: ubuntu-latest
@@ -37,7 +39,7 @@ jobs:
           node-version: '22'
       - name: Install pinned browser library
         run: |
-          npm install --prefix deploy --no-save --ignore-scripts playwright@1.56.1
+          npm install --prefix deploy --no-save --ignore-scripts playwright@1.56.1 cheerio@1.0.0
           deploy/node_modules/.bin/playwright install --with-deps chromium
       - name: Bounded live shopper search (no external API)
         env:
