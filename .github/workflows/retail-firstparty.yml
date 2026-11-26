@@ -1,0 +1,62 @@
+name: First-party WB and Market Node worker
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'deploy/retail-firstparty-*.mjs'
+      - 'deploy/test-retail-firstparty.mjs'
+      - '.github/workflows/retail-firstparty.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --check deploy/retail-firstparty-service.mjs && node deploy/test-retail-firstparty.mjs
+  live:
+    needs: contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    strategy:
+      fail-fast: false
+      matrix:
+        shop: [wb, ym]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install pinned browser library
+        run: |
+          npm install --prefix deploy --no-save --ignore-scripts playwright@1.56.1
+          deploy/node_modules/.bin/playwright install --with-deps chromium
+      - name: Bounded live shopper search (no external API)
+        env:
+          RETAIL_SHOP: ${{ matrix.shop }}
+        run: |
+          set -euo pipefail
+          node deploy/retail-firstparty-service.mjs > /tmp/worker.log 2>&1 &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true; cat /tmp/worker.log' EXIT
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8765/health >/dev/null; then break; fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:8765/health
+          curl -fsS --max-time 50 -H 'Content-Type: application/json' --data '{"query":"Яндекс Станция Мини 3 Про","max_days":3}' http://127.0.0.1:8765/search | tee evidence.json
+          node -e 'const r=require("./evidence.json");if(!r.offers.length||r.audit.blocked||r.audit.first_offer_seconds>5||r.audit.seconds>20)process.exit(2);'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: firstparty-${{ matrix.shop }}
+          path: evidence.json
+          if-no-files-found: ignore
