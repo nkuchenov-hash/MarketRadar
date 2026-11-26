@@ -51,10 +51,12 @@ export function extractYandexHTML(html,origin){
    const title=tidy(root.find('[data-auto*="snippet-title"],[data-auto="title"],h2,h3').first().text()||$(a).attr("aria-label")||$(a).attr("title")||root.find("img[alt]").first().attr("alt")||$(a).text());
    const t=tidy(root.text());
    if(!title||title.length>250||/₽|руб\.|^цена|^купить/iu.test(title)||t.length>2600)continue;
-   const amounts=new Set();
+   const amounts=new Set();let boundary=0;
    for(const m of t.matchAll(rePrice)){
-    const before=t.slice(Math.max(0,m.index-50),m.index),after=t.slice(m.index+m[0].length,m.index+m[0].length+35);
-    if(/(?:частями|плат[её]ж\s+по|в\s+сплит|рассрочк\w*|\d+\s*[×хx*])\s*$/iu.test(before)||/^\s*(?:в\s+сплит|сплит|в\s+рассрочку|\/\s*мес)/iu.test(after))continue;
+    const before=t.slice(Math.max(boundary,m.index-50),m.index),after=t.slice(m.index+m[0].length,m.index+m[0].length+35);
+    const tail=after.match(/^\s*(?:в\s+сплит|сплит|в\s+рассрочку|\/\s*мес)/iu);
+    boundary=m.index+m[0].length+(tail?.[0].length||0);
+    if(/(?:частями|плат[её]ж\s+по|в\s+сплит|рассрочк[\p{L}]*|\d+\s*[×хx*])\s*$/iu.test(before)||tail)continue;
     const p=Number(m[1].replace(/\D/g,""));if(p>=100&&p<=50000000)amounts.add(p);
    }
    // Multiple unattributed amounts can be seller variants, crossed-out prices,
