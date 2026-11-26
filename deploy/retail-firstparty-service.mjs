@@ -3,6 +3,7 @@ import http from "node:http";
 import {readFileSync} from "node:fs";
 import {chromium} from "playwright";
 import {searchFirstParty,productKey} from "./retail-firstparty-core.mjs";
+import {fetchYandexPublicHTML} from "./retail-yandex-public-html.mjs";
 const shop=process.env.RETAIL_SHOP;
 if(!["wb","ym"].includes(shop))throw Error("Set RETAIL_SHOP=wb or ym");
 const host=shop==="wb"?"wildberries.ru":"market.yandex.ru";
@@ -26,7 +27,7 @@ async function snap(page){
  const challenge=/вы не робот|подтвердите, что вы человек|access denied|captcha|проверяем ваш браузер/i.test((result.title||"")+" "+(result.body||"").slice(0,2500));
  return {...result,state:challenge?"blocked":"ok",url:page.url()};
 }
-async function listing(url,ms,emit){
+async function browserListing(url,ms,emit){
  const page=await context.newPage(),end=Date.now()+ms;
  try{
   if(await open(page,url,end)==="blocked")return {state:"blocked",products:[]};
@@ -38,8 +39,21 @@ async function listing(url,ms,emit){
    if(i>=2&&last.products?.length&&last.scroll_y+last.viewport>=last.scroll_height-100)break;
    if(i<4){await page.mouse.wheel(0,900);await page.waitForTimeout(timeout(end,450));}
   }
-  return last||{state:"partial",products:[]};
+  return {...(last||{state:"partial",products:[]}),transport:"warm_chromium_node"};
  }finally{await page.close();}
+}
+async function listing(url,ms,emit){
+ if(shop==="ym"&&process.env.RETAIL_DIRECT_HTML!=="false"){
+  const start=Date.now();
+  try{
+   const direct=await fetchYandexPublicHTML(url,ms);
+   if(direct.state==="blocked")return direct;
+   if(direct.products?.length){emit(direct.products);return direct;}
+  }catch{}
+  ms-=Date.now()-start;
+  if(ms<=250)return {state:"partial",products:[],transport:"public_ssr_node"};
+ }
+ return browserListing(url,ms,emit);
 }
 async function detail(url,ms){
  const page=await context.newPage(),end=Date.now()+ms;
