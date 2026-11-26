@@ -19,3 +19,22 @@ assert not mod.assess(reports,refs,1,0)["accepted"]
 assert not mod.assess(reports[:1],refs,1,0)["accepted"]
 assert not mod.assess(reports,[],1,0)["accepted"]
 print("Acceptance rejects browser substitution, unverified prices, missing cases and insufficient sample")
+
+# A spread of unrelated benchmark timestamps is not a reliability test.
+assert set(mod.SHOPS)=={"wb","ym"}
+stability=[]
+for shop in mod.SHOPS:
+    for mode in mod.MODES:
+        for i in range(13):
+            stability.append(dict(shop=shop,mode=mode,observed_at_epoch=1_800_000_000+i*21600,
+                source="specialist" if mode=="fast" else "browser_deep",finished=True,
+                exact_model_verified=True,price_verified=True,delivery_verified=True,product_url="https://example.test/fixture"))
+assert mod.stability_check(stability,72)["passed"]
+assert not mod.stability_check(stability[:-1],72)["passed"]
+bad=[dict(r) for r in stability]
+bad[0]["price_verified"]=False
+assert not mod.stability_check(bad,72)["passed"]
+assert not mod.stability_check([],72)["passed"]
+# Remove an intermediate probe: 12-hour gap is not acceptable.
+assert not mod.stability_check(stability[:1]+stability[2:],72)["passed"]
+print("Stability gate requires repeated successful evidence for both WB and Market modes")
