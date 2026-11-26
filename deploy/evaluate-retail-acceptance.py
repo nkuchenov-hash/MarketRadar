@@ -10,7 +10,7 @@ import json
 from collections import Counter
 from pathlib import Path
 
-SHOPS = ("wb", "ozon", "ym")
+SHOPS = ("wb", "ym")  # Do not make the existing Ozon route depend on the WB/YM rollout.
 MODES = ("fast", "deep")
 SPECIALISTS = {"ozon": {"ozon_mcp"}, "wb": {"specialist"}, "ym": {"specialist"}}
 
@@ -29,7 +29,36 @@ def evidence_index(rows):
         out[k] = row
     return out
 
-def assess(reports, baselines, min_products=100, min_hours=72):
+def stability_check(rows, min_hours):
+    """Repeated, independently recorded probes per shop and engine, not merely
+    a time span across unrelated benchmark products."""
+    if min_hours <= 0:
+        return {"passed": True, "per_shop_mode": []}
+    by_case = {(s, m): [] for s in SHOPS for m in MODES}
+    invalid = 0
+    for row in rows or []:
+        case = (row.get("shop"), row.get("mode"))
+        if case not in by_case or not positive(row.get("observed_at_epoch")):
+            invalid += 1
+            continue
+        by_case[case].append(row)
+    checks = []
+    for (shop, mode), probes in by_case.items():
+        probes.sort(key=lambda r: r["observed_at_epoch"])
+        times = [r["observed_at_epoch"] for r in probes]
+        span = (times[-1]-times[0])/3600 if len(times) > 1 else 0
+        gaps = [(b-a)/3600 for a,b in zip(times,times[1:])]
+        source_ok = lambda r: r.get("source") in SPECIALISTS[shop] if mode == "fast" else r.get("source") == "browser_deep"
+        good = all(r.get("finished") is True and r.get("exact_model_verified") is True
+                   and r.get("price_verified") is True and r.get("delivery_verified") is True
+                   and source_ok(r) and bool(r.get("product_url")) for r in probes)
+        passed = bool(probes) and span >= min_hours and bool(gaps) and min(gaps)>0 and max(gaps)<=6 and good
+        checks.append({"shop":shop,"mode":mode,"probes":len(probes),"span_hours":round(span,2),
+                       "max_gap_hours":round(max(gaps),2) if gaps else None,"passed":passed})
+    return {"passed":not invalid and all(x["passed"] for x in checks),
+            "invalid_rows":invalid,"per_shop_mode":checks}
+
+def assess(reports, baselines, min_products=100, min_hours=72, stability=None):
     refs = evidence_index(baselines)
     observed = evidence_index(reports)
     results = []
@@ -74,7 +103,9 @@ def assess(reports, baselines, min_products=100, min_hours=72):
     counts = Counter((x["shop"],x["mode"]) for x in results if x["pass"])
     hours = (max(timestamps)-min(timestamps))/3600 if len(timestamps)>1 else 0
     passed = sum(x["pass"] for x in results)
-    return {"accepted": len(products)>=min_products and not missing and len(results)>0 and passed==len(results) and hours>=min_hours,
+    stability_result = stability_check(stability, min_hours)
+    return {"accepted": len(products)>=min_products and not missing and len(results)>0 and passed==len(results) and stability_result["passed"],
+            "stability":stability_result,
             "products":len(products),"expected_cases":len(expected),"references":len(refs),"missing_references":len(missing),
             "passed":passed,"failed":len(results)-passed,"span_hours":round(hours,2),
             "per_shop_mode":[{"shop":s,"mode":m,"passed":counts[s,m]} for s in SHOPS for m in MODES],
@@ -84,9 +115,11 @@ def main():
     p=argparse.ArgumentParser()
     p.add_argument("--reports",type=Path,required=True)
     p.add_argument("--manual-baselines",type=Path,required=True)
+    p.add_argument("--stability",type=Path,help="Repeated live probes, separate from the product benchmark")
     p.add_argument("--out",type=Path,required=True)
     args=p.parse_args()
-    result=assess(json.loads(args.reports.read_text()),json.loads(args.manual_baselines.read_text()))
+    result=assess(json.loads(args.reports.read_text()),json.loads(args.manual_baselines.read_text()),
+                  stability=json.loads(args.stability.read_text()) if args.stability else None)
     args.out.write_text(json.dumps(result,ensure_ascii=False,indent=2)+"\n")
     print(json.dumps({k:v for k,v in result.items() if k!="cases"},ensure_ascii=False))
     return 0 if result["accepted"] else 2
