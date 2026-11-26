@@ -339,3 +339,27 @@ def test_ozon_auto_fallback_only_without_timely_verified_offer(monkeypatch):
     asyncio.run(mobile_cloud.run_market(job,"ozon"))
     assert calls==["mcp"]
     assert job["offers"][0]["price"]==9000
+
+def test_manual_wb_bulb_case_model_expansion(monkeypatch):
+    # User's Nov 26 screenshot: YNDX-00553, WB article 1117208352,
+    # 1069 with wallet, 1103 regular. Fixture simulates discovery; not live evidence.
+    query="Яндекс Лампочка 1300 лм"
+    title="Умная лампочка YNDX-00553 E27 до 1300 лм, RGB, с Алисой"
+    old=row(618121059,1600,"завтра","Умная лампочка Яндекс YNDX-00553 E27 1300 лм")
+    cheap=row(1117208352,1069,"послезавтра",title)
+    assert exact_product(query,title)
+    assert r.model_query_variants(query,[old],exact_product)==["YNDX-00553"]
+    class Engine:
+        async def start(self):pass
+        async def close(self):pass
+        async def snapshot(self,url):
+            if "search" in url:
+                return {"state":"ok","links":[cheap] if "YNDX-00553" in url else [old],"audit":{}}
+            return {"state":"blocked"}
+    monkeypatch.setattr(r,"CloudBrowser",Engine)
+    job={"query":query,"offers":[],"state":"running"}
+    state={"checked":0}
+    asyncio.run(r.run_fast(job,state,"wb",exact_product))
+    assert min(x["price"] for x in job["offers"])==1069
+    assert state["audit"]["model_query_variants"]==["YNDX-00553"]
+    assert any(x["url"]==cheap["url"] for x in state["audit"]["cheapest_matching_listings"])

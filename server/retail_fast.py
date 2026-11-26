@@ -51,6 +51,38 @@ def candidates(rows, query, market, matches):
             found[u]=x
     return sorted(found.values(),key=lambda x:amount(x["price"]))
 
+def model_query_variants(query, rows, matches, max_variants=2):
+    """Expand discovery using manufacturer codes observed in matching titles.
+    Original query remains the identity gate; never add a product by SKU alone.
+    """
+    codes={}
+    # Require an explicit hyphenated alphanumeric code containing both letters
+    # and digits. Do not reinterpret E27, brightness, capacity or item numbers.
+    pattern=r"(?<![A-Za-z0-9])([A-Za-z]{2,8}-[A-Za-z0-9]{3,14})(?![A-Za-z0-9])"
+    for row in rows:
+        title=row.get("title","")
+        if not matches(query,title):continue
+        for code in re.findall(pattern,title):
+            if not any(c.isdigit() for c in code):continue
+            code=code.upper()
+            if code.lower() in query.lower():continue
+            codes.setdefault(code,set()).add(row.get("url",""))
+    return sorted(codes,key=lambda c:(-len(codes[c]),c))[:max_variants]
+
+def listing_audit(rows,query,match,max_days=3,limit=25):
+    """Small deterministic ledger of cheapest observations including rejection reasons."""
+    out=[]
+    for x in sorted(rows,key=lambda x:amount(x.get("price")) or 10**12):
+        title=x.get("title","")
+        if not match(query,title):continue
+        d=days(x.get("delivery_hint"))
+        out.append({"url":x.get("url"),"price":amount(x.get("price")),
+                    "title":title[:160],"delivery_days":d,
+                    "reason":"price_missing" if not amount(x.get("price")) else
+                    "delivery_unknown" if d is None else "delivery_late" if d>max_days else "eligible_listing"})
+        if len(out)>=limit:break
+    return out
+
 def shortlist(rows, limit=4, max_days=3, allow_late=False, discount_percent=20):
     timely=[x for x in rows if (d:=days(x.get("delivery_hint"))) is not None and d<=max_days]
     unknown=[x for x in rows if days(x.get("delivery_hint")) is None]
@@ -128,6 +160,7 @@ async def run_fast(job,state,shop,exact_product):
         if provisional and "first_offer_seconds" not in state["audit"]:
             state["audit"]["first_offer_seconds"]=round(time.monotonic()-t,3)
         state["message"]="Найдено предложений: "+str(len(provisional)+len(confirmed))+"; проверяем лучшие"
+    data={}
     try:
         if shop=="ym":
             # This public HTML transport has already returned real prices on
@@ -181,6 +214,21 @@ async def run_fast(job,state,shop,exact_product):
                     ingest(data);publish()
                     state["audit"]["public_html_retry"]=data.get("audit",{})
                 except Exception as e:issues.append("html_retry:"+type(e).__name__)
+        # Search the observed manufacturer model separately when the first
+        # normal search returned products. This is discovery, not a workaround
+        # for a refusal: do not start it on a blocked or unavailable listing.
+        variants=model_query_variants(job["query"],rows(),exact_product)
+        if shop=="wb" and variants and data.get("state")=="ok":
+            state["audit"]["model_query_variants"]=variants
+            for variant in variants[:1]:
+                try:
+                    alternate=sorted_search_url(MARKETS[market]["search"].format(q=quote(variant)))
+                    found=await asyncio.wait_for(engine.snapshot(alternate),timeout=30)
+                    ingest(found);publish()
+                    state["audit"]["model_search"]=found.get("audit",{})
+                    state["audit"]["model_search_cards"]=len(found.get("links",[]))
+                except Exception as e:issues.append("model_search:"+type(e).__name__)
+        state["audit"]["cheapest_matching_listings"]=listing_audit(list(ledger.values()),job["query"],exact_product,max_days)
         state.update(state="checking",phase="details")
         # No fixed eight-product ceiling. Give the quick mode a fixed time
         # budget, then narrow the remaining candidates by a verified timely

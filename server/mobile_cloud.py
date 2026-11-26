@@ -323,6 +323,31 @@ async def run_deep_market(job:dict,shop_id:str):
                 state["message"] = "Магазин не предоставил поисковую выдачу"
                 return
             state["message"] = "Частичная выдача: проверяем сохранённые карточки"
+        # A manufacturer code obtained from an exact original match can
+        # reveal offers missed by the natural-language search. Keep the
+        # original query as the identity gate. Never try on an access denial.
+        from .retail_fast import model_query_variants,listing_audit
+        if shop_id=="wb" and listing_state=="ok":
+            variants=model_query_variants(job["query"],all_cards,exact_product)
+            if variants:
+                state["audit"]["model_query_variants"]=variants
+                try:
+                    alternate=MARKETS[market]["search"].format(q=quote(variants[0]))
+                    extra=await asyncio.wait_for(engine.snapshot(alternate),timeout=45)
+                    merged={c["url"]:c for c in all_cards if c.get("url")}
+                    for c in extra.get("links",[]):
+                        if not c.get("url"):continue
+                        old=merged.get(c["url"])
+                        if old is None or (not old.get("price") and c.get("price")) or (not old.get("delivery_hint") and c.get("delivery_hint") and c.get("price")):
+                            merged[c["url"]]=c
+                    all_cards=list(merged.values())
+                    state["candidates"]=len(all_cards)
+                    state["coverage_complete"]=False
+                    state["audit"]["model_search"]=extra.get("audit",{})
+                    state["audit"]["model_search_cards"]=len(extra.get("links",[]))
+                except Exception as e:
+                    state["audit"]["model_search_error"]=type(e).__name__
+        state["audit"]["cheapest_matching_listings"]=listing_audit(all_cards,job["query"],exact_product,job.get("policy",{}).get("max_days",3))
         # Preserve the entire ledger, even cards whose search snippets are
         # truncated or whose price is missing. Only likely accessories can be
         # skipped without requesting another product page.
