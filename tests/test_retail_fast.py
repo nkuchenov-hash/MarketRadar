@@ -276,16 +276,6 @@ def test_search_modes_are_independent(monkeypatch):
     asyncio.run(mobile_cloud.run_market(job,"wb"))
     assert calls==["specialist"]
 
-def test_ozon_deep_does_not_use_mcp(monkeypatch):
-    from server import mobile_cloud
-    monkeypatch.setenv("MARKETRADAR_OZON_MCP_URL","http://test")
-    async def deep(job,shop):
-        job["markets"][shop].update(state="partial",audit={"source":"deep"})
-    monkeypatch.setattr(mobile_cloud,"run_deep_market",deep)
-    job={"query":Q,"state":"running","offers":[],"markets":{"ozon":{}},"policy":{"search_mode":"deep"}}
-    asyncio.run(mobile_cloud.run_market(job,"ozon"))
-    assert job["markets"]["ozon"]["audit"]["source"]=="deep"
-
 def test_pagination_uses_observed_next_same_query_link():
     from server.cloud_browser import next_listing_page,sorted_search_url
     base="https://www.wildberries.ru/catalog/0/search.aspx?page=1&search=test&sort=priceup"
@@ -312,33 +302,23 @@ def test_fast_can_confirm_ninth_candidate_without_fixed_card_ceiling(monkeypatch
     assert state["checked"]>=9
     assert any(o["price"]==11080 and o["verified_detail"] for o in job["offers"])
 
-def test_ozon_auto_fallback_only_without_timely_verified_offer(monkeypatch):
+def test_ozon_mcp_is_independent_of_wb_ym_mode(monkeypatch):
     from server import mobile_cloud,ozon_mcp
     monkeypatch.setenv("MARKETRADAR_OZON_MCP_URL","http://test")
     calls=[]
-    outcome={"state":"error","offers":[]}
     async def mcp(job,state,match):
         calls.append("mcp")
-        state.update(state=outcome["state"],audit={"source":"ozon_mcp"},checked=1)
-        job["offers"].extend(outcome["offers"])
-    async def deep(job,shop):
-        calls.append("deep")
-        job["markets"][shop].update(state="partial",audit={"source":"chromium"},checked=2)
-        job["offers"].append({"market_id":"ozon","url":"https://www.ozon.ru/product/ssd-123456/","price":10000,"delivery_days":1,"verified_detail":True})
+        state.update(state="error",audit={"source":"ozon_mcp"})
+    async def deep(*args):
+        raise AssertionError("WB/YM mode must never switch configured Ozon MCP to browser")
     monkeypatch.setattr(ozon_mcp,"run_ozon_mcp",mcp)
     monkeypatch.setattr(mobile_cloud,"run_deep_market",deep)
-    for mode,expected in [("auto",["mcp","deep"]),("fast",["mcp"]),("deep",["deep"])]:
+    for mode in ("auto","fast","deep"):
         calls.clear()
         job={"query":Q,"state":"running","offers":[],"markets":{"ozon":{}},"policy":{"search_mode":mode},"errors":[]}
         asyncio.run(mobile_cloud.run_market(job,"ozon"))
-        assert calls==expected
-        if mode=="auto":assert job["markets"]["ozon"]["audit"]["source"]=="fast_then_deep"
-    outcome.update(state="partial",offers=[{"market_id":"ozon","url":"https://www.ozon.ru/product/ssd-123456/","price":9000,"delivery_days":1,"verified_detail":True}])
-    calls.clear()
-    job={"query":Q,"state":"running","offers":[],"markets":{"ozon":{}},"policy":{"search_mode":"auto"},"errors":[]}
-    asyncio.run(mobile_cloud.run_market(job,"ozon"))
-    assert calls==["mcp"]
-    assert job["offers"][0]["price"]==9000
+        assert calls==["mcp"]
+        assert job["markets"]["ozon"]["audit"]["source"]=="ozon_mcp"
 
 def test_manual_wb_bulb_case_model_expansion(monkeypatch):
     # User's Nov 26 screenshot: YNDX-00553, WB article 1117208352,

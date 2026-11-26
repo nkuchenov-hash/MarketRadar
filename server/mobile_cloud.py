@@ -202,7 +202,7 @@ async def run_market(job: dict, shop_id: str):
     state = job["markets"][shop_id]
     state["state"] = "searching"
     mode=job.get("policy",{}).get("search_mode","auto")
-    if shop_id == "ozon" and mode!="deep" and os.getenv("MARKETRADAR_OZON_MCP_URL", "").strip():
+    if shop_id == "ozon" and os.getenv("MARKETRADAR_OZON_MCP_URL", "").strip():
         from .ozon_mcp import run_ozon_mcp
         await run_ozon_mcp(job, state, exact_product)
         original=job["query"]
@@ -221,11 +221,6 @@ async def run_market(job: dict, shop_id: str):
                 state.update(state="partial",message="Повторный поиск не завершился",coverage_complete=False)
             state.setdefault("audit",{})["original_query_audit"]=first_audit
             state["audit"]["alternate_query"]=alternate
-        if mode=="auto" and job["state"]=="running" and not has_timely_verified_offer(job,shop_id):
-            await run_browser_fallback(job,shop_id)
-        return
-    if mode=="fast" and shop_id=="ozon":
-        state.update(state="blocked",phase="done",coverage_complete=False,message="Отдельный сервис Ozon не подключён",audit={"source":"specialist_unconfigured"})
         return
     if shop_id in ("wb", "ym") and (mode=="fast" or (mode=="auto" and (os.getenv("MARKETRADAR_RETAIL_FAST", "").lower() in ("1", "true", "yes") or os.getenv("MARKETRADAR_"+shop_id.upper()+"_SPECIALIST_URL","").strip()))):
         from .retail_fast import run_fast, run_specialist
@@ -732,9 +727,7 @@ async def run_job(job: dict):
                     state=job["markets"][shop]
                     # The Ozon worker is independent; retry a transport error
                     # once, with a short bound, never on an empty valid result.
-                    if (shop=="ozon" and job.get("policy",{}).get("search_mode")=="fast"
-                            and state.get("audit",{}).get("source")=="ozon_mcp"
-                            and state.get("state")=="error" and not any(o.get("market_id")==shop for o in job["offers"])):
+                    if shop=="ozon" and state.get("state")=="error" and not any(o.get("market_id")==shop for o in job["offers"]):
                         state.update(state="searching",message="Повторное подключение",retry_attempt=1)
                         try:await asyncio.wait_for(run_market(job,shop),timeout=35)
                         except asyncio.TimeoutError:state.update(state="error",message="Повторный запрос не завершился",coverage_complete=False)
