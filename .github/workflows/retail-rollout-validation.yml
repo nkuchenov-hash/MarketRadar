@@ -1,0 +1,17 @@
+name: Retail rollout validation
+on:
+  push:
+    branches: [main]
+    paths: ['deploy/stage-retail-specialists.sh','deploy/evaluate-retail-acceptance.py','deploy/test-retail-acceptance.py','.github/workflows/retail-rollout-validation.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: bash -n deploy/stage-retail-specialists.sh
+      - run: python deploy/test-retail-acceptance.py
