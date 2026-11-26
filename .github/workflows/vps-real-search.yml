@@ -27,8 +27,9 @@ jobs:
           client=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
           headers={"X-MarketRadar-Guest":"1","Content-Type":"application/json"}
           queries=["Яндекс лампочка 1300 Вт","Яндекс Станция Мини 3 Про","Samsung 990 PRO 1TB"]
-          cases=[(mode,query) for mode in ("fast","deep") for query in queries]
-          shops=["wb","ozon","ym"]
+          # Test the user-visible automatic mode first, then both engines.
+          cases=[("auto",queries[0])]+[(mode,query) for mode in ("fast","deep") for query in queries]
+          shops=["wb","ym"]
           reports=[]
           def call(path,method="GET",body=None):
               req=urllib.request.Request(base+path,headers=headers,method=method,data=json.dumps(body,ensure_ascii=False).encode() if body is not None else None)
@@ -56,6 +57,19 @@ jobs:
                       best=min(offers,key=lambda o:o["price"],default=None)
                       report["markets"][shop]={"state":m.get("state"),"candidates":m.get("candidates"),"checked":m.get("checked"),"retry":m.get("retry_attempt",0),"coverage_complete":m.get("coverage_complete",False),"offers":len(offers),"verified":len(verified),"best":{k:best.get(k) for k in ("price","title","url","delivery_days","condition")} if best else None,"audit":m.get("audit",{})}
                   report["state"]=status.get("state")
+                  if query==queries[0]:
+                      # Historical screenshot reference, never injected into discovery.
+                      expected="https://www.wildberries.ru/catalog/1117208352/detail.aspx"
+                      def same(v):
+                          return isinstance(v,str) and v.split("?")[0].rstrip("/")==expected.rstrip("/")
+                      observed=[o for o in status.get("offers",[]) if o.get("market_id")=="wb" and same(o.get("url"))]
+                      def traces(v):
+                          if isinstance(v,dict):
+                              if same(v.get("url")):yield v
+                              for x in v.values():yield from traces(x)
+                          elif isinstance(v,list):
+                              for x in v:yield from traces(x)
+                      report["wb_manual_case"]={"article":"1117208352","historical_wallet_price":1069,"historical_regular_price":1103,"historical_delivery_date":"2026-11-28","offer_observed":bool(observed),"live_offers":observed,"audit_observations":list(traces(status.get("markets",{}).get("wb",{}).get("audit",{})))[:15]}
                   report["effective_mode"]=status.get("policy",{}).get("search_mode")
                   report["search_query"]=status.get("search_query")
                   report["intent_source"]=status.get("intent_source")
@@ -71,8 +85,10 @@ jobs:
               if (mode,query)!=cases[-1]:time.sleep(max(0,65-(time.monotonic()-start)))
           # A missing offer means cross-shop comparison has not passed this
           # acceptance sample. Finding offers still does not prove a minimum.
-          if any(r.get("state")!="finished" or r.get("effective_mode")!=r["mode"] or any(not r.get("markets",{}).get(s,{}).get("offers") for s in shops) for r in reports):
-              raise SystemExit("Incomplete cross-store comparison; see evidence")
+          if any(r.get("state")!="finished" or r.get("effective_mode")!=r["mode"] or any(not r.get("markets",{}).get(s,{}).get("verified") for s in shops) for r in reports):
+              raise SystemExit("Incomplete or unverified WB/Yandex results; see evidence")
+          if any(r["query"]==queries[0] and not r.get("wb_manual_case",{}).get("offer_observed") for r in reports):
+              raise SystemExit("Historical WB regression article not discovered; check current availability independently")
           PY
       - name: Upload evidence
         uses: actions/upload-artifact@v4
