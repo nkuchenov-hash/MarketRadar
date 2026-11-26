@@ -896,11 +896,15 @@ class CloudBrowser:
                     unchanged = 0
                 previous = progress
                 if not search:
-                    if wb_detail and not snapshot.get("primary_price") and not blocked_http:
-                        # Wait for the SPA buybox rather than treating the first
-                        # document shell as the final product page. Bounded
-                        # wait, no repeated navigation or challenge bypass.
+                    retail_detail = wb_detail or (market_of(target) == "Яндекс Маркет" and is_product_link("Яндекс Маркет",target))
+                    if retail_detail and not blocked_http:
+                        # Product identity, price and delivery often hydrate separately.
+                        # Do not stop on the first rendered price or on metadata alone.
+                        # Do not reload or interact with access challenges.
                         for _ in range(12):
+                            if (last_snapshot.get("heading") and last_snapshot.get("primary_price")
+                                    and last_snapshot.get("detail_delivery")):
+                                break
                             if any(word in page_text.lower() for word in BLOCK_WORDS):
                                 break
                             await page.wait_for_timeout(650)
@@ -909,8 +913,6 @@ class CloudBrowser:
                             title = later.get("title","")
                             page_text = later.get("body","")
                             visited_snapshots += 1
-                            if later.get("heading") and later.get("primary_price"):
-                                break
                     complete = True
                     break
                 if asyncio.get_running_loop().time()>=scan_deadline:
