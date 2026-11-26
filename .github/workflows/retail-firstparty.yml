@@ -10,9 +10,12 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  group: retail-firstparty-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   contract:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
         with:
@@ -24,7 +27,7 @@ jobs:
       - run: node --check deploy/retail-firstparty-service.mjs && node --check deploy/retail-yandex-public-html.mjs && node deploy/test-retail-firstparty.mjs
   live:
     needs: contract
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 8
     strategy:
       fail-fast: false
