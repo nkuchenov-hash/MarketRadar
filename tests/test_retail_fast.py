@@ -343,3 +343,29 @@ def test_manual_wb_bulb_case_model_expansion(monkeypatch):
     assert min(x["price"] for x in job["offers"])==1069
     assert state["audit"]["model_query_variants"]==["YNDX-00553"]
     assert any(x["url"]==cheap["url"] for x in state["audit"]["cheapest_matching_listings"])
+
+def test_deep_wb_preserves_exact_spec_listing_when_nli_uncertain(monkeypatch):
+    from server import mobile_cloud,semantic_identity
+    query="Яндекс Лампочка 1300 лм"
+    title="Умная лампочка YNDX-00553 Е27 до 1300 лм, RGB, с Алисой Яндекс"
+    cheap=row(1117208352,1069,"завтра",title)
+    assert mobile_cloud.strong_retail_listing_identity(query,cheap)
+    assert not mobile_cloud.strong_retail_listing_identity(query,{**cheap,"title":title.replace("1300","800")})
+    assert not mobile_cloud.strong_retail_listing_identity(query,{**cheap,"title":"Упаковка "+title})
+    class Engine:
+        async def start(self):pass
+        async def close(self):pass
+        async def snapshot(self,url):
+            if "search" in url:return {"state":"ok","links":[cheap],"audit":{}}
+            return {"state":"blocked"}
+    async def uncertain(query,cards):return ["unclear"]*len(cards)
+    monkeypatch.setattr(mobile_cloud,"CloudBrowser",Engine)
+    monkeypatch.setattr(semantic_identity,"enabled",lambda shop:shop=="wb")
+    monkeypatch.setattr(semantic_identity,"assess",uncertain)
+    job={"query":query,"offers":[],"errors":[],"state":"running","markets":{"wb":{"checked":0}},"policy":{"search_mode":"deep","max_days":3}}
+    asyncio.run(mobile_cloud.run_deep_market(job,"wb"))
+    assert len(job["offers"])==1
+    assert job["offers"][0]["price"]==1069
+    assert not job["offers"][0]["verified_detail"]
+    assert not job["offers"][0]["identity_verified_ai"]
+    assert job["markets"]["wb"]["audit"]["cheapest_matching_listings"][0]["semantic_verdict"]=="unclear"

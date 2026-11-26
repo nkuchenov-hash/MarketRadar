@@ -163,6 +163,28 @@ def plausible_listing(query: str, title: str) -> bool:
     return bool(overlap and len(t) <= 32)
 
 
+def strong_retail_listing_identity(query, card):
+    """Corroborated listing title, not an independent product-page verification.
+
+    Restrict the exception to exact brand/type/specification matches with
+    an explicit manufacturer model. An uncertain NLI score alone cannot
+    erase this evidence; explicit contradictory evidence still wins.
+    """
+    title=str(card.get("title",""))
+    if not exact_product(query,title) or not physical_specs(query):
+        return False
+    if semantic_identity._explicit_conflict(query,str(card.get("context",""))):
+        return False
+    if not re.search(r"(?<![A-Za-z0-9])[A-Za-z]{2,8}-[A-Za-z0-9]{3,14}(?![A-Za-z0-9])",title):
+        return False
+    q=set(normalize(match_text(query)).split())
+    given=set(normalize(match_text(title)).split())
+    if not q.issubset(given):
+        return False
+    if re.search(r"\b(?:зарядка|зарядное устройство|запчасть|муляж|макет|упаковка)\b",normalize(title)) and not re.search(r"\b(?:зарядка|зарядное устройство|запчасть|муляж|макет|упаковка)\b",normalize(query)):
+        return False
+    return True
+
 def _job(job_id):
     return JOBS.get(job_id)
 
@@ -390,7 +412,9 @@ async def run_deep_market(job:dict,shop_id:str):
         provisional = {}
         def publish_listing(card):
             link=card["url"]
-            if link in provisional or decisions.get(link)!="match":
+            verdict=decisions.get(link)
+            structural=(shop_id in ("wb","ym") and verdict=="unclear" and strong_retail_listing_identity(job["query"],card))
+            if link in provisional or (verdict!="match" and not structural):
                 return
             price=int(card.get("price") or 0)
             if price<=0 or card.get("source") not in ("dom","network","public_ssr"):
@@ -403,8 +427,8 @@ async def run_deep_market(job:dict,shop_id:str):
                    "image_url":image[:900] if image.startswith("https://") else "",
                    "delivery":str(card.get("delivery_hint",""))[:100],
                    "delivery_days":delivery_days(card),
-                   "verified_detail":False,"identity_verified_ai":True,
-                   "identity_evidence":"local_nli_and_card_evidence",
+                   "verified_detail":False,"identity_verified_ai":not structural,
+                   "identity_evidence":"exact_title_model_and_specs" if structural else "local_nli_and_card_evidence",
                    "detail_price":None,"detail_price_source":"",
                    "condition":str(card.get("price_condition",""))[:100],
                    "note":"Цена из карточки поисковой выдачи; подтверждения на странице товара нет"}
@@ -428,6 +452,12 @@ async def run_deep_market(job:dict,shop_id:str):
                     decisions.update((card["url"], verdict)
                                      for card, verdict in zip(batch, verdicts))
                     state["identity_ai_checked"] = len(decisions)
+                    if shop_id in ("wb","ym"):
+                        ledger={x.get("url"):x for x in state["audit"].get("cheapest_matching_listings",[])}
+                        for card in batch:
+                            if card["url"] in ledger:
+                                ledger[card["url"]]["semantic_verdict"]=decisions[card["url"]]
+                                ledger[card["url"]]["structural_identity"]=strong_retail_listing_identity(job["query"],card)
                     if fast_wb:
                         for card in batch:
                             publish_listing(card)
@@ -562,7 +592,8 @@ async def run_deep_market(job:dict,shop_id:str):
                         detail_verdicts = await semantic_identity.assess(
                             job["query"], [detail_card])
                         verdict = detail_verdicts[0] if detail_verdicts else "unclear"
-                    if verdict != "match":
+                    structural_listing=(shop_id in ("wb","ym") and verdict=="unclear" and not detail_identity_seen and strong_retail_listing_identity(job["query"],candidate))
+                    if verdict != "match" and not structural_listing:
                         # Explicitly contradictory detail evidence must retract
                         # the provisional offer; mere missing detail must not.
                         if fast_wb and detail_identity_seen and verdict=="reject":
@@ -618,8 +649,8 @@ async def run_deep_market(job:dict,shop_id:str):
                     "listing_price":listing_price or None,
                     "detail_price_source":page.get("detail_price_source","") if detail_accessible else "",
                     "verified_detail":price_verified,
-                    "identity_verified_ai":semantic,
-                    "identity_evidence":("local_nli_and_card_evidence" if semantic and not detail_identity_seen
+                    "identity_verified_ai":semantic and not (shop_id in ("wb","ym") and semantic and verdict!="match"),
+                    "identity_evidence":("exact_title_model_and_specs" if semantic and verdict!="match" else "local_nli_and_card_evidence" if semantic and not detail_identity_seen
                                          else "local_nli_and_detail_evidence" if semantic else "title_rules"),
                     "detail_price":structured if detail_match and structured > 0 else None,
                     "condition":str(candidate.get("price_condition",""))[:100],
