@@ -22,7 +22,7 @@ async function open(page,url,end){
  return "ok";
 }
 async function snap(page){
- const result=await page.evaluate(extractor);
+ const result=await page.evaluate('('+extractor+')()');
  const challenge=/вы не робот|подтвердите, что вы человек|access denied|captcha|проверяем ваш браузер/i.test((result.title||"")+" "+(result.body||"").slice(0,2500));
  return {...result,state:challenge?"blocked":"ok",url:page.url()};
 }
