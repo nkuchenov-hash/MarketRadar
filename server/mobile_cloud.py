@@ -221,6 +221,8 @@ async def run_market(job: dict, shop_id: str):
                 state.update(state="partial",message="Повторный поиск не завершился",coverage_complete=False)
             state.setdefault("audit",{})["original_query_audit"]=first_audit
             state["audit"]["alternate_query"]=alternate
+        if mode=="auto" and job["state"]=="running" and not has_timely_verified_offer(job,shop_id):
+            await run_browser_fallback(job,shop_id)
         return
     if mode=="fast" and shop_id=="ozon":
         state.update(state="blocked",phase="done",coverage_complete=False,message="Отдельный сервис Ozon не подключён",audit={"source":"specialist_unconfigured"})
@@ -235,35 +237,8 @@ async def run_market(job: dict, shop_id: str):
         else:
             await run_fast(job, state, shop_id, exact_product)
         if mode=="fast":return
-        max_days=job.get("policy",{}).get("max_days",3)
-        has_verified=any(o.get("market_id")==shop_id and o.get("verified_detail")
-                         and isinstance(o.get("delivery_days"),int)
-                         and 0<=o["delivery_days"]<=max_days for o in job["offers"])
-        if has_verified or job["state"]!="running":
-            return
-        # Restore the pre-fast-worker route, including full scroll budget,
-        # plausible listing inspection and local semantic identity checks.
-        # Fast observations remain visible while the full search runs.
-        fast_audit=dict(state.get("audit",{}))
-        fast_checked=state.get("checked",0)
-        state.update(state="searching",phase="deep",message="Расширенный поиск",
-                     checked=0,coverage_complete=False)
-        state.pop("detail_total",None)
-        try:
-            await asyncio.wait_for(run_deep_market(job,shop_id),timeout=360)
-        except asyncio.TimeoutError:
-            state.update(state="partial",message="Расширенный поиск достиг лимита времени",coverage_complete=False)
-        finally:
-            deep_audit=dict(state.get("audit",{}))
-            state["audit"]={"source":"fast_then_deep","fast":fast_audit,"deep":deep_audit}
-            state["checked"]=fast_checked+state.get("checked",0)
-            state["phase"]="done"
-            state["coverage_complete"]=False
-            merge_market_offers(job,shop_id)
-            survivors=[o for o in job["offers"] if o.get("market_id")==shop_id]
-            state["best_found"]=min((o["price"] for o in survivors),default=0)
-            state["best_verified"]=min((o["price"] for o in survivors if o.get("verified_detail")),default=0)
-            if survivors:state["state"]="partial"
+        if job["state"]=="running" and not has_timely_verified_offer(job,shop_id):
+            await run_browser_fallback(job,shop_id)
         return
     try:
         await asyncio.wait_for(run_deep_market(job,shop_id),timeout=360)
@@ -271,6 +246,36 @@ async def run_market(job: dict, shop_id: str):
         state.update(state="partial",message="Расширенный поиск достиг лимита времени",coverage_complete=False)
     finally:
         merge_market_offers(job,shop_id)
+
+def has_timely_verified_offer(job,shop_id):
+    max_days=job.get("policy",{}).get("max_days",3)
+    return any(o.get("market_id")==shop_id and o.get("verified_detail")
+               and type(o.get("delivery_days")) is int
+               and 0<=o["delivery_days"]<=max_days for o in job["offers"])
+
+async def run_browser_fallback(job,shop_id):
+    """Use the existing bounded browser engine without discarding fast observations."""
+    state=job["markets"][shop_id]
+    fast_audit=dict(state.get("audit",{}))
+    fast_checked=state.get("checked",0)
+    state.update(state="searching",phase="deep",message="Расширенный поиск",
+                 checked=0,coverage_complete=False)
+    state.pop("detail_total",None)
+    try:
+        await asyncio.wait_for(run_deep_market(job,shop_id),timeout=360)
+    except asyncio.TimeoutError:
+        state.update(state="partial",message="Расширенный поиск достиг лимита времени",coverage_complete=False)
+    finally:
+        deep_audit=dict(state.get("audit",{}))
+        state["audit"]={"source":"fast_then_deep","fast":fast_audit,"deep":deep_audit}
+        state["checked"]=fast_checked+state.get("checked",0)
+        state["phase"]="done"
+        state["coverage_complete"]=False
+        merge_market_offers(job,shop_id)
+        survivors=[o for o in job["offers"] if o.get("market_id")==shop_id]
+        state["best_found"]=min((o["price"] for o in survivors),default=0)
+        state["best_verified"]=min((o["price"] for o in survivors if o.get("verified_detail")),default=0)
+        if survivors:state["state"]="partial"
 
 def merge_market_offers(job,shop_id):
     from .retail_fast import days
@@ -702,7 +707,9 @@ async def run_job(job: dict):
                     state=job["markets"][shop]
                     # The Ozon worker is independent; retry a transport error
                     # once, with a short bound, never on an empty valid result.
-                    if shop=="ozon" and state.get("state")=="error" and not any(o.get("market_id")==shop for o in job["offers"]):
+                    if (shop=="ozon" and job.get("policy",{}).get("search_mode")=="fast"
+                            and state.get("audit",{}).get("source")=="ozon_mcp"
+                            and state.get("state")=="error" and not any(o.get("market_id")==shop for o in job["offers"])):
                         state.update(state="searching",message="Повторное подключение",retry_attempt=1)
                         try:await asyncio.wait_for(run_market(job,shop),timeout=35)
                         except asyncio.TimeoutError:state.update(state="error",message="Повторный запрос не завершился",coverage_complete=False)

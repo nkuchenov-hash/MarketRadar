@@ -183,7 +183,7 @@ def test_ozon_retries_capacity_spelling_only_on_zero_candidates(monkeypatch):
             assert match(job["query"],"SSD Samsung 990 PRO 1 ТБ")
             assert not match(job["query"],"SSD Samsung 990 PRO 2 ТБ")
             state["candidates"]=1
-            job["offers"].append({"market_id":"ozon","price":10000})
+            job["offers"].append({"market_id":"ozon","price":10000,"url":"https://www.ozon.ru/product/ssd-123456/","verified_detail":True,"delivery_days":1})
     monkeypatch.setattr(ozon_mcp,"run_ozon_mcp",search)
     job={"query":"Samsung 990 PRO 1TB","state":"running","markets":{"ozon":{}},"offers":[],"errors":[]}
     asyncio.run(mobile_cloud.run_market(job,"ozon"))
@@ -311,3 +311,31 @@ def test_fast_can_confirm_ninth_candidate_without_fixed_card_ceiling(monkeypatch
     asyncio.run(r.run_fast(job,state,"wb",exact_product))
     assert state["checked"]>=9
     assert any(o["price"]==11080 and o["verified_detail"] for o in job["offers"])
+
+def test_ozon_auto_fallback_only_without_timely_verified_offer(monkeypatch):
+    from server import mobile_cloud,ozon_mcp
+    monkeypatch.setenv("MARKETRADAR_OZON_MCP_URL","http://test")
+    calls=[]
+    outcome={"state":"error","offers":[]}
+    async def mcp(job,state,match):
+        calls.append("mcp")
+        state.update(state=outcome["state"],audit={"source":"ozon_mcp"},checked=1)
+        job["offers"].extend(outcome["offers"])
+    async def deep(job,shop):
+        calls.append("deep")
+        job["markets"][shop].update(state="partial",audit={"source":"chromium"},checked=2)
+        job["offers"].append({"market_id":"ozon","url":"https://www.ozon.ru/product/ssd-123456/","price":10000,"delivery_days":1,"verified_detail":True})
+    monkeypatch.setattr(ozon_mcp,"run_ozon_mcp",mcp)
+    monkeypatch.setattr(mobile_cloud,"run_deep_market",deep)
+    for mode,expected in [("auto",["mcp","deep"]),("fast",["mcp"]),("deep",["deep"])]:
+        calls.clear()
+        job={"query":Q,"state":"running","offers":[],"markets":{"ozon":{}},"policy":{"search_mode":mode},"errors":[]}
+        asyncio.run(mobile_cloud.run_market(job,"ozon"))
+        assert calls==expected
+        if mode=="auto":assert job["markets"]["ozon"]["audit"]["source"]=="fast_then_deep"
+    outcome.update(state="partial",offers=[{"market_id":"ozon","url":"https://www.ozon.ru/product/ssd-123456/","price":9000,"delivery_days":1,"verified_detail":True}])
+    calls.clear()
+    job={"query":Q,"state":"running","offers":[],"markets":{"ozon":{}},"policy":{"search_mode":"auto"},"errors":[]}
+    asyncio.run(mobile_cloud.run_market(job,"ozon"))
+    assert calls==["mcp"]
+    assert job["offers"][0]["price"]==9000
