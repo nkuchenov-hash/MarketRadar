@@ -1,0 +1,28 @@
+name: ApiSystem quality benchmark
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/apisystem-quality.yml']
+permissions:
+  contents: read
+jobs:
+  sample:
+    if: github.run_attempt == 1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Approved bounded provider quality sample
+        env:
+          APISYSTEM_TEST_KEY: ${{ secrets.APISYSTEM_TEST_KEY }}
+          PYTHONIOENCODING: utf-8
+        run: python3 deploy/probe-apisystem-quality.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: apisystem-quality
+          path: apisystem-evidence.json
+          if-no-files-found: ignore
+          retention-days: 7
