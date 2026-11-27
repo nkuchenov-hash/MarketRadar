@@ -41,40 +41,65 @@ export function normalizeOffer(shop,row,query,today=todayMoscow()){
  delivery:String(raw??"").slice(0,100),delivery_days:days,delivery_fee:fee,total_price:fee===null?null:price+fee,
  verified_detail:false,source:"apisystem",image_url:""};
 }
+// The same query is sent to both sort orders. A popular result is a price
+// reference, not permission to skip cheaper pages or assume exhaustive coverage.
 export async function findRetailOffers({shop,query,key,geoId,gps,maxPages=5,maxDays=3,allowLate=false,discountPercent=20},fetcher=fetch,pause=wait){
  if(!hosts[shop]||typeof query!=="string"||query.trim().length<3||query.length>180||!key)throw Error("Invalid configuration");
  if(shop==="wb"&&!/^[-+]?\d{1,2}(?:\.\d+)?,[-+]?\d{1,3}(?:\.\d+)?$/.test(gps||""))throw Error("WB delivery location required");
  if(shop==="ym"&&(!Number.isInteger(geoId)||geoId<=0))throw Error("Market region required");
- const start=Date.now(),found=new Map(),issues=[];
- let scanned=0,pages=0,regionConfirmed=false;
- for(let page=1;page<=Math.min(10,maxPages);page++){
-  if(page>1)await pause(1100);
+ const start=Date.now(),found=new Map(),issues=[],ledger=[];
+ const budget=Math.min(12,Math.max(1,Math.floor(Number(maxPages)||5)));
+ const popular=shop==="wb"?"popular":"dpop",cheap=shop==="wb"?"priceup":"aprice";
+ let scanned=0,pages=0,regionConfirmed=false,attempts=0,firstOfferSeconds=null,pricePages=0,priceExhausted=false;
+ const bestTimely=()=>Math.min(...[...found.values()].filter(o=>o.delivery_days!==null&&o.delivery_days<=maxDays).map(o=>o.price));
+ async function scan(sort,page){
+  if(attempts>=budget)return null;
+  if(attempts)await pause(1100);
+  attempts++;
   const url=new URL("https://"+hosts[shop]+"/search");
-  url.search=new URLSearchParams({text:query,format:"json",api_key:key,page:String(page),count:shop==="wb"?"30":"10",sort:shop==="wb"?"priceup":"aprice",...(shop==="wb"?{gps}:{geo_id:String(geoId),resale:"0"})});
+  // Ten rows is the proven interoperable size; WB's 30-row initial request failed.
+  url.search=new URLSearchParams({text:query,format:"json",api_key:key,page:String(page),count:"10",sort,...(shop==="wb"?{gps}:{geo_id:String(geoId),resale:"0"})});
   try{
-   // Do not allow redirects, including downgrade to HTTP or leak of key.
    const res=await fetcher(url,{redirect:"error",signal:AbortSignal.timeout(12000),headers:{Accept:"application/json"}});
-   if(!res.ok){issues.push("HTTP "+res.status);break;}
+   if(!res.ok){issues.push("HTTP "+res.status);return null;}
    const data=await res.json();
-   if(!data||typeof data!=="object"||data.status==="ERROR"||!Array.isArray(data.offers)){issues.push("Provider rejected request or invalid schema");break;}
-   if(shop==="ym"&&Number(data.region_id)!==geoId){issues.push("Region mismatch");break;}
+   if(!data||typeof data!=="object"||data.status==="ERROR"||!Array.isArray(data.offers)){issues.push("Provider rejected request or invalid schema");return null;}
+   if(shop==="ym"&&Number(data.region_id)!==geoId){issues.push("Region mismatch");return null;}
+   if(Number(data.page||page)!==page){issues.push("Unexpected response page");return null;}
    if(shop==="ym")regionConfirmed=true;
    pages++;scanned+=data.offers.length;
+   let matchesCount=0,newCount=0;
    for(const x of data.offers){
     const o=normalizeOffer(shop,x,query);
     if(!o)continue;
-    // Do not merge separate regional or seller price observations.
-    const id=JSON.stringify([x.offer_id??x.model_id??o.url,x.shop_id??x.business_id??"",o.url]);
-    const old=found.get(id);
-    if(!old||o.price<old.price)found.set(id,o);
+    matchesCount++;
+    // Preserve separate price/delivery observations for the same seller.
+    const id=JSON.stringify([x.offer_id??x.model_id??o.url,x.shop_id??x.business_id??"",o.url,o.price,o.delivery_days,o.condition]);
+    if(!found.has(id)){found.set(id,o);newCount++;}
    }
-   if(!data.offers.length||(Number.isInteger(data.total_pages)&&page>=data.total_pages))break;
-  }catch(e){issues.push("Provider transport or parse failure");break;}
+   const best=bestTimely();
+   if(firstOfferSeconds===null&&Number.isFinite(best))firstOfferSeconds=(Date.now()-start)/1000;
+   ledger.push({sort,page,rows:data.offers.length,matches:matchesCount,new_observations:newCount,best_timely:Number.isFinite(best)?best:null,total_pages:Number.isInteger(data.total_pages)?data.total_pages:null});
+   return data;
+  }catch{issues.push("Provider transport or parse failure");return null;}
+ }
+ // Seed with popular results, then scan ascending price. No fixed model codes,
+ // minimum price floor, or stop just because a page contains no exact matches.
+ if(budget>1){
+  const seed=await scan(popular,1);
+  if(!seed)return {offers:[],audit:{source:"apisystem",attempts,pages,scanned,issues,ledger,coverageComplete:false}};
+ }
+ for(let page=1;attempts<budget;page++){
+  const data=await scan(cheap,page);
+  if(!data)break;
+  pricePages++;
+  if(!data.offers.length||(Number.isInteger(data.total_pages)&&page>=data.total_pages)){priceExhausted=true;break;}
  }
  const rows=[...found.values()];
  const timely=rows.filter(o=>Number.isInteger(o.delivery_days)&&o.delivery_days<=maxDays);
- const best= Math.min(...timely.map(o=>o.total_price??o.price));
- const offers=rows.filter(o=>Number.isInteger(o.delivery_days)&&(o.delivery_days<=maxDays||(allowLate&&Number.isFinite(best)&&o.total_price!==null&&o.total_price<=best*(1-discountPercent/100))));
+ const knownTotalBest=Math.min(...timely.filter(o=>o.total_price!==null).map(o=>o.total_price));
+ const offers=rows.filter(o=>Number.isInteger(o.delivery_days)&&(o.delivery_days<=maxDays||(allowLate&&Number.isFinite(knownTotalBest)&&o.total_price!==null&&o.total_price<=knownTotalBest*(1-discountPercent/100))));
  offers.sort((a,b)=>(a.total_price??a.price)-(b.total_price??b.price));
- return {offers,audit:{source:"apisystem",seconds:(Date.now()-start)/1000,pages,scanned,candidates:rows.length,region_confirmed:regionConfirmed,requested_region:shop==="ym"?geoId:null,delivery_verified:0,issues,coverageComplete:false}};
+ const best=bestTimely();
+ return {offers,audit:{source:"apisystem",seconds:(Date.now()-start)/1000,attempts,pages,price_pages:pricePages,price_exhausted:priceExhausted,scanned,candidates:rows.length,first_offer_seconds:firstOfferSeconds,best_timely:Number.isFinite(best)?best:null,region_confirmed:regionConfirmed,requested_region:shop==="ym"?geoId:null,delivery_verified:0,issues,ledger,coverageComplete:false,stop_reason:issues.length?"provider_error":priceExhausted?"provider_end":"request_budget"}};
 }
