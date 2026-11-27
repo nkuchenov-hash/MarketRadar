@@ -1,13 +1,16 @@
 name: ApiSystem quality benchmark
 on:
-  push:
-    branches: [main]
-    paths: ['.github/workflows/apisystem-quality.yml']
+  workflow_dispatch:
+    inputs:
+      approval:
+        description: 'Explicitly approve up to ten HTTP requests using the test credential (type APPROVE_HTTP_SAMPLE)'
+        required: true
+        type: string
 permissions:
   contents: read
 jobs:
   sample:
-    if: github.run_attempt == 1
+    if: github.run_attempt == 1 && inputs.approval == 'APPROVE_HTTP_SAMPLE'
     runs-on: ubuntu-24.04
     timeout-minutes: 7
     steps:
