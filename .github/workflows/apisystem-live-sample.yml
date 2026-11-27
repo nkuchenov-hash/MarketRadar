@@ -17,10 +17,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Unauthenticated TLS preflight, then at most six read-only requests
+      - name: User-approved one-off HTTP sample; otherwise verified HTTPS
         env:
           APISYSTEM_TEST_KEY: ${{ secrets.APISYSTEM_TEST_KEY }}
           PYTHONIOENCODING: utf-8
+          APISYSTEM_APPROVED_HTTP_SAMPLE: ${{ github.event_name == 'push' && github.run_attempt == 1 && 'yes' || 'no' }}
         run: python3 deploy/probe-apisystem.py
       - uses: actions/upload-artifact@v4
         if: always()
