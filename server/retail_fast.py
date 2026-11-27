@@ -312,7 +312,10 @@ async def run_specialist(job,state,shop,exact_product,endpoint):
         market={"wb":"Wildberries","ym":"Яндекс Маркет"}[shop]
         valid=[]
         for x in data.get("offers",[]):
-            if not isinstance(x,dict) or not is_product_link(market,str(x.get("url",""))) or not exact_product(job["query"],str(x.get("title",""))) or not amount(x.get("price")):continue
+            if not isinstance(x,dict) or not is_product_link(market,str(x.get("url",""))) or not amount(x.get("price")):continue
+            title=str(x.get("title",""))
+            brand=x.get("brand") if isinstance(x.get("brand"),str) else ""
+            if not exact_product(job["query"],title+" "+brand[:120]):continue
             d=x.get("delivery_days")
             if type(d) is not int or d<0:continue
             valid.append({"market_id":shop,"title":str(x["title"])[:240],"url":x["url"],"price":amount(x["price"]),
