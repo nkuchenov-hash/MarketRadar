@@ -369,3 +369,35 @@ def test_deep_wb_preserves_exact_spec_listing_when_nli_uncertain(monkeypatch):
     assert not job["offers"][0]["verified_detail"]
     assert not job["offers"][0]["identity_verified_ai"]
     assert job["markets"]["wb"]["audit"]["cheapest_matching_listings"][0]["semantic_verdict"]=="unclear"
+
+
+def test_deep_delivery_priority_survives_identity_stage(monkeypatch):
+    from server import mobile_cloud, semantic_identity
+    monkeypatch.setattr(semantic_identity,"enabled",lambda shop:False)
+    for shop in ("wb","ym"):
+        prefix="https://www.wildberries.ru/catalog/" if shop=="wb" else "https://market.yandex.ru/card/example/"
+        def make(n,price,label):
+            return {"url":prefix+str(n)+("/detail.aspx" if shop=="wb" else ""),
+                    "title":Q,"price":price,"delivery_hint":label,"source":"dom"}
+        timely=make(12345678,12000,"через 5 дней")
+        unknown=make(12345679,10000,"")
+        ambiguous=make(12345680,9000,"с 28 ноября")
+        late=make(12345681,8000,"через 9 дней")
+        checked=[]
+        class Engine:
+            async def start(self):pass
+            async def close(self):pass
+            async def snapshot(self,url):
+                if "search" in url:
+                    return {"state":"ok","links":[late,ambiguous,unknown,timely],"audit":{}}
+                checked.append(url)
+                return {"state":"blocked"}
+        monkeypatch.setattr(mobile_cloud,"CloudBrowser",Engine)
+        job={"query":Q,"offers":[],"state":"running","errors":[],
+             "markets":{shop:{"checked":0}},"policy":{"search_mode":"deep","max_days":5}}
+        asyncio.run(mobile_cloud.run_deep_market(job,shop))
+        assert checked==[timely["url"],ambiguous["url"],unknown["url"]]
+        found={x["url"]:x for x in job["offers"]}
+        assert found[timely["url"]]["delivery_days"]==5
+        assert found[ambiguous["url"]]["delivery_days"] is None
+        assert not any(x["verified_detail"] for x in job["offers"])
