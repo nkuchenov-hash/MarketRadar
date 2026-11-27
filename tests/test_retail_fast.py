@@ -450,3 +450,30 @@ def test_configured_auto_runs_two_independent_engines(monkeypatch):
                 task.cancel()
                 await asyncio.gather(task,return_exceptions=True)
     asyncio.run(check())
+
+
+def test_retail_identity_requires_brand_and_model():
+    from server.mobile_cloud import retail_exact_product
+    q="Яндекс лампочка 1300 лм"
+    assert not retail_exact_product(q,"DEQST 243001 лампа светодиодная t20 w21w w3x16d 12-24v 5,5w 6000k 1300lm 2шт")
+    assert retail_exact_product(q,"Умная лампа Яндекс E27 RGB 1300лм")
+    assert not retail_exact_product("Philips Sonicare 3100","Электрическая щетка другого бренда Sonicare 3100")
+    assert retail_exact_product("Samsung 990 PRO 2TB","SSD Samsung 990 PRO 2 ТБ")
+    assert not retail_exact_product("Samsung 990 PRO 2TB","SSD Samsung 990 PRO 1 ТБ")
+
+
+def test_deep_market_does_not_publish_wrong_brand(monkeypatch):
+    from server import mobile_cloud,semantic_identity
+    monkeypatch.setattr(semantic_identity,"enabled",lambda shop:False)
+    good={"url":"https://market.yandex.ru/card/example/12345679","title":"Умная лампа Яндекс E27 1300 лм","price":1250,"delivery_hint":"завтра","source":"dom"}
+    wrong={**good,"url":"https://market.yandex.ru/card/example/12345678","title":"DEQST лампа светодиодная 1300lm","price":995}
+    class Engine:
+        async def start(self):pass
+        async def close(self):pass
+        async def snapshot(self,url):
+            if "search" in url:return {"state":"ok","links":[wrong,good],"audit":{}}
+            return {"state":"blocked"}
+    monkeypatch.setattr(mobile_cloud,"CloudBrowser",Engine)
+    job={"query":"Яндекс лампочка 1300 лм","state":"running","offers":[],"errors":[],"markets":{"ym":{"checked":0}},"policy":{"max_days":3,"search_mode":"deep"}}
+    asyncio.run(mobile_cloud.run_deep_market(job,"ym"))
+    assert [o["url"] for o in job["offers"]]==[good["url"]]
