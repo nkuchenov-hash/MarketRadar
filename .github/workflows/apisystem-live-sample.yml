@@ -1,0 +1,31 @@
+name: ApiSystem bounded live sample
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/apisystem-live-sample.yml']
+permissions:
+  contents: read
+concurrency:
+  group: apisystem-live-sample
+  cancel-in-progress: false
+jobs:
+  sample:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Up to eight read-only requests, no automatic retry
+        env:
+          APISYSTEM_TEST_KEY: ${{ secrets.APISYSTEM_TEST_KEY }}
+          PYTHONIOENCODING: utf-8
+        run: python3 deploy/probe-apisystem.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: apisystem-evidence
+          path: apisystem-evidence.json
+          if-no-files-found: ignore
+          retention-days: 7
