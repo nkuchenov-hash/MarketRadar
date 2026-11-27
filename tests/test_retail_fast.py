@@ -191,38 +191,51 @@ def test_ozon_retries_capacity_spelling_only_on_zero_candidates(monkeypatch):
     assert job["query"]=="Samsung 990 PRO 1TB"
     assert job["offers"][0]["price"]==10000
 
-def test_deep_fallback_preserves_fast_offers_and_merges(monkeypatch):
+def test_unconfigured_auto_wb_uses_one_browser(monkeypatch):
     from server import mobile_cloud
     monkeypatch.setenv("MARKETRADAR_RETAIL_FAST","true")
-    url="https://www.wildberries.ru/catalog/100001/detail.aspx"
-    async def fast(job,state,shop,match):
-        job["offers"].append({"market_id":shop,"url":url,"price":12000,"delivery_days":2,"verified_detail":False})
-        state.update(state="partial",checked=2,audit={"source":"retail_fast"})
+    monkeypatch.delenv("MARKETRADAR_WB_SPECIALIST_URL",raising=False)
+    calls=[]
+    async def fast(*args):raise AssertionError("duplicate browser crawl")
     async def deep(job,shop):
-        assert job["offers"][0]["price"]==12000
-        assert job["markets"][shop]["phase"]=="deep"
-        job["offers"].append({"market_id":shop,"url":url,"price":11500,"delivery":"завтра","verified_detail":True})
+        calls.append(shop)
+        job["offers"].append({"market_id":shop,"url":"https://www.wildberries.ru/catalog/100001/detail.aspx","price":11500,"delivery":"завтра","verified_detail":True})
         job["markets"][shop].update(state="partial",checked=4,audit={"source":"chromium"})
     monkeypatch.setattr(r,"run_fast",fast)
     monkeypatch.setattr(mobile_cloud,"run_deep_market",deep)
     job={"query":Q,"state":"running","offers":[],"markets":{"wb":{}},"policy":{"max_days":3}}
     asyncio.run(mobile_cloud.run_market(job,"wb"))
-    assert len(job["offers"])==1
+    assert calls==["wb"]
     assert job["offers"][0]["price"]==11500
     assert job["offers"][0]["delivery_days"]==1
-    assert job["markets"]["wb"]["checked"]==6
-    assert job["markets"]["wb"]["audit"]["source"]=="fast_then_deep"
+    assert job["markets"]["wb"]["audit"]["browser_passes"]==1
 
-def test_fast_verified_timely_offer_does_not_need_deep_fallback(monkeypatch):
+
+def test_unconfigured_auto_market_parallel_html_and_one_browser(monkeypatch):
     from server import mobile_cloud
     monkeypatch.setenv("MARKETRADAR_RETAIL_FAST","true")
-    async def fast(job,state,shop,match):
-        job["offers"].append({"market_id":shop,"price":12000,"delivery_days":2,"verified_detail":True})
-    async def deep(*args):raise AssertionError("unnecessary deep crawl")
+    monkeypatch.delenv("MARKETRADAR_YM_SPECIALIST_URL",raising=False)
+    url="https://market.yandex.ru/card/example/12345678"
+    calls=[]
+    async def fast(*args):raise AssertionError("duplicate browser crawl")
+    async def seed(job,state,shop,match):
+        calls.append("html")
+        job["offers"].append({"market_id":shop,"url":url,"price":12000,"delivery_days":2,"verified_detail":False})
+        state.update(state="partial",checked=0,audit={"source":"public_catalog"})
+    async def deep(job,shop):
+        calls.append("deep")
+        job["offers"].append({"market_id":shop,"url":url,"price":11500,"delivery_days":1,"verified_detail":True})
+        job["markets"][shop].update(state="partial",checked=4,audit={"source":"chromium"})
     monkeypatch.setattr(r,"run_fast",fast)
+    monkeypatch.setattr(r,"run_public_catalog",seed)
     monkeypatch.setattr(mobile_cloud,"run_deep_market",deep)
     job={"query":Q,"state":"running","offers":[],"markets":{"ym":{}},"policy":{"max_days":3}}
     asyncio.run(mobile_cloud.run_market(job,"ym"))
+    assert sorted(calls)==["deep","html"]
+    assert len(job["offers"])==1
+    assert job["offers"][0]["price"]==11500
+    assert job["markets"]["ym"]["audit"]["browser_passes"]==1
+
 
 def test_private_display_lifecycle(monkeypatch):
     from server import cloud_browser
@@ -260,7 +273,7 @@ def test_search_modes_are_independent(monkeypatch):
     monkeypatch.setattr(r,"run_fast",fast)
     monkeypatch.setattr(mobile_cloud,"run_deep_market",deep)
     monkeypatch.delenv("MARKETRADAR_WB_SPECIALIST_URL",raising=False)
-    for mode,expected in [("fast",[]),("deep",["deep"]),("auto",["fast","deep"])]:
+    for mode,expected in [("fast",[]),("deep",["deep"]),("auto",["deep"])]:
         calls.clear()
         job={"query":Q,"state":"running","offers":[],"markets":{"wb":{}},"policy":{"search_mode":mode}}
         asyncio.run(mobile_cloud.run_market(job,"wb"))
@@ -477,3 +490,19 @@ def test_deep_market_does_not_publish_wrong_brand(monkeypatch):
     job={"query":"Яндекс лампочка 1300 лм","state":"running","offers":[],"errors":[],"markets":{"ym":{"checked":0}},"policy":{"max_days":3,"search_mode":"deep"}}
     asyncio.run(mobile_cloud.run_deep_market(job,"ym"))
     assert [o["url"] for o in job["offers"]]==[good["url"]]
+
+
+def test_public_catalog_never_launches_browser(monkeypatch):
+    q="Яндекс лампочка 1300 лм"
+    good={"url":"https://market.yandex.ru/card/example/12345678","title":"Умная лампа Яндекс 1300 лм","price":1250,"delivery_hint":"завтра","source":"public_ssr"}
+    wrong={**good,"url":"https://market.yandex.ru/card/example/12345679","title":"DEQST лампа светодиодная 1300lm","price":995}
+    def unexpected(*args,**kwargs):raise AssertionError("browser launched")
+    monkeypatch.setattr(r,"CloudBrowser",unexpected)
+    monkeypatch.setattr(r,"fetch_public_search_html",lambda *a,**kw:{"links":[wrong,good],"audit":{}})
+    from server.mobile_cloud import retail_exact_product
+    job={"query":q,"offers":[],"policy":{"max_days":3}}
+    state={}
+    asyncio.run(r.run_public_catalog(job,state,"ym",retail_exact_product))
+    assert [o["url"] for o in job["offers"]]==[good["url"]]
+    assert not job["offers"][0]["verified_detail"]
+    assert state["audit"]["source"]=="public_catalog"
