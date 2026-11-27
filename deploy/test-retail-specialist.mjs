@@ -16,3 +16,14 @@ assert.equal(calls,1);assert.equal(result.offers.length,1);assert.equal(result.a
 const mismatch=await findRetailOffers({shop:"ym",query:q,key:"fixture",geoId:2},async()=>({ok:true,json:async()=>({region_id:213,offers:[ym]})}),async()=>{});
 assert.equal(mismatch.offers.length,0);assert.equal(mismatch.audit.issues[0],"Region mismatch");
 console.log("Specialist catalog normalization and safety tests passed");
+
+const liveDate="2026-11-27";
+const observed={offer_name:q,price:13422,price_yandex_pay:12702,delivery_time:"Завтра, по клику ПВЗ",url:"https://market.yandex.ru/card/market/4554883832"};
+const sample=normalizeOffer("ym",observed,q,liveDate);
+assert.equal(sample.price,12702);assert.equal(sample.delivery_days,1);assert.equal(sample.total_price,null);assert.equal(sample.verified_detail,false);
+assert.equal(normalizeOffer("ym",{...observed,delivery_time:"3 дек, по клику ПВЗ"},q,liveDate).delivery_days,6);
+assert.equal(normalizeOffer("ym",{...observed,delivery_time:"2 дек, курьер Доставка магазина"},q,liveDate).delivery_days,5);
+assert.equal(normalizeOffer("ym",{...observed,delivery_time:"с 28 ноября"},q,liveDate).delivery_days,null);
+assert.equal(normalizeOffer("ym",{...observed,delivery_time:"завтра или позднее"},q,liveDate).delivery_days,null);
+assert.equal(normalizeOffer("ym",null,q,liveDate),null);
+console.log("Live-response delivery and price fixtures passed");
