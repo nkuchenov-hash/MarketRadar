@@ -29,15 +29,16 @@ export function providerDeliveryDays(raw,today=todayMoscow()){
 export function normalizeOffer(shop,row,query,today=todayMoscow()){
  if(!row||typeof row!=="object")return null;
  const title=String(row.offer_name??"");
+ const brand=typeof row.brand==="string"?row.brand.trim().slice(0,120):"";
  const url=storeLink(shop,row.url);
- if(!url||!matches(query,title)||row.resale===true||row.on_stock===0||!positive(row.price))return null;
+ if(!url||!matches(query,brand?title+" "+brand:title)||row.resale===true||row.on_stock===0||!positive(row.price))return null;
  const pay=shop==="wb"?row.price_wb_pay:row.price_yandex_pay;
  const conditional=positive(pay)&&pay<row.price;
  const price=conditional?pay:row.price;
  const raw=row.delivery_time;
  const days=providerDeliveryDays(raw,today);
  const fee=feeValue(row.delivery_cost);
- return {title,url,price,price_regular:row.price,condition:conditional?(shop==="wb"?"Цена с WB Кошельком":"Цена с Яндекс Пэй"):"",
+ return {title,brand,url,price,price_regular:row.price,condition:conditional?(shop==="wb"?"Цена с WB Кошельком":"Цена с Яндекс Пэй"):"",
  delivery:String(raw??"").slice(0,100),delivery_days:days,delivery_fee:fee,total_price:fee===null?null:price+fee,
  verified_detail:false,source:"apisystem",image_url:""};
 }
