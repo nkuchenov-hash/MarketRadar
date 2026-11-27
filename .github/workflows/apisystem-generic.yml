@@ -1,13 +1,16 @@
 name: ApiSystem generic search trial
 on:
-  push:
-    branches: [main]
-    paths: ['.github/workflows/apisystem-generic.yml']
+  workflow_dispatch:
+    inputs:
+      approval:
+        description: 'Approve up to 24 test HTTP calls (type APPROVE_HTTP_SAMPLE)'
+        type: string
+        required: true
 permissions:
   contents: read
 jobs:
   sample:
-    if: github.run_attempt == 1
+    if: github.run_attempt == 1 && inputs.approval == 'APPROVE_HTTP_SAMPLE'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
