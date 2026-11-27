@@ -11,7 +11,7 @@ const ym={offer_name:q,price:12000,price_yandex_pay:12500,delivery_time:"Пос�
 assert.equal(normalizeOffer("ym",ym,q).price,12000);assert.equal(normalizeOffer("ym",ym,q).delivery_days,2);
 let calls=0;
 const f=async(u,opts)=>{calls++;assert.equal(u.protocol,"https:");assert.equal(opts.redirect,"error");assert.equal(u.searchParams.get("sort"),"priceup");return {ok:true,json:async()=>({offers:[wb],total_pages:1})};};
-const result=await findRetailOffers({shop:"wb",query:q,key:"fixture",gps:"59.93,30.31"},f,async()=>{});
+const result=await findRetailOffers({shop:"wb",query:q,key:"fixture",gps:"59.93,30.31",maxPages:1},f,async()=>{});
 assert.equal(calls,1);assert.equal(result.offers.length,1);assert.equal(result.audit.region_confirmed,false);
 const mismatch=await findRetailOffers({shop:"ym",query:q,key:"fixture",geoId:2},async()=>({ok:true,json:async()=>({region_id:213,offers:[ym]})}),async()=>{});
 assert.equal(mismatch.offers.length,0);assert.equal(mismatch.audit.issues[0],"Region mismatch");
@@ -27,3 +27,27 @@ assert.equal(normalizeOffer("ym",{...observed,delivery_time:"с 28 ноября"
 assert.equal(normalizeOffer("ym",{...observed,delivery_time:"завтра или позднее"},q,liveDate).delivery_days,null);
 assert.equal(normalizeOffer("ym",null,q,liveDate),null);
 console.log("Live-response delivery and price fixtures passed");
+
+for(const shop of ["wb","ym"]){
+ const query="Samsung SSD 990 Pro 2TB";
+ const url=n=>shop==="wb"?"https://www.wildberries.ru/catalog/"+n+"/detail.aspx":"https://market.yandex.ru/card/market/"+n;
+ const item=(n,price,title=query,delivery_time="Завтра")=>({offer_name:title,url:url(n),model_id:n,price,delivery_time,delivery_cost:0,on_stock:1});
+ const calls=[];
+ const res=await findRetailOffers({shop,query,key:"fixture",gps:"59.93,30.31",geoId:2,maxPages:4},async u=>{
+  const sort=u.searchParams.get("sort"), page=Number(u.searchParams.get("page"));
+  assert.equal(u.searchParams.get("text"),query);
+  assert.equal(u.searchParams.get("count"),"10");
+  calls.push([sort,page]);
+  const offers=sort==="popular"||sort==="dpop"?[item(10001,20000)]:page===1?[item(10002,1500,"Чехол для "+query)]:page===2?[item(10003,16000,query,8)]:[item(10004,18000)];
+  return {ok:true,json:async()=>({page,region_id:2,total_pages:4,offers})};
+ },async()=>{});
+ assert.equal(calls.length,4);
+ assert.equal(calls[0][0],shop==="wb"?"popular":"dpop");
+ assert.equal(res.audit.price_pages,3);
+ assert.equal(res.audit.coverageComplete,false);
+ assert.equal(res.audit.stop_reason,"request_budget");
+ assert.equal(res.audit.ledger[1].matches,0);
+ assert.equal(res.audit.best_timely,18000);
+ assert.equal(res.offers.some(x=>x.price===1500),false);
+}
+console.log("Generic query and multi-page discovery tests passed");
