@@ -50,7 +50,7 @@ export async function findRetailOffers({shop,query,key,geoId,gps,maxPages=5,maxD
  const start=Date.now(),found=new Map(),issues=[],ledger=[];
  const budget=Math.min(12,Math.max(1,Math.floor(Number(maxPages)||5)));
  const popular=shop==="wb"?"popular":"dpop",cheap=shop==="wb"?"priceup":"aprice";
- let scanned=0,pages=0,regionConfirmed=false,attempts=0,firstOfferSeconds=null,pricePages=0,priceExhausted=false;
+ let scanned=0,pages=0,regionConfirmed=false,attempts=0,firstOfferSeconds=null,pricePages=0,priceExhausted=false,popularUsed=false;
  const bestTimely=()=>Math.min(...[...found.values()].filter(o=>o.delivery_days!==null&&o.delivery_days<=maxDays).map(o=>o.price));
  async function scan(sort,page){
   if(attempts>=budget)return null;
@@ -68,32 +68,33 @@ export async function findRetailOffers({shop,query,key,geoId,gps,maxPages=5,maxD
    if(Number(data.page||page)!==page){issues.push("Unexpected response page");return null;}
    if(shop==="ym")regionConfirmed=true;
    pages++;scanned+=data.offers.length;
-   let matchesCount=0,newCount=0;
+   let matchesCount=0,newCount=0,unknownDelivery=0,lateDelivery=0;
    for(const x of data.offers){
     const o=normalizeOffer(shop,x,query);
     if(!o)continue;
     matchesCount++;
+    if(o.delivery_days===null)unknownDelivery++;else if(o.delivery_days>maxDays)lateDelivery++;
     // Preserve separate price/delivery observations for the same seller.
     const id=JSON.stringify([x.offer_id??x.model_id??o.url,x.shop_id??x.business_id??"",o.url,o.price,o.delivery_days,o.condition]);
     if(!found.has(id)){found.set(id,o);newCount++;}
    }
    const best=bestTimely();
    if(firstOfferSeconds===null&&Number.isFinite(best))firstOfferSeconds=(Date.now()-start)/1000;
-   ledger.push({sort,page,rows:data.offers.length,matches:matchesCount,new_observations:newCount,best_timely:Number.isFinite(best)?best:null,total_pages:Number.isInteger(data.total_pages)?data.total_pages:null});
+   ledger.push({sort,page,rows:data.offers.length,matches:matchesCount,unknown_delivery:unknownDelivery,late_delivery:lateDelivery,new_observations:newCount,best_timely:Number.isFinite(best)?best:null,total_pages:Number.isInteger(data.total_pages)?data.total_pages:null});
    return data;
   }catch{issues.push("Provider transport or parse failure");return null;}
  }
- // Seed with popular results, then scan ascending price. No fixed model codes,
- // minimum price floor, or stop just because a page contains no exact matches.
- if(budget>1){
-  const seed=await scan(popular,1);
-  if(!seed)return {offers:[],audit:{source:"apisystem",attempts,pages,scanned,issues,ledger,coverageComplete:false}};
- }
+ // Price order is primary. Popularity is optional recovery, not a mandatory
+ // extra call. Reserve the next price page whenever possible.
  for(let page=1;attempts<budget;page++){
   const data=await scan(cheap,page);
   if(!data)break;
   pricePages++;
   if(!data.offers.length||(Number.isInteger(data.total_pages)&&page>=data.total_pages)){priceExhausted=true;break;}
+  if(pricePages===2&&!Number.isFinite(bestTimely())&&!popularUsed&&budget-attempts>=2){
+   popularUsed=true;
+   if(!await scan(popular,1))break;
+  }
  }
  const rows=[...found.values()];
  const timely=rows.filter(o=>Number.isInteger(o.delivery_days)&&o.delivery_days<=maxDays);
@@ -101,5 +102,5 @@ export async function findRetailOffers({shop,query,key,geoId,gps,maxPages=5,maxD
  const offers=rows.filter(o=>Number.isInteger(o.delivery_days)&&(o.delivery_days<=maxDays||(allowLate&&Number.isFinite(knownTotalBest)&&o.total_price!==null&&o.total_price<=knownTotalBest*(1-discountPercent/100))));
  offers.sort((a,b)=>(a.total_price??a.price)-(b.total_price??b.price));
  const best=bestTimely();
- return {offers,audit:{source:"apisystem",seconds:(Date.now()-start)/1000,attempts,pages,price_pages:pricePages,price_exhausted:priceExhausted,scanned,candidates:rows.length,first_offer_seconds:firstOfferSeconds,best_timely:Number.isFinite(best)?best:null,region_confirmed:regionConfirmed,requested_region:shop==="ym"?geoId:null,delivery_verified:0,issues,ledger,coverageComplete:false,stop_reason:issues.length?"provider_error":priceExhausted?"provider_end":"request_budget"}};
+ return {offers,audit:{source:"apisystem",seconds:(Date.now()-start)/1000,attempts,pages,price_pages:pricePages,popular_fallback_used:popularUsed,unknown_delivery:rows.filter(o=>o.delivery_days===null).length,late_delivery:rows.filter(o=>o.delivery_days!==null&&o.delivery_days>maxDays).length,price_exhausted:priceExhausted,scanned,candidates:rows.length,first_offer_seconds:firstOfferSeconds,best_timely:Number.isFinite(best)?best:null,region_confirmed:regionConfirmed,requested_region:shop==="ym"?geoId:null,delivery_verified:0,issues,ledger,coverageComplete:false,stop_reason:issues.length?"provider_error":priceExhausted?"provider_end":"request_budget"}};
 }
