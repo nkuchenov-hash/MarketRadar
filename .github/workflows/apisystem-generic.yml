@@ -1,0 +1,22 @@
+name: ApiSystem generic search trial
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/apisystem-generic.yml']
+permissions:
+  contents: read
+jobs:
+  sample:
+    if: github.run_attempt == 1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Validate generic algorithm
+        run: node deploy/test-retail-specialist.mjs
+      - name: Run bounded live trial
+        env:
+          APISYSTEM_TEST_KEY: ${{ secrets.APISYSTEM_TEST_KEY }}
+        run: node deploy/probe-apisystem-generic.mjs
