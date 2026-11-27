@@ -3,10 +3,12 @@ import os, json, time, urllib.request, urllib.error, urllib.parse, socket, ssl
 from datetime import datetime
 from pathlib import Path
 KEY=os.environ.get("APISYSTEM_TEST_KEY","").strip()
+HTTP_SAMPLE=os.environ.get("APISYSTEM_APPROVED_HTTP_SAMPLE")=="yes"
+SCHEME="http" if HTTP_SAMPLE else "https"
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self,*args,**kwargs): return None
-client=urllib.request.build_opener(NoRedirect())
+client=urllib.request.build_opener(urllib.request.ProxyHandler({}),NoRedirect())
 queries=["Яндекс Станция Мини 3 Про","Яндекс лампочка 1300 лм"]
 shops={"wb":("wb.apisystem.name",{"gps":"59.9343,30.3351","count":30,"sort":"priceup"}),"ym":("market.apisystem.name",{"geo_id":2,"count":10,"sort":"aprice","resale":0})}
 results=[]
@@ -54,10 +56,13 @@ def tls_check(host):
 
 available=[]
 for shop,(host,params) in shops.items():
-    report=tls_check(host)
-    report["shop"]=shop
-    save(report)
-    if report.get("tls")=="ok":available.append(shop)
+    if HTTP_SAMPLE:
+        available.append(shop)
+    else:
+        report=tls_check(host)
+        report["shop"]=shop
+        save(report)
+        if report.get("tls")=="ok":available.append(shop)
 if not available:
     raise SystemExit("No verified HTTPS endpoint; no authenticated requests sent")
 if not KEY:
@@ -66,18 +71,21 @@ if not KEY:
 # authenticated attempts, no retries, within the original eight-request budget.
 for shop in available:
     host,params=shops[shop]
-    for query,page in [(queries[0],1),(queries[0],2),(queries[1],1)]:
-        if attempts>=6:raise SystemExit("Request budget reached")
-        if attempts:time.sleep(2)
+    cases=[(queries[0],1)] if HTTP_SAMPLE else [(queries[0],1),(queries[0],2),(queries[1],1)]
+    for query,page in cases:
+        if attempts>=(2 if HTTP_SAMPLE else 6):raise SystemExit("Request budget reached")
+        if attempts:time.sleep(30 if HTTP_SAMPLE and results[-1].get("error") else 2)
         attempts+=1
-        r={"phase":"search","shop":shop,"query":query,"page":page,"request":attempts}
+        r={"phase":"search","shop":shop,"query":query,"page":page,"request":attempts,"transport":SCHEME}
         start=time.monotonic()
         try:
-            url="https://"+host+"/search?"+urllib.parse.urlencode({**params,"text":query,"page":page,"format":"json","api_key":KEY})
+            url=SCHEME+"://"+host+"/search?"+urllib.parse.urlencode({**params,"text":query,"page":page,"format":"json","api_key":KEY})
             req=urllib.request.Request(url,headers={"Accept":"application/json"})
             with client.open(req,timeout=25) as resp:
                 r["http_status"]=resp.status
-                data=json.loads(resp.read(4_000_001))
+                raw=resp.read(4_000_001)
+                if len(raw)>4_000_000:raise ValueError("Response too large")
+                data=json.loads(raw)
             # Published JSON examples omit status; explicit ERROR still fails.
             if not isinstance(data,dict) or data.get("status","OK")!="OK" or not isinstance(data.get("offers"),list):
                 r["error"]="Unexpected response schema or provider rejection"
@@ -96,9 +104,15 @@ for shop in available:
             save(r)
         except urllib.error.HTTPError as e:
             r["http_status"]=e.code
-            r["error"]="Provider returned HTTP error; no further calls"
+            r["error"]="Provider returned HTTP error"
+            # Keep only documented, known error strings; never print raw response.
+            body=e.read(2048).decode("utf-8","replace")
+            for label in ("Access no paid","Rate limit exceeded","Access denied","Thread limit","Forbidden","Error occurred, please try again later","Error. No such product","Error. Not available"):
+                if label.lower() in body.lower():r["provider_error"]=label;break
             r["seconds"]=round(time.monotonic()-start,3)
-            save(r);raise SystemExit(2)
+            save(r)
+            if not HTTP_SAMPLE:raise SystemExit(2)
+            break
         except urllib.error.URLError as e:
             r["error"]=type(e.reason).__name__
             r["errno"]=getattr(e.reason,"errno",None)
