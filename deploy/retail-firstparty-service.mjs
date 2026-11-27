@@ -15,12 +15,17 @@ const extractor=source.match(/_DOM_SNAPSHOT = r"""([\s\S]*?)"""/)?.[1];
 if(!extractor)throw Error("Missing DOM extractor");
 let context,busy=false;
 const timeout=(end,cap)=>Math.max(1,Math.min(cap,end-Date.now()));
+// Keep only status, route category and challenge state; never log cookies,
+// full redirect URLs, account text, or query values.
 async function open(page,url,end){
  if(!sameShop(url))throw Error("Invalid URL");
  const r=await page.goto(url,{waitUntil:"domcontentloaded",timeout:timeout(end,10000)});
- if(!sameShop(page.url()))return "blocked";
- if(r&&[401,403,429,498,503].includes(r.status()))return "blocked";
- return "ok";
+ const status=r?.status()??null;
+ const within=sameShop(page.url());
+ const title=within?await page.title().catch(()=>""):"";
+ const challenge=/вы не робот|подтвердите, что вы человек|подтвердите, что запросы отправляли вы|access denied|captcha|проверяем ваш браузер|подозрительная активность|похоже, нет соединения/i.test(title);
+ const reason=!within?"redirect_outside_storefront":challenge?"challenge_title":[401,403,429,498,503].includes(status)?"http_denial":"";
+ return {state:reason?"blocked":"ok",http_status:status,reason,transport:"warm_chromium_node"};
 }
 async function snap(page){
  const result=await page.evaluate('('+extractor+')()');
@@ -30,35 +35,40 @@ async function snap(page){
 async function browserListing(url,ms,emit){
  const page=await context.newPage(),end=Date.now()+ms;
  try{
-  if(await open(page,url,end)==="blocked")return {state:"blocked",products:[]};
+  const entry=await open(page,url,end);
+  if(entry.state==="blocked")return {...entry,products:[]};
   let last;
   for(let i=0;i<5&&Date.now()<end-250;i++){
    last=await snap(page);
-   if(last.state==="blocked")return last;
+   if(last.state==="blocked")return {state:"blocked",reason:"challenge_body",http_status:entry.http_status,transport:entry.transport,products:[]};
    emit(last.products);
    if(i>=2&&last.products?.length&&last.scroll_y+last.viewport>=last.scroll_height-100)break;
    if(i<4){await page.mouse.wheel(0,900);await page.waitForTimeout(timeout(end,450));}
   }
-  return {...(last||{state:"partial",products:[]}),transport:"warm_chromium_node"};
+  return {...(last||{state:"partial",products:[]}),transport:"warm_chromium_node",http_status:entry.http_status};
  }finally{await page.close();}
 }
 async function listing(url,ms,emit){
  if(shop==="ym"&&process.env.RETAIL_DIRECT_HTML!=="false"){
-  const start=Date.now();
+  const start=Date.now();let directAudit={};
   try{
    const direct=await fetchYandexPublicHTML(url,ms);
-   if(direct.state==="blocked")return direct;
-   if(direct.products?.length){emit(direct.products);return direct;}
-  }catch{}
+   directAudit={transport:"public_ssr_node",state:direct.state,http_status:direct.http_status??null,products:direct.products?.length??0};
+   if(direct.state==="blocked")return {...direct,attempts:[directAudit]};
+   if(direct.products?.length){emit(direct.products);return {...direct,attempts:[directAudit]};}
+  }catch(e){directAudit={transport:"public_ssr_node",state:"error",error_type:e?.name||"Error"};}
   ms-=Date.now()-start;
-  if(ms<=250)return {state:"partial",products:[],transport:"public_ssr_node"};
+  if(ms<=250)return {state:"partial",products:[],transport:"public_ssr_node",attempts:[directAudit]};
+  const result=await browserListing(url,ms,emit);
+  return {...result,attempts:[directAudit,{transport:result.transport,state:result.state,http_status:result.http_status??null,reason:result.reason||""}]};
  }
  return browserListing(url,ms,emit);
 }
 async function detail(url,ms){
  const page=await context.newPage(),end=Date.now()+ms;
  try{
-  if(await open(page,url,end)==="blocked")return {state:"blocked"};
+  const entry=await open(page,url,end);
+  if(entry.state==="blocked")return entry;
   if(productKey(shop,page.url())!==productKey(shop,url))return {state:"partial"};
   let last;
   for(let i=0;i<6&&Date.now()<end-100;i++){
