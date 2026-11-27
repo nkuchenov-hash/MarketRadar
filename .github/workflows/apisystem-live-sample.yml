@@ -1,9 +1,6 @@
 name: ApiSystem bounded live sample
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths: ['.github/workflows/apisystem-live-sample.yml']
 permissions:
   contents: read
 concurrency:
@@ -17,11 +14,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: User-approved one-off HTTP sample; otherwise verified HTTPS
+      - name: Verified HTTPS preflight and bounded read-only sample
         env:
           APISYSTEM_TEST_KEY: ${{ secrets.APISYSTEM_TEST_KEY }}
           PYTHONIOENCODING: utf-8
-          APISYSTEM_APPROVED_HTTP_SAMPLE: ${{ github.event_name == 'push' && github.run_attempt == 1 && 'yes' || 'no' }}
         run: python3 deploy/probe-apisystem.py
       - uses: actions/upload-artifact@v4
         if: always()
