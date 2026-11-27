@@ -298,6 +298,29 @@ async def run_fast(job,state,shop,exact_product):
         state["message"]=f"Подтверждено карточек: {len(confirmed)}; из выдачи: {len(provisional)}. Полнота и регион не гарантированы."
         sync()
 
+async def run_public_catalog(job,state,shop,exact_product):
+    """Quick independent public listing source; never starts Chromium."""
+    market={"wb":"Wildberries","ym":"Яндекс Маркет"}[shop]
+    url=sorted_search_url(MARKETS[market]["search"].format(q=quote(job["query"])))
+    t=time.monotonic()
+    policy=job.get("policy",{})
+    state.update(phase="listing",coverage_complete=False,audit={"source":"public_catalog","coverageComplete":False})
+    try:
+        data=await asyncio.wait_for(asyncio.to_thread(fetch_public_search_html,url,max_pages=3,request_timeout=5,retries=0),timeout=12)
+        rows=candidates(data.get("links",[]),job["query"],market,exact_product)
+        eligible=publishable(rows,policy.get("max_days",3),policy.get("allow_late",False),policy.get("discount_percent",20))
+        offers=[offer(shop,x) for x in eligible]
+        job["offers"].extend(offers)
+        state.update(state="partial" if rows else "blocked",candidates=len(data.get("links",[])),matching_cards=len(rows),checked=0,best_found=min((o["price"] for o in offers),default=0),best_verified=0)
+        state["audit"].update(public_html=data.get("audit",{}),seconds=round(time.monotonic()-t,3))
+        if offers:state["audit"]["first_offer_seconds"]=round(time.monotonic()-t,3)
+    except asyncio.CancelledError:raise
+    except Exception as exc:
+        state.update(state="error",failure_type=type(exc).__name__)
+    finally:
+        state["phase"]="done"
+
+
 async def run_specialist(job,state,shop,exact_product,endpoint):
     """Private external worker contract; provider rows are not product-page evidence."""
     import httpx
