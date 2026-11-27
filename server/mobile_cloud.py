@@ -372,6 +372,11 @@ async def run_deep_market(job:dict,shop_id:str):
                       if card.get("url") and plausible_listing(job["query"],
                                                                card.get("title",""))]
         def delivery_days(card):
+            if shop_id in ("wb","ym"):
+                # Reuse the strict calendar parser; ranges and past dates are
+                # not proof of arrival within the requested delivery window.
+                from .retail_fast import days
+                return days(card.get("delivery_hint"))
             # Use Moscow-local calendar for the Russian storefront's date
             # labels; unknown delivery remains eligible for inspection.
             from datetime import datetime,timedelta
@@ -394,12 +399,12 @@ async def run_deep_market(job:dict,shop_id:str):
             return None
         def priority(c):
             days=delivery_days(c)
-            return (0 if days is not None and days<=3 else 1 if days is None else 2,
+            return (0 if days is not None and days<=job.get("policy",{}).get("max_days",3) else 1 if days is None else 2,
                     not bool(c.get("price",0)),c.get("price",0) or 10**12,c["url"])
         # First verify cheap timely offers on WB, rather than spending the
         # entire detail-access budget on suspicious late-delivery cards.
         # Keep late offers for the configured discount exception.
-        candidates.sort(key=priority if shop_id=="wb" else
+        candidates.sort(key=priority if shop_id in ("wb","ym") else
                         lambda c:(not bool(c.get("price",0)),c.get("price",0) or 10**12,c["url"]))
         state["matching_cards"] = len(candidates)
         state["omitted_as_unrelated"] = len(all_cards) - len(candidates)
@@ -485,7 +490,10 @@ async def run_deep_market(job:dict,shop_id:str):
         max_days=policy.get("max_days",3)
         allow_late=policy.get("allow_late",False)
         discount=policy.get("discount_percent",20)
-        candidates.sort(key=lambda c:(not bool(c.get("price")),c.get("price") or 10**12,c["url"]))
+        # Keep the timely-first priority through actual detail requests.
+        # Unknown-date candidates are still inspected; late ones stay last.
+        candidates.sort(key=priority if shop_id in ("wb","ym") else
+                        lambda c:(not bool(c.get("price")),c.get("price") or 10**12,c["url"]))
         state["detail_total"]=len(candidates)
         verified_timely=0
         pruned=0
