@@ -17,7 +17,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Up to eight read-only requests, no automatic retry
+      - name: Unauthenticated TLS preflight, then at most six read-only requests
         env:
           APISYSTEM_TEST_KEY: ${{ secrets.APISYSTEM_TEST_KEY }}
           PYTHONIOENCODING: utf-8
