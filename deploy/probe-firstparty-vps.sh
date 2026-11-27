@@ -4,8 +4,9 @@
 set -Eeuo pipefail
 umask 077
 [[ $EUID -eq 0 ]] || { echo "Run from an authorized administrator console"; exit 1; }
-[[ $# -eq 1 && ( "$1" == wb || "$1" == ym ) ]] || { echo "Usage: $0 wb|ym"; exit 64; }
-shop="$1"
+[[ $# -eq 1 && ( "$1" == wb || "$1" == ym || "$1" == both ) ]] || { echo "Usage: $0 wb|ym|both"; exit 64; }
+shops=("$1")
+[[ "$1" != both ]] || shops=(ym wb)
 src="$(cd "$(dirname "$0")" && pwd)"
 root="$(dirname "$src")"
 for f in retail-firstparty-core.mjs retail-firstparty-service.mjs retail-yandex-public-html.mjs ozon-service-core.mjs test-retail-firstparty.mjs; do
@@ -29,20 +30,26 @@ FROM mcr.microsoft.com/playwright:v1.56.1-noble
 WORKDIR /app
 COPY deploy ./deploy
 COPY server ./server
-RUN npm install --prefix deploy --no-save --ignore-scripts playwright@1.56.1 cheerio@1.0.0 && node deploy/test-retail-firstparty.mjs
+RUN chmod -R a+rX /app/deploy /app/server && npm install --prefix deploy --no-save --ignore-scripts playwright@1.56.1 cheerio@1.0.0 && node deploy/test-retail-firstparty.mjs
 USER pwuser
 ENTRYPOINT ["node","deploy/retail-firstparty-service.mjs"]
 DOCKER
 docker build --pull=false -t "$image" "$stage"
+failed=0
+for shop in "${shops[@]}"; do
+printf '\n=== %s ===\n' "$shop"
 docker run -d --name "$name" --init --shm-size=256m --memory=1g --cpus=1 --pids-limit=180 --cap-drop=ALL --security-opt=no-new-privileges -e "RETAIL_SHOP=$shop" "$image" >/dev/null
 healthy=false
 for _ in $(seq 1 30); do
   if docker exec "$name" node -e 'fetch("http://127.0.0.1:8765/health").then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))' >/dev/null 2>&1; then healthy=true;break;fi
   sleep 1
 done
-if [[ "$healthy" != true ]]; then docker logs "$name";exit 1;fi
+if [[ "$healthy" != true ]]; then docker logs "$name"; docker rm -f "$name" >/dev/null; failed=1; continue; fi
 # Single bounded read-only search in the marketplace. No payment or purchase.
-docker exec "$name" node -e '
+if ! docker exec "$name" node -e '
 fetch("http://127.0.0.1:8765/search",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({query:"Яндекс Станция Мини 3 Про",max_days:3}),signal:AbortSignal.timeout(50000)}).then(async r=>{const j=await r.json();console.log(JSON.stringify(j,null,2));if(!r.ok||!j.offers?.length||j.audit?.blocked)process.exit(2);}).catch(()=>process.exit(1));
-'
+'; then failed=1; fi
+docker rm -f "$name" >/dev/null
+done
 echo "Diagnostic only; coverage and regional delivery have not been independently proven."
+exit "$failed"
