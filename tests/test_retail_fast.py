@@ -401,3 +401,52 @@ def test_deep_delivery_priority_survives_identity_stage(monkeypatch):
         assert found[timely["url"]]["delivery_days"]==5
         assert found[ambiguous["url"]]["delivery_days"] is None
         assert not any(x["verified_detail"] for x in job["offers"])
+
+
+def test_configured_auto_runs_two_independent_engines(monkeypatch):
+    from server import mobile_cloud
+    monkeypatch.setenv("MARKETRADAR_WB_SPECIALIST_URL","http://test")
+    url="https://www.wildberries.ru/catalog/100001/detail.aspx"
+    cheap="https://www.wildberries.ru/catalog/100002/detail.aspx"
+    other={"market_id":"ozon","url":"https://www.ozon.ru/product/123456/","price":10000}
+    async def check():
+        started_fast=asyncio.Event()
+        started_deep=asyncio.Event()
+        release_deep=asyncio.Event()
+        async def fast(job,state,shop,match,endpoint):
+            started_fast.set()
+            await started_deep.wait()
+            assert not job["offers"]
+            job["offers"].append({"market_id":shop,"url":url,"price":11000,"delivery_days":1,"verified_detail":False})
+            state.update(state="partial",checked=1,audit={"source":"specialist"})
+        async def deep(job,shop):
+            started_deep.set()
+            await started_fast.wait()
+            assert not job["offers"]
+            await release_deep.wait()
+            job["offers"] += [
+                {"market_id":shop,"url":url,"price":11500,"delivery_days":5,"verified_detail":True},
+                {"market_id":shop,"url":cheap,"price":11700,"delivery_days":2,"verified_detail":True},
+            ]
+            job["markets"][shop].update(state="partial",checked=2,audit={"source":"chromium"})
+        monkeypatch.setattr(r,"run_specialist",fast)
+        monkeypatch.setattr(mobile_cloud,"run_deep_market",deep)
+        job={"query":Q,"state":"running","offers":[other],"markets":{"wb":{}},"policy":{"search_mode":"auto","max_days":3},"errors":[]}
+        task=asyncio.create_task(mobile_cloud.run_market(job,"wb"))
+        try:
+            for _ in range(30):
+                if any(o.get("url")==url for o in job["offers"]):break
+                await asyncio.sleep(.05)
+            assert any(o.get("url")==url for o in job["offers"])
+            assert not task.done()
+            release_deep.set()
+            await asyncio.wait_for(task,2)
+            assert job["offers"]==[other,{"market_id":"wb","url":cheap,"price":11700,"delivery_days":2,"verified_detail":True}]
+            assert job["markets"]["wb"]["checked"]==3
+            assert job["markets"]["wb"]["audit"]["source"]=="parallel_retail"
+            assert not job["markets"]["wb"]["coverage_complete"]
+        finally:
+            if not task.done():
+                task.cancel()
+                await asyncio.gather(task,return_exceptions=True)
+    asyncio.run(check())
