@@ -30,12 +30,12 @@ export function providerDeliveryDays(raw,today=todayMoscow()){
 // Normalize only equivalent units and spellings; never invent manufacturer codes.
 function identityTokens(value){
  return String(value??"").normalize("NFKC").toLowerCase().replace(/ё/g,"е")
-  .replace(/(?<![\p{L}\p{N}])(\d{1,3})[ \u00a0\u202f](\d{3})(?=\s*(?:лм|lm|люмен|вт|w)\b)/gu,"$1$2")
+  .replace(/(?<![\p{L}\p{N}])(\d{1,3})[ \u00a0\u202f](\d{3})(?=\s*(?:лм|lm|люмен(?:а|ов|ы)?|вт|w)(?![\p{L}\p{N}]))/gu,"$1$2")
   .replace(/(\d+(?:[.,]\d+)?)\s*(?:tb|тб)(?![\p{L}\p{N}])/gu,(_,n)=>Number(n.replace(",","."))+"tb")
   .replace(/(\d+(?:[.,]\d+)?)\s*(?:gb|гб)(?![\p{L}\p{N}])/gu,(_,n)=>Number(n.replace(",","."))+"gb")
-  .replace(/(\d+(?:[.,]\d+)?)\s*(?:лм|lm|люмен(?:а|ов|ы)?)(?![\p{L}\p{N}])/gu,(_,n)=>Number(n.replace(",","."))+" лм")
-  .replace(/(\d+(?:[.,]\d+)?)\s*(?:квт|kw)(?![\p{L}\p{N}])/gu,(_,n)=>Number(n.replace(",","."))*1000+" вт")
-  .replace(/(\d+(?:[.,]\d+)?)\s*(?:вт|w|ватт(?:а|ов)?)(?![\p{L}\p{N}])/gu,(_,n)=>Number(n.replace(",","."))+" вт")
+  .replace(/(\d+(?:[.,]\d+)?)\s*(?:лм|lm|люмен(?:а|ов|ы)?)(?![\p{L}\p{N}])/gu,(_,n)=>Number(n.replace(",","."))+"лм")
+  .replace(/(\d+(?:[.,]\d+)?)\s*(?:квт|kw)(?![\p{L}\p{N}])/gu,(_,n)=>Number(n.replace(",","."))*1000+"вт")
+  .replace(/(\d+(?:[.,]\d+)?)\s*(?:вт|w|ватт(?:а|ов)?)(?![\p{L}\p{N}])/gu,(_,n)=>Number(n.replace(",","."))+"вт")
   .replace(/(?<!\p{L})ламп(?:очка|очки|очку|а|ы|у)(?!\p{L})/gu,"лампа")
   .replace(/\bmini\b/g,"мини").replace(/\bpro\b/g,"про").replace(/\bmax\b/g,"макс")
   .replace(/[^\p{L}\p{N}]+/gu," ").trim().split(/\s+/).filter(Boolean);
