@@ -19,16 +19,19 @@ jobs:
       - name: Run guest searches against the published service
         env:
           PYTHONIOENCODING: utf-8
+          FULL_ACCEPTANCE: ${{ github.event_name == 'workflow_dispatch' }}
         run: |
           python - <<'PY'
-          import json,time,urllib.request,urllib.error,http.cookiejar
+          import json,time,urllib.request,urllib.error,http.cookiejar,os
           from pathlib import Path
           base="https://45-147-178-109.sslip.io"
           client=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
           headers={"X-MarketRadar-Guest":"1","Content-Type":"application/json"}
           queries=["Яндекс лампочка 1300 Вт","Яндекс Станция Мини 3 Про","Samsung 990 PRO 1TB"]
           # Test the user-visible automatic mode first, then both engines.
-          cases=[("auto",queries[0])]+[(mode,query) for mode in ("fast","deep") for query in queries]
+          cases=[("auto",queries[0])]
+          if os.getenv("FULL_ACCEPTANCE")=="true":
+              cases += [(mode,query) for mode in ("fast","deep") for query in queries]
           shops=["wb","ym"]
           reports=[]
           def call(path,method="GET",body=None):
@@ -73,6 +76,9 @@ jobs:
                   report["effective_mode"]=status.get("policy",{}).get("search_mode")
                   report["search_query"]=status.get("search_query")
                   report["intent_source"]=status.get("intent_source")
+              except urllib.error.HTTPError as exc:
+                  report["error"]=str(exc)
+                  if exc.code==429:report["rate_limited"]=True
               except Exception as exc:report["error"]=str(exc)
               finally:
                   if job and status.get("state","running")=="running":
@@ -82,6 +88,8 @@ jobs:
               reports.append(report)
               print(json.dumps(report,ensure_ascii=False,indent=2),flush=True)
               Path("vps-real-search-evidence.json").write_text(json.dumps(reports,ensure_ascii=False,indent=2),encoding="utf8")
+              if report.get("rate_limited"):
+                  raise SystemExit("Service rate limit reached; remaining cases not executed. No retries or quota bypass.")
               if (mode,query)!=cases[-1]:time.sleep(max(0,65-(time.monotonic()-start)))
           # A missing offer means cross-shop comparison has not passed this
           # acceptance sample. Finding offers still does not prove a minimum.
