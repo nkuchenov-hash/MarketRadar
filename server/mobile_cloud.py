@@ -139,6 +139,23 @@ def exact_product(query: str, title: str) -> bool:
         return False
     return True
 
+def retail_exact_product(query: str, title: str) -> bool:
+    """Retail titles need positive evidence for the entire requested identity.
+
+    A shared product type and numeric specification are not enough: e.g.
+    unrelated manufacturers can sell goods with the same wattage or capacity.
+    A truncated title can still be inspected by plausible_listing, but cannot
+    become an offer until the missing identity is corroborated.
+    """
+    if not exact_product(query,title):
+        return False
+    def tokens(value):
+        return set(normalize(match_text(value)).replace("mini","мини").replace("pro","про").split())
+    # Ignore grammatical connector words, not brand/model/category tokens.
+    connectors={"с","со","в","на","и","из","для","with","and","for","of","the"}
+    required=tokens(query)-connectors
+    return required.issubset(tokens(title))
+
 def plausible_listing(query: str, title: str) -> bool:
     """A truncated title is a reason to inspect the product, not lose it."""
     if not title.strip():
@@ -251,11 +268,11 @@ async def run_market(job: dict, shop_id: str):
             await run_parallel_retail(job,shop_id,endpoint)
             return
         if endpoint:
-            await run_specialist(job,state,shop_id,exact_product,endpoint)
+            await run_specialist(job,state,shop_id,retail_exact_product,endpoint)
         elif mode=="fast":
             state.update(state="blocked",phase="done",coverage_complete=False,message="Отдельный сервис пока не подключён",audit={"source":"specialist_unconfigured"})
         else:
-            await run_fast(job, state, shop_id, exact_product)
+            await run_fast(job, state, shop_id, retail_exact_product)
         if mode=="fast":return
         if job["state"]=="running" and not has_timely_verified_offer(job,shop_id):
             await run_browser_fallback(job,shop_id)
@@ -311,7 +328,7 @@ async def run_parallel_retail(job,shop_id,endpoint):
         branch=engines[name]; st=branch["markets"][shop_id]
         try:
             if name=="fast":
-                await asyncio.wait_for(run_specialist(branch,st,shop_id,exact_product,endpoint),timeout=90)
+                await asyncio.wait_for(run_specialist(branch,st,shop_id,retail_exact_product,endpoint),timeout=90)
             else:
                 await asyncio.wait_for(run_deep_market(branch,shop_id),timeout=360)
         except asyncio.CancelledError:raise
@@ -379,6 +396,7 @@ def merge_market_offers(job,shop_id):
 
 async def run_deep_market(job:dict,shop_id:str):
     market=SHOP_IDS[shop_id]
+    identity_match=retail_exact_product if shop_id in ("wb","ym") else exact_product
     state=job["markets"][shop_id]
     state["state"]="searching"
     state["phase"]="deep"
@@ -412,7 +430,7 @@ async def run_deep_market(job:dict,shop_id:str):
         # original query as the identity gate. Never try on an access denial.
         from .retail_fast import model_query_variants,listing_audit
         if shop_id=="wb" and listing_state=="ok":
-            variants=model_query_variants(job["query"],all_cards,exact_product)
+            variants=model_query_variants(job["query"],all_cards,identity_match)
             if variants:
                 state["audit"]["model_query_variants"]=variants
                 try:
@@ -431,7 +449,7 @@ async def run_deep_market(job:dict,shop_id:str):
                     state["audit"]["model_search_cards"]=len(extra.get("links",[]))
                 except Exception as e:
                     state["audit"]["model_search_error"]=type(e).__name__
-        state["audit"]["cheapest_matching_listings"]=listing_audit(all_cards,job["query"],exact_product,job.get("policy",{}).get("max_days",3))
+        state["audit"]["cheapest_matching_listings"]=listing_audit(all_cards,job["query"],identity_match,job.get("policy",{}).get("max_days",3))
         # Preserve the entire ledger, even cards whose search snippets are
         # truncated or whose price is missing. Only likely accessories can be
         # skipped without requesting another product page.
@@ -491,7 +509,7 @@ async def run_deep_market(job:dict,shop_id:str):
             price=int(card.get("price") or 0)
             if price<=0 or card.get("source") not in ("dom","network","public_ssr"):
                 return
-            if not exact_product(job["query"],card.get("title","")):
+            if not identity_match(job["query"],card.get("title","")):
                 return
             image=str(card.get("image_url",""))
             offer={"market_id":shop_id,"title":str(card.get("title",""))[:240],
@@ -628,7 +646,7 @@ async def run_deep_market(job:dict,shop_id:str):
                     isinstance(page,dict) and page.get("state")=="ok")
                 detail_title = ((page.get("heading") or page.get("title") or "")
                                 if detail_accessible else "")
-                detail_match = detail_accessible and exact_product(
+                detail_match = detail_accessible and identity_match(
                     job["query"],detail_title)
                 # A shell page with the generic store title is not a
                 # verified product identity, even when HTTP status is 200.
@@ -646,7 +664,7 @@ async def run_deep_market(job:dict,shop_id:str):
                     else:
                         unavailable_detail_streak = 0
                 listing_price = int(candidate.get("price") or 0)
-                listing_match = exact_product(
+                listing_match = identity_match(
                     job["query"],candidate.get("title",""))
                 # A listing-specific price from the store's own SSR, DOM or JSON
                 # is useful even if opening the item returns HTTP 403/498.
