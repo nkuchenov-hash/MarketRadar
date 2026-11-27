@@ -51,6 +51,8 @@ export async function searchFirstParty({shop,query,maxDays=3,deadlineMs=20000,de
   const result=await transport.listing(searchURL(shop,query),Math.max(1,end-clock()),merge);
   audit.listing_transport=result?.transport||"unknown";
   audit.listing_http_status=result?.http_status??null;
+  audit.listing_reason=result?.reason||"";
+  audit.transport_attempts=result?.attempts||[{transport:audit.listing_transport,state:result?.state||"unknown",http_status:audit.listing_http_status,reason:audit.listing_reason}];
   blocked=result?.state==="blocked";
   merge(result?.products);
   if(blocked)issues.push("storefront access challenge or denial");
@@ -62,7 +64,7 @@ export async function searchFirstParty({shop,query,maxDays=3,deadlineMs=20000,de
    checked++;
    try{
     const d=await transport.detail(o.url,Math.max(1,end-clock()));
-    if(d?.state==="blocked"){issues.push("product access denied");break;}
+    if(d?.state==="blocked"){issues.push("product access denied");audit.detail_denial={transport:d.transport||"unknown",http_status:d.http_status??null,reason:d.reason||""};break;}
     if(d?.state!=="ok"||productKey(shop,d.url)!==key)continue;
     if(d.heading&&!matches(query,d.heading)){rows.delete(key);continue;}
     const days=parseDays(d.detail_delivery,today);
@@ -84,6 +86,6 @@ export async function searchFirstParty({shop,query,maxDays=3,deadlineMs=20000,de
     updateFirst();
    }catch{issues.push("detail unavailable");}
   }
- }catch{issues.push("listing unavailable");}
+ }catch(e){issues.push("listing unavailable");audit.listing_error_type=e?.name||"Error";}
  return {offers:eligible(),audit:{...audit,blocked,scanned:rows.size,checked,detail_observed:detailObserved,first_offer_seconds:firstOfferSeconds,seconds:(clock()-start)/1000,region_confirmed:false}};
 }
