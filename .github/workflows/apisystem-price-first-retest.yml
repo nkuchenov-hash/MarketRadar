@@ -1,0 +1,51 @@
+name: ApiSystem bounded price-first retest
+on:
+  push:
+    branches: ['diagnostics/apisystem-price-first-20261127']
+    paths: ['.github/workflows/apisystem-price-first-retest.yml']
+permissions:
+  contents: read
+jobs:
+  sample:
+    if: github.run_attempt == 1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: node deploy/test-retail-specialist.mjs
+      - name: Compare original query with raw catalog and strict model filter
+        env:
+          APISYSTEM_TEST_KEY: ${{ secrets.APISYSTEM_TEST_KEY }}
+        run: |
+          node --input-type=module <<'JS'
+          import {findRetailOffers,retailMatches} from "./deploy/retail-specialist-core.mjs";
+          const key=process.env.APISYSTEM_TEST_KEY;
+          if(!key)throw Error("Missing test credential");
+          let calls=0;
+          for(const query of ["Яндекс лампочка 1300 лм","Samsung SSD 990 Pro 2TB"]){
+            for(const shop of ["wb","ym"]){
+              const samples=[];
+              const fetcher=async(u,opts)=>{
+                if(calls>=12)throw Error("Test request budget reached");
+                if(!["wb.apisystem.name","market.apisystem.name"].includes(u.hostname))throw Error("Unexpected host");
+                if(calls)await new Promise(r=>setTimeout(r,1500));
+                calls++;
+                const target=new URL(u);
+                target.protocol="http:";
+                const res=await fetch(target,{...opts,redirect:"error"});
+                if(!res.ok)return res;
+                const d=await res.json();
+                const rows=Array.isArray(d?.offers)?d.offers:[];
+                samples.push({page:Number(u.searchParams.get("page")),sort:u.searchParams.get("sort"),rows:rows.slice(0,10).map(x=>({title:String(x?.offer_name??"").slice(0,160),price:typeof x?.price==="number"?x.price:null,brand:typeof x?.brand==="string"?x.brand.slice(0,80):"",match:retailMatches(query,x?.offer_name,typeof x?.brand==="string"?x.brand:""),delivery:typeof x?.delivery_time==="string"?x.delivery_time.slice(0,80):null}))});
+                return {ok:true,json:async()=>d};
+              };
+              const r=await findRetailOffers({shop,query,key,geoId:2,gps:"59.9343,30.3351",maxPages:3},fetcher,async()=>{});
+              const offers=r.offers.slice(0,5).map(x=>({title:x.title,price:x.price,days:x.delivery_days,condition:x.condition}));
+              console.log(JSON.stringify({query,shop,offers,audit:r.audit,samples,calls}).split(key).join("[redacted]"));
+              if(r.audit.issues?.length){console.log("Stopped after provider error");process.exit(2);}
+            }
+          }
+          console.log("Requests:",calls);
+          JS
