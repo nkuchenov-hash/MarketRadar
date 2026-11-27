@@ -264,18 +264,18 @@ async def run_market(job: dict, shop_id: str):
     if shop_id in ("wb", "ym") and (mode=="fast" or (mode=="auto" and (os.getenv("MARKETRADAR_RETAIL_FAST", "").lower() in ("1", "true", "yes") or os.getenv("MARKETRADAR_"+shop_id.upper()+"_SPECIALIST_URL","").strip()))):
         from .retail_fast import run_fast, run_specialist
         endpoint=os.getenv("MARKETRADAR_"+shop_id.upper()+"_SPECIALIST_URL","").strip()
-        if endpoint and mode=="auto":
-            await run_parallel_retail(job,shop_id,endpoint)
+        if mode=="auto":
+            if endpoint or shop_id=="ym":
+                await run_parallel_retail(job,shop_id,endpoint or None)
+            else:
+                # A browser cannot serve as two independent data sources.
+                # Without a configured WB worker use one full browser crawl.
+                await run_single_retail_browser(job,shop_id)
             return
         if endpoint:
             await run_specialist(job,state,shop_id,retail_exact_product,endpoint)
-        elif mode=="fast":
-            state.update(state="blocked",phase="done",coverage_complete=False,message="Отдельный сервис пока не подключён",audit={"source":"specialist_unconfigured"})
         else:
-            await run_fast(job, state, shop_id, retail_exact_product)
-        if mode=="fast":return
-        if job["state"]=="running" and not has_timely_verified_offer(job,shop_id):
-            await run_browser_fallback(job,shop_id)
+            state.update(state="blocked",phase="done",coverage_complete=False,message="Отдельный сервис пока не подключён",audit={"source":"specialist_unconfigured"})
         return
     try:
         await asyncio.wait_for(run_deep_market(job,shop_id),timeout=360)
@@ -284,12 +284,23 @@ async def run_market(job: dict, shop_id: str):
     finally:
         merge_market_offers(job,shop_id)
 
+async def run_single_retail_browser(job,shop_id):
+    state=job["markets"][shop_id]
+    try:
+        await asyncio.wait_for(run_deep_market(job,shop_id),timeout=360)
+    except asyncio.TimeoutError:
+        state.update(state="partial",message="Расширенный поиск достиг лимита времени",coverage_complete=False)
+    finally:
+        merge_market_offers(job,shop_id)
+        state.setdefault("audit",{})["browser_passes"]=1
+        state["phase"]="done"
+
 async def run_parallel_retail(job,shop_id,endpoint):
     """Run the independent catalog worker and the normal browser concurrently.
     Each worker owns a private ledger: neither can erase the other's results.
     Publish intermediate results while the slower engine is still running.
     """
-    from .retail_fast import run_specialist, days
+    from .retail_fast import run_specialist, run_public_catalog, days
     state=job["markets"][shop_id]
     initial=dict(state)
     engines={name:{**job,"markets":{shop_id:{**initial,"checked":0,"audit":{}}},"offers":[],"errors":[]} for name in ("fast","deep")}
@@ -321,14 +332,17 @@ async def run_parallel_retail(job,shop_id,endpoint):
                      best_found=min((o["price"] for o in eligible),default=0),
                      best_verified=min((o["price"] for o in eligible if o.get("verified_detail")),default=0),
                      coverage_complete=False,
-                     audit={"source":"parallel_retail","fast":snapshots["fast"].get("audit",{}),"deep":snapshots["deep"].get("audit",{}),
+                     audit={"source":"parallel_retail","browser_passes":1,"fast":snapshots["fast"].get("audit",{}),"deep":snapshots["deep"].get("audit",{}),
                             "engine_states":{k:x.get("state") for k,x in snapshots.items()},"coverageComplete":False},
                      message=f"Найдено предложений: {len(eligible)}" if finished else "Быстрый и расширенный поиск")
     async def execute(name):
         branch=engines[name]; st=branch["markets"][shop_id]
         try:
             if name=="fast":
-                await asyncio.wait_for(run_specialist(branch,st,shop_id,retail_exact_product,endpoint),timeout=90)
+                if endpoint:
+                    await asyncio.wait_for(run_specialist(branch,st,shop_id,retail_exact_product,endpoint),timeout=90)
+                else:
+                    await run_public_catalog(branch,st,shop_id,retail_exact_product)
             else:
                 await asyncio.wait_for(run_deep_market(branch,shop_id),timeout=360)
         except asyncio.CancelledError:raise
