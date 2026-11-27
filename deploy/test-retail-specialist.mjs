@@ -42,12 +42,33 @@ for(const shop of ["wb","ym"]){
   return {ok:true,json:async()=>({page,region_id:2,total_pages:4,offers})};
  },async()=>{});
  assert.equal(calls.length,4);
- assert.equal(calls[0][0],shop==="wb"?"popular":"dpop");
+ assert.deepEqual(calls,[[shop==="wb"?"priceup":"aprice",1],[shop==="wb"?"priceup":"aprice",2],[shop==="wb"?"popular":"dpop",1],[shop==="wb"?"priceup":"aprice",3]]);
+ assert.equal(res.audit.popular_fallback_used,true);
+ assert.equal(res.audit.late_delivery,1);
+ assert.equal(res.audit.unknown_delivery,0);
  assert.equal(res.audit.price_pages,3);
  assert.equal(res.audit.coverageComplete,false);
  assert.equal(res.audit.stop_reason,"request_budget");
- assert.equal(res.audit.ledger[1].matches,0);
+ assert.equal(res.audit.ledger[0].matches,0);
  assert.equal(res.audit.best_timely,18000);
  assert.equal(res.offers.some(x=>x.price===1500),false);
 }
 console.log("Generic query and multi-page discovery tests passed");
+
+const orderedCalls=[];
+const ordered=await findRetailOffers({shop:"wb",query:q,key:"fixture",gps:"59.93,30.31",maxPages:5},async u=>{
+ orderedCalls.push(u.searchParams.get("sort"));
+ return {ok:true,json:async()=>({page:Number(u.searchParams.get("page")),total_pages:2,offers:[wb]})};
+},async()=>{});
+assert.deepEqual(orderedCalls,["priceup","priceup"]);
+assert.equal(ordered.audit.popular_fallback_used,false);
+assert.equal(ordered.audit.price_exhausted,true);
+const deniedCalls=[];
+const denied=await findRetailOffers({shop:"wb",query:q,key:"fixture",gps:"59.93,30.31",maxPages:5},async u=>{
+ deniedCalls.push(u.searchParams.get("sort"));
+ return {ok:false,status:403};
+},async()=>{});
+assert.deepEqual(deniedCalls,["priceup"]);
+assert.equal(denied.audit.stop_reason,"provider_error");
+assert.equal(denied.audit.popular_fallback_used,false);
+console.log("Price-first, fallback, and refusal tests passed");
