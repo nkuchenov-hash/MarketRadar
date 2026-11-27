@@ -1,0 +1,38 @@
+#!/usr/bin/env python3
+"""Standalone public WB endpoint diagnostic; no installation, credentials or retries."""
+import urllib.request,urllib.error,urllib.parse,json,time
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self,*args,**kwargs):return None
+client=urllib.request.build_opener(NoRedirect())
+def request(host,path,params,label):
+    start=time.monotonic()
+    u='https://'+host+path+'?'+urllib.parse.urlencode(params)
+    report={'stage':label,'host':host,'region':'Moscow (upstream default)'}
+    try:
+        req=urllib.request.Request(u,headers={'Accept':'application/json','User-Agent':'MarketRadar-research/1.0'})
+        with client.open(req,timeout=12) as res:
+            report.update(http=res.status,content_type=res.headers.get('Content-Type'))
+            raw=res.read(8000001)
+        if len(raw)>8000000:raise ValueError('Response too large')
+        d=json.loads(raw)
+        rows=d.get('products',d.get('data',{}).get('products',[]))
+        report['rows']=len(rows)
+        report['fields']=sorted(set(k for x in rows[:10] if isinstance(x,dict) for k in x))
+        report['samples']=[{'id':x.get('id'),'name':x.get('name'),'price_fields':list((x.get('sizes') or [{}])[0].get('price',{}).keys())} for x in rows[:3]]
+        return rows
+    except urllib.error.HTTPError as e:
+        report.update(http=e.code,error='access denied or request rejected; no retry')
+    except Exception as e:
+        report['error']=type(e).__name__
+    finally:
+        report['seconds']=round(time.monotonic()-start,3)
+        print(json.dumps(report,ensure_ascii=False),flush=True)
+    return []
+base={'dest':'-1257786','curr':'rub','lang':'ru'}
+rows=request('search.wb.ru','/exactmatch/ru/common/v5/search',{**base,'query':'Яндекс Станция Мини 3 Про','resultset':'catalog','limit':12},'search')
+if not rows:raise SystemExit('Search unavailable; no further requests')
+nm=next((x.get('id') for x in rows if isinstance(x.get('id'),int)),None)
+if nm is None:raise SystemExit('Missing discovered product ID')
+time.sleep(2)
+if not request('card.wb.ru','/cards/v4/detail',{**base,'appType':1,'nm':nm},'detail'):
+    raise SystemExit('Details unavailable')
