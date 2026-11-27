@@ -52,6 +52,7 @@ export async function searchFirstParty({shop,query,maxDays=3,deadlineMs=20000,de
   audit.listing_transport=result?.transport||"unknown";
   audit.listing_http_status=result?.http_status??null;
   audit.listing_reason=result?.reason||"";
+  if(result?.navigation)audit.navigation=result.navigation;
   audit.transport_attempts=result?.attempts||[{transport:audit.listing_transport,state:result?.state||"unknown",http_status:audit.listing_http_status,reason:audit.listing_reason}];
   blocked=result?.state==="blocked";
   merge(result?.products);
