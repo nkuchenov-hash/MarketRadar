@@ -45,3 +45,19 @@ assert.equal(deniedHTML.http_status,403);
 const range=extractYandexHTML(html.replace("завтра</span>","с 28 ноября</span>"),origin);
 assert.equal(range.products[0].delivery_hint,"");
 console.log("Direct Yandex HTML: tile scoping, installment exclusion, delivery ranges and explicit denial checks passed.");
+
+const refusal=await searchFirstParty({shop:"wb",query},{
+ listing:async()=>({state:"blocked",transport:"warm_chromium_node",http_status:498,reason:"http_denial",products:[]}),
+ detail:async()=>{throw Error("must not attempt denied product page");}
+});
+assert.equal(refusal.audit.listing_transport,"warm_chromium_node");
+assert.equal(refusal.audit.listing_http_status,498);
+assert.equal(refusal.audit.listing_reason,"http_denial");
+assert.equal(refusal.audit.transport_attempts.length,1);
+assert.deepEqual(refusal.offers,[]);
+const directAttempts=[{transport:"public_ssr_node",state:"error",error_type:"TypeError"},{transport:"warm_chromium_node",state:"blocked",http_status:200,reason:"challenge_body"}];
+const challenge=await searchFirstParty({shop:"ym",query},{listing:async()=>({state:"blocked",transport:"warm_chromium_node",http_status:200,reason:"challenge_body",attempts:directAttempts,products:[]}),detail:async()=>{throw Error("must not attempt denied product page");}});
+assert.deepEqual(challenge.audit.transport_attempts,directAttempts);
+assert.equal(challenge.audit.listing_http_status,200);
+assert.equal(challenge.audit.blocked,true);
+console.log("Explicit HTTP denial, challenge shell and separate transport evidence passed.");
