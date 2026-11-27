@@ -12,7 +12,22 @@ function storeLink(shop,value){
   return u.protocol==="https:"&&!u.username&&!u.password&&(shop==="wb"?/^(www\.)?wildberries\.ru$/.test(u.hostname)&&/^\/catalog\/\d+\/detail\.aspx$/.test(u.pathname):u.hostname==="market.yandex.ru"&&/^\/(card\/|product--)/.test(u.pathname))?u.href:null;
  }catch{return null;}
 }
+const months=["января","февраля","марта","апреля","мая","июня","июля","августа","сентября","октября","ноября","декабря"];
+const shortMonths=["янв","фев","мар","апр","май","июн","июл","авг","сен","окт","ноя","дек"];
+export function providerDeliveryDays(raw,today=todayMoscow()){
+ if(Number.isInteger(raw)&&raw>=0)return raw;
+ if(typeof raw!=="string")return null;
+ const label=raw.split(",")[0].trim().toLowerCase().replace(/\.$/,"");
+ if(["сегодня","завтра","послезавтра"].includes(label))return deliveryDays(label,today);
+ const m=label.match(/^(\d{1,2})\s+([а-яё]+)$/u);
+ if(!m)return null;
+ const aliases={мая:4,сент:8,нояб:10,февр:1};
+ let i=months.indexOf(m[2]);if(i<0)i=shortMonths.indexOf(m[2]);if(i<0&&Object.hasOwn(aliases,m[2]))i=aliases[m[2]];
+ if(i<0)return null;
+ return deliveryDays(m[1]+" "+months[i],today);
+}
 export function normalizeOffer(shop,row,query,today=todayMoscow()){
+ if(!row||typeof row!=="object")return null;
  const title=String(row.offer_name??"");
  const url=storeLink(shop,row.url);
  if(!url||!matches(query,title)||row.resale===true||row.on_stock===0||!positive(row.price))return null;
@@ -20,13 +35,7 @@ export function normalizeOffer(shop,row,query,today=todayMoscow()){
  const conditional=positive(pay)&&pay<row.price;
  const price=conditional?pay:row.price;
  const raw=row.delivery_time;
- let days=null;
- if(shop==="ym"&&Number.isInteger(raw)&&raw>=0)days=raw;
- else if(typeof raw==="string"){
-   // Accept a single explicit date, optionally followed by a pickup annotation.
-   const label=raw.split(",")[0].trim();
-   days=deliveryDays(label,today);
- }
+ const days=providerDeliveryDays(raw,today);
  const fee=feeValue(row.delivery_cost);
  return {title,url,price,price_regular:row.price,condition:conditional?(shop==="wb"?"Цена с WB Кошельком":"Цена с Яндекс Пэй"):"",
  delivery:String(raw??"").slice(0,100),delivery_days:days,delivery_fee:fee,total_price:fee===null?null:price+fee,
@@ -47,7 +56,7 @@ export async function findRetailOffers({shop,query,key,geoId,gps,maxPages=5,maxD
    const res=await fetcher(url,{redirect:"error",signal:AbortSignal.timeout(12000),headers:{Accept:"application/json"}});
    if(!res.ok){issues.push("HTTP "+res.status);break;}
    const data=await res.json();
-   if(data.status==="ERROR"||!Array.isArray(data.offers)){issues.push("Provider rejected request or invalid schema");break;}
+   if(!data||typeof data!=="object"||data.status==="ERROR"||!Array.isArray(data.offers)){issues.push("Provider rejected request or invalid schema");break;}
    if(shop==="ym"&&Number(data.region_id)!==geoId){issues.push("Region mismatch");break;}
    if(shop==="ym")regionConfirmed=true;
    pages++;scanned+=data.offers.length;
@@ -55,7 +64,7 @@ export async function findRetailOffers({shop,query,key,geoId,gps,maxPages=5,maxD
     const o=normalizeOffer(shop,x,query);
     if(!o)continue;
     // Do not merge separate regional or seller price observations.
-    const id=String(x.offer_id??x.model_id??o.url)+":"+String(x.shop_id??x.business_id??"");
+    const id=JSON.stringify([x.offer_id??x.model_id??o.url,x.shop_id??x.business_id??"",o.url]);
     const old=found.get(id);
     if(!old||o.price<old.price)found.set(id,o);
    }
