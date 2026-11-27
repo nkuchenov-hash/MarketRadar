@@ -32,24 +32,80 @@ async function snap(page){
  const challenge=/вы не робот|подтвердите, что вы человек|access denied|captcha|проверяем ваш браузер/i.test((result.title||"")+" "+(result.body||"").slice(0,2500));
  return {...result,state:challenge?"blocked":"ok",url:page.url()};
 }
+// Normal storefront UI is a distinct, primary access route. Do not retry
+// a rejected direct URL with this route, and never interact with a challenge.
+async function openShopSearch(page,target,end){
+ const u=new URL(target),query=u.searchParams.get(shop==="wb"?"search":"text");
+ const home=shop==="wb"?"https://www.wildberries.ru/":"https://market.yandex.ru/";
+ const entry=await open(page,home,end);
+ const nav={entry:"homepage",home_http_status:entry.http_status,sort_confirmed:false};
+ if(entry.state==="blocked")return {...entry,navigation:nav};
+ const first=await snap(page);
+ if(first.state==="blocked")return {...entry,state:"blocked",reason:"challenge_body",navigation:nav};
+ const selectors=shop==="wb"?
+  '#searchInput,input[name="search"],input[type="search"],input[placeholder*="Найти"],input[placeholder*="Поиск"],input[aria-label*="Поиск"]':
+  'input#header-search,input[name="text"],input[type="search"],input[placeholder*="Найти"],input[placeholder*="Поиск"],input[placeholder*="Искать"]';
+ const input=page.locator(selectors.split(",").map(x=>x+":visible").join(",")).first();
+ try{await input.waitFor({state:"visible",timeout:timeout(end,4000)});}catch{return {...entry,state:"partial",reason:"search_control_missing",navigation:nav};}
+ // Observe the actual main-document navigation after submitting the search.
+ // A 200 homepage is not evidence that the result page is accessible.
+ let status=null,denial=null;
+ const observe=r=>{
+  if(!r.request().isNavigationRequest()||r.frame()!==page.mainFrame())return;
+  status=r.status();if([401,403,429,498,503].includes(status))denial=status;
+ };
+ page.on("response",observe);
+ try{
+  await input.fill(query||"",{timeout:timeout(end,2000)});
+  await input.press("Enter",{timeout:timeout(end,2000)});
+  await page.waitForTimeout(timeout(end,1000));
+  const result=await snap(page);
+  if(denial||!sameShop(page.url())||result.state==="blocked")return {state:"blocked",reason:denial?"http_denial":"challenge_or_redirect",http_status:denial??status,transport:entry.transport,navigation:nav};
+  nav.search_submitted=new URL(page.url()).pathname.includes("search");
+  if(!nav.search_submitted&&!result.products?.length)return {...entry,state:"partial",reason:"search_results_missing",http_status:status,navigation:nav};
+  // Click only an existing, visible cheap-first control. Otherwise preserve
+  // the accessible listing, with sorting explicitly unconfirmed.
+  const cheap=/^\s*(?:Подешевле|Сначала деш[её]вые|По возрастанию цен[ы]?)\s*$/i;
+  const sortMenu=/популярност|сортиров|по цене|по умолчанию/i;
+  const sorted=()=>{const p=new URL(page.url()).searchParams;return shop==="wb"?p.get("sort")==="priceup":p.get("how")==="aprice";};
+  if(sorted())nav.sort_confirmed=true;
+  else if(Date.now()<end-2500){
+   try{
+    let choice=page.getByText(cheap,{exact:true}).first();
+    if(choice&&!(await choice.isVisible())){
+     const menu=page.getByRole("button",{name:sortMenu}).first();
+     if(await menu.isVisible()){await menu.click({timeout:timeout(end,1200)});choice=page.getByText(cheap,{exact:true}).first();}
+    }
+    if(choice&&await choice.isVisible()){
+     await choice.click({timeout:timeout(end,1200)});
+     await page.waitForTimeout(timeout(end,600));
+     nav.sort_confirmed=sorted();
+    }
+   }catch{}
+  }
+  const last=await snap(page);
+  if(denial||!sameShop(page.url())||last.state==="blocked")return {state:"blocked",reason:denial?"http_denial":"challenge_or_redirect",http_status:denial??status,transport:entry.transport,navigation:nav};
+  return {...entry,state:"ok",http_status:status,navigation:nav};
+ }finally{page.off("response",observe);}
+}
 async function browserListing(url,ms,emit){
  const page=await context.newPage(),end=Date.now()+ms;
  try{
-  const entry=await open(page,url,end);
-  if(entry.state==="blocked")return {...entry,products:[]};
+  const entry=await openShopSearch(page,url,end);
+  if(entry.state!=="ok")return {...entry,products:[]};
   let last;
   for(let i=0;i<5&&Date.now()<end-250;i++){
    last=await snap(page);
-   if(last.state==="blocked")return {state:"blocked",reason:"challenge_body",http_status:entry.http_status,transport:entry.transport,products:[]};
+   if(last.state==="blocked")return {state:"blocked",reason:"challenge_body",http_status:entry.http_status,transport:entry.transport,navigation:entry.navigation,products:[]};
    emit(last.products);
    if(i>=2&&last.products?.length&&last.scroll_y+last.viewport>=last.scroll_height-100)break;
    if(i<4){await page.mouse.wheel(0,900);await page.waitForTimeout(timeout(end,450));}
   }
-  return {...(last||{state:"partial",products:[]}),transport:"warm_chromium_node",http_status:entry.http_status};
+  return {...(last||{state:"partial",products:[]}),transport:"warm_chromium_node",http_status:entry.http_status,navigation:entry.navigation};
  }finally{await page.close();}
 }
 async function listing(url,ms,emit){
- if(shop==="ym"&&process.env.RETAIL_DIRECT_HTML!=="false"){
+ if(shop==="ym"&&process.env.RETAIL_DIRECT_HTML==="true"){
   const start=Date.now();let directAudit={};
   try{
    const direct=await fetchYandexPublicHTML(url,ms);
