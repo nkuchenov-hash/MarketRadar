@@ -1,6 +1,6 @@
 // Optional licensed catalog source; never represents search API data as product-page confirmation.
 // Contract: https://www.apisystem.name/docs (WB and YM text search).
-import {matches,deliveryDays} from "./ozon-service-core.mjs";
+import {deliveryDays} from "./ozon-service-core.mjs";
 const hosts={wb:"wb.apisystem.name",ym:"market.apisystem.name"};
 const wait=ms=>new Promise(r=>setTimeout(r,ms));
 const positive=x=>typeof x==="number"&&Number.isFinite(x)&&x>0;
@@ -26,12 +26,36 @@ export function providerDeliveryDays(raw,today=todayMoscow()){
  if(i<0)return null;
  return deliveryDays(m[1]+" "+months[i],today);
 }
+// Retail identity is independent of the deployed Ozon implementation.
+// Normalize only equivalent units and spellings; never invent manufacturer codes.
+function identityTokens(value){
+ return String(value??"").normalize("NFKC").toLowerCase().replace(/ё/g,"е")
+  .replace(/(?<![\p{L}\p{N}])(\d{1,3})[ \u00a0\u202f](\d{3})(?=\s*(?:лм|lm|люмен|вт|w)\b)/gu,"$1$2")
+  .replace(/(\d+(?:[.,]\d+)?)\s*(?:tb|тб)(?![\p{L}\p{N}])/gu,(_,n)=>Number(n.replace(",","."))+"tb")
+  .replace(/(\d+(?:[.,]\d+)?)\s*(?:gb|гб)(?![\p{L}\p{N}])/gu,(_,n)=>Number(n.replace(",","."))+"gb")
+  .replace(/(\d+(?:[.,]\d+)?)\s*(?:лм|lm|люмен(?:а|ов|ы)?)(?![\p{L}\p{N}])/gu,(_,n)=>Number(n.replace(",","."))+" лм")
+  .replace(/(\d+(?:[.,]\d+)?)\s*(?:квт|kw)(?![\p{L}\p{N}])/gu,(_,n)=>Number(n.replace(",","."))*1000+" вт")
+  .replace(/(\d+(?:[.,]\d+)?)\s*(?:вт|w|ватт(?:а|ов)?)(?![\p{L}\p{N}])/gu,(_,n)=>Number(n.replace(",","."))+" вт")
+  .replace(/(?<!\p{L})ламп(?:очка|очки|очку|а|ы|у)(?!\p{L})/gu,"лампа")
+  .replace(/\bmini\b/g,"мини").replace(/\bpro\b/g,"про").replace(/\bmax\b/g,"макс")
+  .replace(/[^\p{L}\p{N}]+/gu," ").trim().split(/\s+/).filter(Boolean);
+}
+export function retailMatches(query,title,brand=""){
+ const q=new Set(identityTokens(query)),t=new Set(identityTokens(title+" "+brand));
+ const connectors=new Set(["с","со","в","на","и","из","для","with","and","for","of","the"]);
+ const editions=["про","макс","лайт","lite","ультра","ultra","plus","плюс","mini","мини"];
+ const accessory=["чехол","держатель","кронштейн","подставка","крепление","кабель","адаптер","модуль","аккумулятор","пульт","запчасть","муляж","макет","реплика","аналог","уценка","refurbished"];
+ if(!q.size||!t.size)return false;
+ if([...q].some(w=>!connectors.has(w)&&!t.has(w)))return false;
+ if([...editions,...accessory].some(w=>t.has(w)&&!q.has(w)))return false;
+ return true;
+}
 export function normalizeOffer(shop,row,query,today=todayMoscow()){
  if(!row||typeof row!=="object")return null;
  const title=String(row.offer_name??"");
  const brand=typeof row.brand==="string"?row.brand.trim().slice(0,120):"";
  const url=storeLink(shop,row.url);
- if(!url||!matches(query,brand?title+" "+brand:title)||row.resale===true||row.on_stock===0||!positive(row.price))return null;
+ if(!url||!retailMatches(query,title,brand)||row.resale===true||row.on_stock===0||!positive(row.price))return null;
  const pay=shop==="wb"?row.price_wb_pay:row.price_yandex_pay;
  const conditional=positive(pay)&&pay<row.price;
  const price=conditional?pay:row.price;
