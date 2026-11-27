@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import {normalizeOffer,findRetailOffers} from "./retail-specialist-core.mjs";
+import {normalizeOffer,findRetailOffers,retailMatches} from "./retail-specialist-core.mjs";
 const q="Яндекс Станция Мини 3 Про",wb={offer_name:q,price:12000,price_wb_pay:11000,delivery_time:"Завтра",delivery_cost:0,on_stock:1,url:"https://www.wildberries.ru/catalog/123456/detail.aspx",model_id:123456};
 const a=normalizeOffer("wb",wb,q);
 assert.equal(a.price,11000);assert.equal(a.total_price,11000);assert.equal(a.delivery_days,1);assert.equal(a.verified_detail,false);
@@ -72,3 +72,13 @@ assert.deepEqual(deniedCalls,["priceup"]);
 assert.equal(denied.audit.stop_reason,"provider_error");
 assert.equal(denied.audit.popular_fallback_used,false);
 console.log("Price-first, fallback, and refusal tests passed");
+
+assert.equal(retailMatches("Яндекс лампочка 1300 лм","Умная лампа Яндекс E27 1 300 лм"),true);
+assert.equal(retailMatches("Яндекс лампочка 1300 лм","Лампа DEQST 1300lm"),false);
+assert.equal(retailMatches("Яндекс лампочка 1300 лм","Лампа Яндекс 1300 Вт 500 лм"),false);
+assert.equal(retailMatches("Samsung SSD 990 Pro 2TB","SSD Samsung 990 PRO 2 ТБ"),true);
+assert.equal(retailMatches("Samsung SSD 990 Pro 2TB","SSD Samsung 990 PRO 1 ТБ"),false);
+assert.equal(retailMatches("Samsung SSD 990 Pro 2TB","SSD Kingston 990 PRO 2 ТБ"),false);
+assert.equal(retailMatches("Philips Sonicare 3100","Электрическая щётка Sonicare 3100","Philips"),true);
+assert.equal(retailMatches("Philips Sonicare 3100","Насадки Philips Sonicare 3100"),false);
+console.log("Retail unit and brand tests passed");
