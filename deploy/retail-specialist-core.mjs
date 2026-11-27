@@ -44,7 +44,7 @@ export function retailMatches(query,title,brand=""){
  const q=new Set(identityTokens(query)),t=new Set(identityTokens(title+" "+brand));
  const connectors=new Set(["с","со","в","на","и","из","для","with","and","for","of","the"]);
  const editions=["про","макс","лайт","lite","ультра","ultra","plus","плюс","mini","мини"];
- const accessory=["чехол","держатель","кронштейн","подставка","крепление","кабель","адаптер","модуль","аккумулятор","пульт","запчасть","муляж","макет","реплика","аналог","уценка","refurbished"];
+ const accessory=["чехол","держатель","кронштейн","подставка","крепление","кабель","адаптер","модуль","аккумулятор","пульт","запчасть","насадка","насадки","муляж","макет","реплика","аналог","уценка","refurbished"];
  if(!q.size||!t.size)return false;
  if([...q].some(w=>!connectors.has(w)&&!t.has(w)))return false;
  if([...editions,...accessory].some(w=>t.has(w)&&!q.has(w)))return false;
