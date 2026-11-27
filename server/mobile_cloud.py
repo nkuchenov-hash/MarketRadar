@@ -247,6 +247,9 @@ async def run_market(job: dict, shop_id: str):
     if shop_id in ("wb", "ym") and (mode=="fast" or (mode=="auto" and (os.getenv("MARKETRADAR_RETAIL_FAST", "").lower() in ("1", "true", "yes") or os.getenv("MARKETRADAR_"+shop_id.upper()+"_SPECIALIST_URL","").strip()))):
         from .retail_fast import run_fast, run_specialist
         endpoint=os.getenv("MARKETRADAR_"+shop_id.upper()+"_SPECIALIST_URL","").strip()
+        if endpoint and mode=="auto":
+            await run_parallel_retail(job,shop_id,endpoint)
+            return
         if endpoint:
             await run_specialist(job,state,shop_id,exact_product,endpoint)
         elif mode=="fast":
@@ -263,6 +266,70 @@ async def run_market(job: dict, shop_id: str):
         state.update(state="partial",message="Расширенный поиск достиг лимита времени",coverage_complete=False)
     finally:
         merge_market_offers(job,shop_id)
+
+async def run_parallel_retail(job,shop_id,endpoint):
+    """Run the independent catalog worker and the normal browser concurrently.
+    Each worker owns a private ledger: neither can erase the other's results.
+    Publish intermediate results while the slower engine is still running.
+    """
+    from .retail_fast import run_specialist, days
+    state=job["markets"][shop_id]
+    initial=dict(state)
+    engines={name:{**job,"markets":{shop_id:{**initial,"checked":0,"audit":{}}},"offers":[],"errors":[]} for name in ("fast","deep")}
+    policy=job.get("policy",{})
+    max_days=policy.get("max_days",3)
+    discount=policy.get("discount_percent",20)
+    def sync(finished=False):
+        items=[]
+        for branch in engines.values():
+            for o in branch["offers"]:
+                if o.get("market_id")!=shop_id:continue
+                x=dict(o)
+                if type(x.get("delivery_days")) is not int:
+                    x["delivery_days"]=days(x.get("delivery"))
+                items.append(x)
+        # Reconcile the same URL before applying the delivery policy: a newer
+        # verified late delivery must not leave an earlier timely tile visible.
+        tmp={**job,"offers":items}
+        merge_market_offers(tmp,shop_id)
+        timely=[o for o in tmp["offers"] if type(o.get("delivery_days")) is int and 0<=o["delivery_days"]<=max_days]
+        best=min((o["price"] for o in timely),default=0)
+        late=[o for o in tmp["offers"] if policy.get("allow_late",False) and best and type(o.get("delivery_days")) is int and o["delivery_days"]>max_days and o["price"]*100<=best*(100-discount)]
+        eligible=timely+late
+        job["offers"][:]=[o for o in job["offers"] if o.get("market_id")!=shop_id]+eligible
+        snapshots={k:v["markets"][shop_id] for k,v in engines.items()}
+        state.update(phase="done" if finished else "parallel",state=("partial" if eligible else "blocked") if finished else "searching",
+                     candidates=sum(x.get("candidates",0) or 0 for x in snapshots.values()),
+                     checked=sum(x.get("checked",0) or 0 for x in snapshots.values()),
+                     best_found=min((o["price"] for o in eligible),default=0),
+                     best_verified=min((o["price"] for o in eligible if o.get("verified_detail")),default=0),
+                     coverage_complete=False,
+                     audit={"source":"parallel_retail","fast":snapshots["fast"].get("audit",{}),"deep":snapshots["deep"].get("audit",{}),
+                            "engine_states":{k:x.get("state") for k,x in snapshots.items()},"coverageComplete":False},
+                     message=f"Найдено предложений: {len(eligible)}" if finished else "Быстрый и расширенный поиск")
+    async def execute(name):
+        branch=engines[name]; st=branch["markets"][shop_id]
+        try:
+            if name=="fast":
+                await asyncio.wait_for(run_specialist(branch,st,shop_id,exact_product,endpoint),timeout=90)
+            else:
+                await asyncio.wait_for(run_deep_market(branch,shop_id),timeout=360)
+        except asyncio.CancelledError:raise
+        except Exception as exc:
+            st.update(state="error",phase="done",failure_type=type(exc).__name__)
+    tasks=[asyncio.create_task(execute(name)) for name in engines]
+    try:
+        pending=set(tasks)
+        while pending:
+            _,pending=await asyncio.wait(pending,timeout=.5,return_when=asyncio.FIRST_COMPLETED)
+            sync()
+        sync(finished=True)
+        for branch in engines.values():
+            job.setdefault("errors",[]).extend(branch["errors"])
+    finally:
+        for task in tasks:
+            if not task.done():task.cancel()
+        await asyncio.gather(*tasks,return_exceptions=True)
 
 def has_timely_verified_offer(job,shop_id):
     max_days=job.get("policy",{}).get("max_days",3)
